@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "fingerprint": "e8f3a7b2c9d1",
+      "app_name": "bl-pcb",
+      "namespace": "pcb-dev1",
+      "container": "bl-pcb-main",
+      "message": "NullPointerException at CardService.java:123 - card object is null",
+      "normalized_message": "NullPointerException at CardService",
+      "stack_trace": "java.lang.NullPointerException\n\tat com.kb.pcb.CardService.processCard(CardService.java:123)\n\tat com.kb.pcb.CardController.handleRequest(CardController.java:45)",
+      "level": "ERROR",
+      "level_value": 40,
+      "count": 45,
+      "context_data": {
+        "pod": "bl-pcb-7d8f9c-xkq2m",
+        "timestamp": "2025-11-06T10:30:00Z"
+      }
+    },
+    {
+      "fingerprint": "a1b2c3d4e5f6",
+      "app_name": "bl-pcb-billing",
+      "namespace": "pcb-dev1",
+      "container": "billing-service",
+      "message": "Database connection timeout after 30s",
+      "normalized_message": "Database connection timeout",
+      "level": "ERROR",
+      "level_value": 40,
+      "count": 12,
+      "context_data": {
+        "pod": "bl-pcb-billing-5f7g8h-abc12",
+        "timestamp": "2025-11-06T10:25:00Z"
+      }
+    }
+  ],
+  "context": {
+    "additional_info": "Deployment v1.2.3 byl nasazen před 2 hodinami",
+    "source": "AWX Logwatch"
+  },
+  "include_similar": true,
+  "auto_learn": true
+}
