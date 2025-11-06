@@ -8,7 +8,7 @@ import logging
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.database import engine, Base
-from app.api import analyze, feedback, health
+from app.api import analyze, feedback, health, logs
 
 # Setup logging
 setup_logging()
@@ -37,6 +37,7 @@ app.add_middleware(
 app.include_router(analyze.router, prefix="/api/v1", tags=["analyze"])
 app.include_router(feedback.router, prefix="/api/v1", tags=["feedback"])
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
+app.include_router(logs.router, prefix="/api/v1", tags=["logs"])
 
 
 @app.on_event("startup")
