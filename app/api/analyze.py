@@ -223,6 +223,7 @@ async def analyze_findings(
             db.refresh(finding)
             
             # Build response
+            primary_rec = analysis.get("primary_recommendation")
             results.append(FindingAnalysisResponse(
                 fingerprint=finding.fingerprint,
                 app_name=finding.app_name,
@@ -230,6 +231,7 @@ async def analyze_findings(
                 message=finding.message,
                 count=finding.count,
                 root_cause=finding.root_cause,
+                primary_recommendation=primary_rec,
                 recommendations=finding.recommendations,
                 confidence=finding.confidence,
                 severity=finding.severity,

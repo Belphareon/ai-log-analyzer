@@ -77,10 +77,12 @@ class MockLLMService:
             if resource_id:
                 root_cause += f" (Resource ID: {resource_id})"
             
+            primary_recommendation = f"Verify that resource with ID {resource_id} exists in the database" if resource_id else "Verify resource exists in database"
+            
             return {
                 "root_cause": root_cause,
+                "primary_recommendation": primary_recommendation,
                 "recommendations": [
-                    f"Verify that resource with ID {resource_id} exists in the database" if resource_id else "Verify resource exists in database",
                     "Check if resource was deleted or migrated to different system",
                     "Review data consistency between services (event-processor-relay → bl-pcb)",
                     "Add validation before attempting to fetch non-existent resources",
@@ -96,8 +98,8 @@ class MockLLMService:
         if "nullpointerexception" in prompt_lower or "null" in prompt_lower:
             return {
                 "root_cause": "Null pointer dereference - object was not initialized before use",
+                "primary_recommendation": "Add null checks before accessing object properties",
                 "recommendations": [
-                    "Add null checks before accessing object properties",
                     "Review object initialization in constructor",
                     "Implement defensive programming with Optional/nullable handling",
                     "Add unit tests to catch null pointer scenarios",
@@ -111,8 +113,8 @@ class MockLLMService:
         elif "outofmemory" in prompt_lower or "memory" in prompt_lower:
             return {
                 "root_cause": "Memory exhaustion - heap space exceeded during operation",
+                "primary_recommendation": "Increase JVM heap size (-Xmx parameter)",
                 "recommendations": [
-                    "Increase JVM heap size (-Xmx parameter)",
                     "Review memory leaks in application code",
                     "Implement pagination for large data sets",
                     "Add memory monitoring and alerts",
@@ -126,8 +128,8 @@ class MockLLMService:
         elif "404" in prompt_lower or "not found" in prompt_lower:
             return {
                 "root_cause": "Resource not found - endpoint or entity does not exist at specified path",
+                "primary_recommendation": "Verify the requested resource ID exists in database",
                 "recommendations": [
-                    "Verify the requested resource ID exists in database",
                     "Check API endpoint routing configuration",
                     "Review recent API changes or migrations",
                     "Implement proper error handling for missing resources",
@@ -141,9 +143,9 @@ class MockLLMService:
         elif "timeout" in prompt_lower or "connection" in prompt_lower:
             return {
                 "root_cause": "Network connectivity issue or slow external service response",
+                "primary_recommendation": "Check network connectivity to external services",
                 "recommendations": [
                     "Increase connection timeout settings",
-                    "Check network connectivity to external services",
                     "Implement circuit breaker pattern for resilience",
                     "Add retry logic with exponential backoff",
                     "Monitor external service health and SLA"
@@ -156,8 +158,8 @@ class MockLLMService:
         elif "database" in prompt_lower or "sql" in prompt_lower:
             return {
                 "root_cause": "Database connection or query execution issue",
+                "primary_recommendation": "Check database connection pool settings",
                 "recommendations": [
-                    "Check database connection pool settings",
                     "Review slow query logs for performance issues",
                     "Verify database indexes are properly configured",
                     "Monitor database resource utilization",
@@ -171,8 +173,8 @@ class MockLLMService:
         elif "readiness" in prompt_lower or "health" in prompt_lower:
             return {
                 "root_cause": "Application readiness probe failure - service not ready to accept traffic",
+                "primary_recommendation": "Check application startup dependencies (DB, external services)",
                 "recommendations": [
-                    "Check application startup dependencies (DB, external services)",
                     "Review readiness probe configuration and timeout settings",
                     "Verify all required resources are available",
                     "Check application logs for startup errors",
@@ -190,8 +192,8 @@ class MockLLMService:
             
             return {
                 "root_cause": "Application error - requires investigation of trace and related logs for specific cause",
+                "primary_recommendation": "Review complete trace logs for error context",
                 "recommendations": [
-                    "Review complete trace logs for error context",
                     "Check recent deployments or configuration changes",
                     "Monitor error frequency and patterns over time",
                     "Investigate related services in the trace",

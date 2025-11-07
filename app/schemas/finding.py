@@ -43,7 +43,8 @@ class FindingAnalysisResponse(BaseModel):
     
     # AI Analysis
     root_cause: Optional[str] = None
-    recommendations: Optional[List[str]] = None
+    primary_recommendation: Optional[str] = None  # Main action to take based on error details
+    recommendations: Optional[List[str]] = None  # Alternative/additional recommendations
     confidence: Optional[float] = None
     severity: Optional[str] = None
     trace_analysis: Optional[str] = None  # Analysis of trace and related logs
