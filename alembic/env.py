@@ -5,7 +5,7 @@ from alembic import context
 
 # Import Base and models
 from app.core.database import Base
-from app.models import Finding, Pattern, FindingPattern, Feedback, AnalysisHistory, EWMABaseline
+from app.models import Finding, Pattern, finding_patterns, Feedback, AnalysisHistory, EWMABaseline
 
 # Alembic Config object
 config = context.config

@@ -46,10 +46,12 @@ class FindingAnalysisResponse(BaseModel):
     recommendations: Optional[List[str]] = None
     confidence: Optional[float] = None
     severity: Optional[str] = None
+    trace_analysis: Optional[str] = None  # Analysis of trace and related logs
     
     # Context
     similar_incidents: Optional[List[Dict[str, Any]]] = None
     matched_patterns: Optional[List[str]] = None
+    context_data: Optional[Dict[str, Any]] = None  # Original context (traceId, spanId, pod, etc.)
     
     # Metadata
     analysis_timestamp: datetime

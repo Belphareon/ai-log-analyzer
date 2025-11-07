@@ -12,8 +12,9 @@ from app.services import llm_service as ollama_service
 from app.services.prompts import format_analyze_prompt, SYSTEM_PROMPT
 from app.models import Finding
 from app.services.analyzer import analyzer_service
+from app.services.elasticsearch import es_service
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -63,9 +64,98 @@ async def analyze_findings(
                 )
                 db.add(finding)
             
+            # Extract trace details from context_data
+            trace_id = None
+            span_id = None
+            pod_name = None
+            timestamp = None
+            
+            if finding_data.context_data:
+                trace_id = finding_data.context_data.get("traceId")
+                span_id = finding_data.context_data.get("spanId")
+                pod_name = finding_data.context_data.get("pod")
+                timestamp = finding_data.context_data.get("timestamp")
+            
             # Prepare context for AI
             context = request.context.get("additional_info", "")
             similar_incidents = ""
+            related_logs = ""
+            
+            # If we have traceId, fetch related logs from ES
+            if trace_id:
+                try:
+                    # Query ES for logs with same traceId to get full context
+                    from elasticsearch import AsyncElasticsearch
+                    await es_service.connect()
+                    
+                    # Search for all logs with this traceId (not just errors)
+                    trace_query = {
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"term": {"traceId.keyword": trace_id}},
+                                    {"range": {"@timestamp": {
+                                        "gte": (datetime.utcnow() - timedelta(hours=1)).isoformat(),
+                                        "lte": datetime.utcnow().isoformat()
+                                    }}}
+                                ]
+                            }
+                        },
+                        "size": 20,
+                        "sort": [{"@timestamp": {"order": "asc"}}]
+                    }
+                    
+                    response = await es_service.client.search(
+                        index=es_service.index_pattern,
+                        body=trace_query
+                    )
+                    
+                    trace_logs = [hit["_source"] for hit in response["hits"]["hits"]]
+                    
+                    if trace_logs:
+                        # Find the most detailed error message (usually contains ErrorModel, exception details)
+                        most_detailed_error = None
+                        max_detail_score = 0
+                        
+                        for log in trace_logs:
+                            msg = log.get('message', '')
+                            detail_score = 0
+                            
+                            # Score based on detail indicators
+                            if 'ErrorModel' in msg or 'Exception' in msg:
+                                detail_score += 10
+                            if 'code=' in msg or 'err.' in msg:
+                                detail_score += 5
+                            if 'uuid=' in msg:
+                                detail_score += 3
+                            if 'detail=' in msg or 'Detail:' in msg:
+                                detail_score += 5
+                            if len(msg) > 200:  # Longer messages often have more detail
+                                detail_score += 2
+                            
+                            if detail_score > max_detail_score and log.get('level') == 'ERROR':
+                                max_detail_score = detail_score
+                                most_detailed_error = log
+                        
+                        # Build related logs output with most detailed error first
+                        related_logs_list = []
+                        if most_detailed_error:
+                            related_logs_list.append(
+                                f"[PRIMARY ERROR] {most_detailed_error.get('logger_name', '')}: {most_detailed_error.get('message', '')}"
+                            )
+                        
+                        # Add other logs for context
+                        for log in trace_logs[:10]:
+                            if log != most_detailed_error:
+                                related_logs_list.append(
+                                    f"[{log.get('level', 'INFO')}] {log.get('@timestamp', '')} - {log.get('logger_name', '')}: {log.get('message', '')[:150]}"
+                                )
+                        
+                        related_logs = "\n".join(related_logs_list)
+                        logger.info(f"Found {len(trace_logs)} related logs for traceId {trace_id}, most detailed error score: {max_detail_score}")
+                
+                except Exception as e:
+                    logger.warning(f"Failed to fetch related logs for traceId {trace_id}: {e}")
             
             if request.include_similar:
                 # Find similar past findings
@@ -86,8 +176,14 @@ async def analyze_findings(
                 namespace=finding_data.namespace,
                 error_message=finding_data.message,
                 count=finding_data.count,
+                stack_trace=finding_data.stack_trace,
                 context=context,
-                similar_incidents=similar_incidents
+                similar_incidents=similar_incidents,
+                trace_id=trace_id,
+                span_id=span_id,
+                pod_name=pod_name,
+                timestamp=timestamp,
+                related_logs=related_logs
             )
             
             try:
@@ -137,8 +233,16 @@ async def analyze_findings(
                 recommendations=finding.recommendations,
                 confidence=finding.confidence,
                 severity=finding.severity,
+                trace_analysis=analysis.get("trace_analysis"),
                 similar_incidents=[{"id": s.id, "message": s.message[:100]} for s in (similar if request.include_similar else [])],
                 matched_patterns=[],
+                context_data={
+                    "traceId": trace_id,
+                    "spanId": span_id,
+                    "pod": pod_name,
+                    "timestamp": timestamp,
+                    "related_logs_count": len(related_logs.split("\n")) if related_logs else 0
+                },
                 analysis_timestamp=finding.analysis_timestamp or datetime.utcnow(),
                 finding_id=finding.id
             ))
