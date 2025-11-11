@@ -93,29 +93,10 @@ def generate_markdown_report(data, patterns, output_file):
         # Add related errors analysis
         add_related_analysis(f, data["errors"], data["total_errors"], data["sample_size"])
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Analyze daily errors')
-    parser.add_argument('--input', required=True, help='Input JSON file')
-    parser.add_argument('--output', required=True, help='Output markdown file')
-    
-    args = parser.parse_args()
-    
-    print(f"Loading {args.input}...")
-    with open(args.input, 'r') as f:
-        data = json.load(f)
-    
-    patterns = analyze_errors(data)
-    
-    generate_markdown_report(data, patterns, args.output)
-    
-    print(f"✅ Report saved to {args.output}")
-    print(f"   Found {len(patterns)} unique error patterns")
-    if patterns:
-        print(f"   Top issue: {patterns[0]['fingerprint'][:60]} (~{patterns[0]['count']:,} occurrences)")
-
 def analyze_related_errors(errors):
-    """Find related errors by case ID, card ID, etc."""
+    """Find related errors by case ID, card ID, and temporal proximity"""
     import re
+    from datetime import datetime, timedelta
     
     # Group by case ID
     case_groups = {}
@@ -138,18 +119,158 @@ def analyze_related_errors(errors):
                 card_groups[card_id] = []
             card_groups[card_id].append(e)
     
+    # Temporal clustering - group errors within 15 min window
+    temporal_clusters = find_temporal_clusters(errors, window_minutes=15)
+    
+    # Cross-app analysis for case IDs
+    cross_app_cases = analyze_cross_app_correlation(case_groups)
+    
     # Sort by occurrence
     top_cases = sorted(case_groups.items(), key=lambda x: len(x[1]), reverse=True)[:5]
     top_cards = sorted(card_groups.items(), key=lambda x: len(x[1]), reverse=True)[:5]
     
-    return {'cases': top_cases, 'cards': top_cards}
+    return {
+        'cases': top_cases, 
+        'cards': top_cards,
+        'temporal_clusters': temporal_clusters,
+        'cross_app_cases': cross_app_cases
+    }
+
+def find_temporal_clusters(errors, window_minutes=15):
+    """Find error clusters within time window"""
+    from datetime import datetime, timedelta
+    
+    # Sort by timestamp
+    sorted_errors = sorted(errors, key=lambda e: e['timestamp'])
+    
+    clusters = []
+    current_cluster = []
+    cluster_start = None
+    
+    for e in sorted_errors:
+        ts = datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
+        
+        if not current_cluster:
+            current_cluster = [e]
+            cluster_start = ts
+        else:
+            time_diff = (ts - cluster_start).total_seconds() / 60
+            
+            if time_diff <= window_minutes:
+                current_cluster.append(e)
+            else:
+                # Save cluster if significant
+                if len(current_cluster) >= 5:
+                    clusters.append({
+                        'start': cluster_start.isoformat(),
+                        'errors': current_cluster,
+                        'duration_min': time_diff
+                    })
+                
+                # Start new cluster
+                current_cluster = [e]
+                cluster_start = ts
+    
+    # Don't forget last cluster
+    if len(current_cluster) >= 5:
+        clusters.append({
+            'start': cluster_start.isoformat(),
+            'errors': current_cluster,
+            'duration_min': 0
+        })
+    
+    # Sort by cluster size
+    clusters.sort(key=lambda c: len(c['errors']), reverse=True)
+    return clusters[:10]  # Top 10 clusters
+
+def analyze_cross_app_correlation(case_groups):
+    """Analyze how errors spread across apps for same case ID"""
+    cross_app = []
+    
+    for case_id, case_errors in case_groups.items():
+        # Group by app and namespace
+        app_breakdown = {}
+        ns_breakdown = {}
+        
+        for e in case_errors:
+            app = e.get('app', 'unknown')
+            ns = e.get('namespace', 'unknown')
+            
+            if ns not in ns_breakdown:
+                ns_breakdown[ns] = {'apps': set(), 'count': 0, 'errors': []}
+            
+            ns_breakdown[ns]['apps'].add(app)
+            ns_breakdown[ns]['count'] += 1
+            ns_breakdown[ns]['errors'].append(e)
+        
+        # Only include cases affecting multiple apps on same namespace
+        for ns, data in ns_breakdown.items():
+            if len(data['apps']) > 1:
+                cross_app.append({
+                    'case_id': case_id,
+                    'namespace': ns,
+                    'apps': list(data['apps']),
+                    'count': data['count'],
+                    'errors': data['errors']
+                })
+    
+    # Sort by number of affected apps
+    cross_app.sort(key=lambda x: (len(x['apps']), x['count']), reverse=True)
+    return cross_app[:5]  # Top 5 cross-app cases
 
 def add_related_analysis(f, errors, total, sample_size):
     """Add related errors section to report"""
     related = analyze_related_errors(errors)
     
+    # Temporal clusters
+    if related.get('temporal_clusters'):
+        f.write("\n---\n\n## ⏰ Temporal Clusters - Error Bursts\n\n")
+        f.write("Error bursts within 15-minute windows show potential cascading failures:\n\n")
+        
+        for i, cluster in enumerate(related['temporal_clusters'][:5], 1):
+            extrapolated = int((len(cluster['errors']) / sample_size) * total) if sample_size > 0 else len(cluster['errors'])
+            f.write(f"### Cluster {i}: {cluster['start']}\n\n")
+            f.write(f"**Burst Size:** ~{extrapolated:,} errors (sample: {len(cluster['errors'])})\n\n")
+            
+            # Affected apps
+            apps = list(set(e.get('app', 'unknown') for e in cluster['errors']))
+            f.write(f"**Affected Apps ({len(apps)}):** {', '.join(apps[:10])}\n\n")
+            
+            # Namespace breakdown
+            ns_count = {}
+            for e in cluster['errors']:
+                ns = e.get('namespace', 'unknown')
+                ns_count[ns] = ns_count.get(ns, 0) + 1
+            
+            f.write("**Namespaces:**\n")
+            for ns, cnt in sorted(ns_count.items(), key=lambda x: -x[1])[:3]:
+                ns_extra = int((cnt / sample_size) * total) if sample_size > 0 else cnt
+                f.write(f"- `{ns}`: ~{ns_extra:,}\n")
+            f.write("\n")
+    
+    # Cross-app correlation
+    if related.get('cross_app_cases'):
+        f.write("\n---\n\n## � Cross-App Error Propagation\n\n")
+        f.write("Cases affecting multiple applications on the same environment:\n\n")
+        
+        for item in related['cross_app_cases']:
+            extrapolated = int((item['count'] / sample_size) * total) if sample_size > 0 else item['count']
+            f.write(f"### Case {item['case_id']} @ `{item['namespace']}`\n\n")
+            f.write(f"**Total Errors:** ~{extrapolated:,}\n\n")
+            f.write(f"**Affected Apps ({len(item['apps'])}):** {', '.join(item['apps'])}\n\n")
+            
+            # Show error chain timeline
+            errors_sorted = sorted(item['errors'], key=lambda e: e['timestamp'])
+            f.write("**Error Chain:**\n")
+            for j, e in enumerate(errors_sorted[:5], 1):
+                ts = e['timestamp'][11:19]  # Just HH:MM:SS
+                msg_short = e['message'][:80]
+                f.write(f"{j}. `{ts}` [{e.get('app', 'unknown')}] `{msg_short}...`\n")
+            f.write("\n")
+    
+    # Case ID groups
     if related['cases']:
-        f.write("\n---\n\n## 🔗 Related Errors - Case IDs\n\n")
+        f.write("\n---\n\n## �🔗 Related Errors - Case IDs\n\n")
         f.write("Errors grouped by Case ID show error chains and processing failures:\n\n")
         
         for case_id, case_errors in related['cases']:
@@ -180,6 +301,7 @@ def add_related_analysis(f, errors, total, sample_size):
                 f.write(f"{i}. (~{cnt_extra:,}x) `{pattern}...`\n")
             f.write("\n")
     
+    # Card ID groups
     if related['cards']:
         f.write("\n---\n\n## 💳 Related Errors - Card IDs\n\n")
         
@@ -192,4 +314,22 @@ def add_related_analysis(f, errors, total, sample_size):
             msg_sample = card_errors[0]['message'][:150]
             f.write(f"**Sample:** `{msg_sample}`\n\n")
 
-# Update generate_markdown_report to include related analysis
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Analyze daily errors')
+    parser.add_argument('--input', required=True, help='Input JSON file')
+    parser.add_argument('--output', required=True, help='Output markdown file')
+    
+    args = parser.parse_args()
+    
+    print(f"Loading {args.input}...")
+    with open(args.input, 'r') as f:
+        data = json.load(f)
+    
+    patterns = analyze_errors(data)
+    
+    generate_markdown_report(data, patterns, args.output)
+    
+    print(f"✅ Report saved to {args.output}")
+    print(f"   Found {len(patterns)} unique error patterns")
+    if patterns:
+        print(f"   Top issue: {patterns[0]['fingerprint'][:60]} (~{patterns[0]['count']:,} occurrences)")
