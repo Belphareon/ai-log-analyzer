@@ -26,18 +26,21 @@ def refetch_day(day, sample_size):
     """Re-fetch a specific day with new sample size"""
     print(f"\n🔄 Re-fetching {day} with sample_size={sample_size:,}...")
     
-    # Use fetch_errors.py which works with curl
+    # Use curl-based fetch script (no Python dependencies)
     cmd = [
-        'python3', 'fetch_errors.py',
-        '--date', day,
-        '--max-sample', str(sample_size),
-        '--output', f'/tmp/daily_{day}.json'
+        './fetch_errors_curl.sh',
+        day,
+        str(sample_size),
+        f'/tmp/daily_{day}.json'
     ]
     
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd='/home/jvsete/git/sas/ai-log-analyzer')
     
     if result.returncode == 0:
         print(f"✅ Successfully re-fetched {day}")
+        # Show output
+        for line in result.stdout.strip().split('\n')[-3:]:
+            print(f"   {line}")
         return True
     else:
         print(f"❌ Failed to re-fetch {day}")
