@@ -39,7 +39,7 @@ class TrendAnalyzer:
                             "gte": time_from.isoformat() + "Z", 
                             "lte": time_to.isoformat() + "Z"
                         }}},
-                        {"range": {"level_value": {"gte": 40000}}}
+                        {"term": {"level": "ERROR"}}
                     ]
                 }
             },
