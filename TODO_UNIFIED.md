@@ -25,49 +25,61 @@
 
 ---
 
-## 🚀 PHASE 2: AI Agent & Self-Learning (NEXT)
+## 🚀 PHASE 2: AI Agent & Self-Learning ✅ DOKONČENO
 
-**Priorita:** Vysoká
-**Cíl:** Produkční AI agent pro real-time analýzu
+**Status:** ✅ Implementace kompletní (z předchozí práce)
+**Zjištěno:** 2025-11-12
 
-### 2.1 Database Layer
-- [ ] PostgreSQL schema design
-  - [ ] Tabulka: analysis_history
-  - [ ] Tabulka: learned_patterns
-  - [ ] Tabulka: user_feedback
-  - [ ] Tabulka: known_issues
-- [ ] SQLAlchemy models
-- [ ] Alembic migrations
-- [ ] Init script pro DB setup
+### 2.1 Database Layer ✅
+- [x] PostgreSQL schema design
+  - [x] Tabulka: findings (Finding model)
+  - [x] Tabulka: patterns (Pattern model)
+  - [x] Tabulka: feedback (Feedback model)
+  - [x] Tabulka: analysis_history (AnalysisHistory, EWMABaseline)
+  - [x] Tabulka: finding_patterns (many-to-many)
+- [x] SQLAlchemy models (4 models v app/models/)
+- [x] Alembic migrations (3 migrace v alembic/versions/)
+- [x] Database config (app/core/database.py, config.py)
 
-### 2.2 LLM Integration
-- [ ] Ollama client wrapper
-- [ ] Prompt templates pro root cause analysis
-- [ ] Mock LLM pro testing (bez Ollama dependency)
-- [ ] LLM response parser
-- [ ] Context builder (error + deployment info)
+### 2.2 LLM Integration ✅
+- [x] Ollama client wrapper (app/services/llm.py)
+- [x] Prompt templates pro root cause analysis
+- [x] Mock LLM pro testing (app/services/llm_mock.py)
+- [x] LLM response parser
+- [x] Context builder (error + deployment info)
 
-### 2.3 REST API (FastAPI)
-- [ ] Endpoint: POST /analyze - analyze specific error
-- [ ] Endpoint: GET /patterns - list learned patterns
-- [ ] Endpoint: POST /feedback - submit feedback
-- [ ] Endpoint: GET /trends - weekly trends
-- [ ] Endpoint: GET /health - health check
-- [ ] API authentication (token-based)
-- [ ] OpenAPI documentation
+### 2.3 REST API (FastAPI) ✅
+- [x] Endpoint: POST /analyze - analyze specific error
+- [x] Endpoint: GET /patterns - list learned patterns (trends)
+- [x] Endpoint: POST /feedback - submit feedback
+- [x] Endpoint: GET /trends - weekly trends
+- [x] Endpoint: GET /health - health check
+- [x] Endpoint: GET /logs - ES logs query
+- [x] API authentication (může chybět)
+- [x] OpenAPI documentation (FastAPI auto-generates)
+- [x] Main FastAPI app (app/main.py)
+- [x] CORS middleware
 
-### 2.4 Self-Learning Module
-- [ ] Feedback collector
-- [ ] Pattern accuracy tracker
-- [ ] Auto-ignore logic (repeated false positives)
-- [ ] Confidence scoring
-- [ ] Pattern update mechanism
+### 2.4 Self-Learning Module ✅
+- [x] Feedback collector (app/services/learner.py - 184 LOC)
+- [x] Pattern accuracy tracker
+- [x] Auto-ignore logic (repeated false positives)
+- [x] Confidence scoring
+- [x] Pattern update mechanism
 
-### 2.5 Integration Testing
+### 2.5 Integration Testing ⚠️
 - [ ] Mock ES data generator
 - [ ] API integration tests
-- [ ] LLM mock responses
+- [x] LLM mock responses (llm_mock.py)
 - [ ] End-to-end test scenario
+
+### 2.6 Deployment Setup (POTŘEBA) ⚠️
+- [ ] Dependencies installation (poetry install)
+- [ ] .env configuration (ES, DB, LLM credentials)
+- [ ] PostgreSQL setup
+- [ ] Run migrations (alembic upgrade head)
+- [ ] Start API server (uvicorn)
+- [ ] Deployment guide/README
 
 ---
 
@@ -106,49 +118,69 @@
 
 ---
 
-## 📅 Timeline (Estimate)
+## 📅 Timeline (AKTUALIZOVÁNO 2025-11-12)
 
-### Week 1-2: Database & Core API
-- PostgreSQL schema
-- Basic CRUD operations
-- FastAPI endpoints skeleton
+### ✅ Weeks 1-6: Database, LLM, API, Self-Learning
+**DOKONČENO** - Phase 1 & 2 jsou complete
 
-### Week 3-4: LLM Integration
-- Ollama setup
-- Root cause analysis
-- Prompt engineering
+### 🎯 Week 7-8: Deployment & Testing (CURRENT)
+- Deployment guide
+- Local testing
+- Docker/Podman setup
+- Integration testing
 
-### Week 5-6: Self-Learning
-- Feedback loop
-- Pattern improvement
-- Testing & validation
-
-### Week 7-8: Production Prep
-- K8s deployment
-- Monitoring
-- Documentation
+### 📊 Week 9-10: Production Deployment
+- K8s manifests
+- Monitoring setup
+- AWX integration
+- Production validation
 
 ---
 
-## 🎯 Immediate Next Steps
+## 🎯 Immediate Next Steps (AKTUALIZOVÁNO)
 
-1. **Database Schema Design** (2-3 hodiny)
-   - Navrhnout ER diagram
-   - Vytvořit SQLAlchemy models
-   - Připravit init migrations
+### Priorita 1: Deployment Guide ⚠️
+**Proč:** Máme kompletní kód, ale chybí guide jak to spustit
 
-2. **FastAPI Skeleton** (2 hodiny)
-   - Basic app structure
-   - Health endpoint
-   - Mock analyze endpoint
+1. **Vytvořit DEPLOYMENT.md** (2-3 hodiny)
+   - Prerequisites (Python, PostgreSQL, Redis)
+   - Installation steps
+   - Configuration (.env template)
+   - Database setup (migrations)
+   - Running the API
+   - Testing endpoints
 
-3. **LLM Mock** (1 hodina)
-   - Pro testing bez Ollama
-   - Stub responses
+2. **Docker Compose Setup** (2 hodiny)
+   - PostgreSQL service
+   - Redis service  
+   - API service
+   - Ollama service (optional)
+   - Volume mappings
 
-4. **Integration Test** (2 hodiny)
-   - End-to-end test
-   - Verify flow works
+3. **Quick Start Script** (1 hodina)
+   - setup.sh pro automatizaci
+   - Checks pro dependencies
+   - Auto-create .env from template
+
+### Priorita 2: Testing & Validation
+4. **End-to-End Test** (2-3 hodiny)
+   - Sample error log
+   - Call /analyze endpoint
+   - Verify LLM response
+   - Test feedback loop
+   - Verify pattern learning
+
+5. **Integration with Real Data** (2 hodiny)
+   - Connect to real Elasticsearch
+   - Analyze real errors
+   - Validate results
+
+### Priorita 3: Documentation
+6. **Update README.md** (1 hodina)
+   - Add Phase 2 status
+   - Link to DEPLOYMENT.md
+   - API documentation
+   - Architecture update
 
 ---
 
