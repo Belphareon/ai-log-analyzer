@@ -48,6 +48,22 @@
 - [x] Coverage tracking v JSON outputu
 - [x] Re-fetch script pro low coverage days
 
+### 6. Deployment Documentation (2025-11-12)
+- [x] DEPLOYMENT.md completed:
+  - Prerequisites & system requirements
+  - Installation (Poetry, pip, system-wide)
+  - Configuration & environment variables
+  - Database setup & migrations
+  - Running the application (Phase 1 & 2)
+  - Docker Compose deployment
+  - Testing procedures
+  - Troubleshooting guide
+- [x] docker-compose.yml updated:
+  - Added app service (FastAPI)
+  - Health checks for all services
+  - Proper dependency ordering
+- [x] .env.example created with all required variables
+
 ---
 
 ## 📋 CO NEBYLO DOKONČENO (z původních TODO)

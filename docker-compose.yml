@@ -39,6 +39,27 @@ services:
       timeout: 3s
       retries: 5
 
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://ailog:ailog_dev_pass@postgres:5432/ailog_analyzer
+      - OLLAMA_URL=http://ollama:11434
+      - REDIS_URL=redis://redis:6379/0
+      - USE_MOCK_LLM=true
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
 volumes:
   postgres_data:
   ollama_data:
