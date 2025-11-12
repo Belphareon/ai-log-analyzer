@@ -89,13 +89,25 @@ Budu postupně zjišťovat...
 - ⚠️ Chybí deployment guide
 
 **Next:** Deployment & Testing (Week 7-8)
-1. Vytvořit DEPLOYMENT.md
-2. Docker Compose setup
-3. End-to-end testing
-4. Integration s real data
+1. ✅ Vytvořit DEPLOYMENT.md (DONE 2025-11-12)
+2. ✅ Docker Compose setup (DONE 2025-11-12)
+3. ✅ .env.example vytvořen (DONE 2025-11-12)
+4. [ ] End-to-end testing
+5. [ ] Integration s real data
+
+**Current Work (2025-11-12):**
+- ✅ DEPLOYMENT.md completed (instalace, database setup, Docker, testing, troubleshooting)
+- ✅ docker-compose.yml updated (app service přidán)
+- ✅ .env.example vytvořen
+- ✅ Testing completed:
+  - ✅ Pattern detection normalizace funguje
+  - ✅ analyze_daily.py script funguje
+  - ✅ Basic imports OK (MockLLM)
+  - ⚠️ Phase 2 components need dependencies (sqlalchemy, httpx)
+- [ ] Git commit & push
 
 **Viz:** [TODO_UNIFIED.md](TODO_UNIFIED.md) pro detailní plán
-**Viz:** [.phase2_progress.md](.phase2_progress.md) pro zjištění
+**Viz:** [DEPLOYMENT.md](DEPLOYMENT.md) pro deployment guide
 
 ---
 
