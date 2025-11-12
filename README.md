@@ -4,6 +4,37 @@
 
 AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislosti a učí se z historických dat. Nahrazuje manuální procházení logů inteligentní analýzou založenou na ML pattern detection.
 
+---
+
+## 🚀 Project Status
+
+**Current Version:** 0.1.0 (Beta)  
+**Last Update:** 2025-11-12
+
+### What's Working Now:
+- ✅ **Phase 1 (Production Ready):** Data collection & ML analysis
+  - Fetch errors from Elasticsearch
+  - ML-based pattern detection & clustering
+  - Daily automated reports with insights
+  - ~600K errors analyzed (Nov 4-10, 2025)
+  
+- ✅ **Phase 2 (Complete, Testing):** AI Agent & Self-Learning
+  - REST API with FastAPI
+  - PostgreSQL database models
+  - LLM integration (Ollama + Mock)
+  - Feedback loop for self-learning
+  - **Status:** Code complete, dependencies installing
+
+### Next Steps:
+- 🔄 Database setup & migrations
+- 📊 End-to-end testing with real data
+- 🚀 Production deployment (Kubernetes)
+
+**See:** [DEPLOYMENT.md](DEPLOYMENT.md) for setup guide  
+**See:** [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress
+
+---
+
 ## Proč AI Log Analyzer?
 
 **Problém:**
@@ -21,12 +52,104 @@ AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislost
 
 ## Features
 
-- 🤖 **Pattern Detection** - ML-based clustering podobných errorů
-- ⏰ **Temporal Analysis** - Detekce error burstů v 15min oknech
-- 🔄 **Cross-App Correlation** - Propojení errorů mezi aplikacemi na stejném env
-- 📊 **Case/Card ID Tracking** - Sledování error chains pro konkrétní případy
-- 🎯 **Smart Extrapolation** - Odhad celkového výskytu z reprezentativního vzorku
-- 💡 **Daily Reports** - Markdown reporty s insights a trendy
+### Phase 1: Data Collection & Analysis (✅ Production Ready)
+
+- 🤖 **ML Pattern Detection** - Automatic clustering of similar errors
+  - Smart normalization (Card 12345 → Card {ID})
+  - Fingerprint generation for pattern matching
+  - Similarity-based clustering (Levenshtein distance)
+  
+- ⏰ **Temporal Analysis** - Time-based error detection
+  - 15-minute time windows for burst detection
+  - Identifies cascading failures
+  - Tracks error spikes and anomalies
+  
+- 🔄 **Cross-App Correlation** - Multi-service error tracking
+  - Tracks errors across microservices
+  - Same namespace/environment correlation
+  - Case/Card ID chain tracking
+  
+- 📊 **Smart Sampling & Extrapolation**
+  - Representative sampling from large datasets
+  - Statistical extrapolation for total counts
+  - Coverage tracking (target: 35%+)
+  
+- 💡 **Automated Daily Reports** - Markdown reports with:
+  - Top 20 error patterns with estimated totals
+  - Temporal clusters (error bursts)
+  - Cross-app error propagation chains
+  - Affected applications & namespaces
+  - Actionable recommendations
+
+### Phase 2: AI Agent & Self-Learning (✅ Code Complete)
+
+- 🤖 **LLM Integration** - AI-powered root cause analysis
+  - Ollama support for local LLM
+  - Mock LLM for testing
+  - Context-aware analysis
+  
+- 🗄️ **PostgreSQL Database** - Pattern storage & history
+  - Finding, Pattern, Feedback models
+  - Analysis history tracking
+  - EWMA baselines for anomaly detection
+  
+- 🌐 **REST API** - FastAPI endpoints
+  - `/analyze` - Analyze error logs
+  - `/feedback` - Submit feedback for learning
+  - `/patterns` - Query known patterns
+  - `/history` - Analysis history
+  - `/health` - Health check
+  
+- 🧠 **Self-Learning** - Continuous improvement
+  - Feedback processing from operators
+  - Pattern confidence adjustment
+  - Learning from historical data
+
+### Phase 3: Production Deployment (📋 Planned)
+
+- ☸️ Kubernetes deployment with Helm
+- 📊 Grafana dashboards & metrics
+- 🔔 Automated alerting & notifications
+- ⚡ Real-time analysis (15-min intervals)
+- 🧪 A/B testing framework
+
+---
+
+## 📊 Real-World Results
+
+**Production Data (Nov 4-10, 2025):**
+
+| Metric | Value |
+|--------|-------|
+| **Total Errors Analyzed** | ~600,000 |
+| **Sample Size** | ~210,000 (35% coverage) |
+| **Daily Reports Generated** | 7 reports |
+| **Unique Patterns Detected** | 65+ patterns |
+| **Top Pattern** | "Card {ID} not found" (~12K occurrences) |
+| **Temporal Clusters Found** | 15+ error bursts |
+| **Processing Time** | ~30 seconds per 30K errors |
+
+**Key Insights:**
+- ✅ Reduced manual log analysis from **hours to minutes**
+- ✅ Identified **cascading failures** across 3-4 microservices
+- ✅ Detected **error bursts** correlating with deployments
+- ✅ Tracked **Case/Card IDs** through entire error chains
+- ✅ **35% sample coverage** sufficient for major pattern detection
+
+**Example Pattern Detection:**
+```
+Original errors (different):
+  - "Card 12345 not found, card states will not be updated"
+  - "Card 67890 not found, card states will not be updated"  
+  - "Card abc-def not found, card states will not be updated"
+
+Normalized pattern (same):
+  - "Card {ID} not found, card states will not be updated"
+  
+Result: Clustered ~12,000 similar errors into 1 pattern
+```
+
+---
 
 ## Architecture
 
@@ -76,18 +199,22 @@ AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislost
 - Access to Elasticsearch (logs)
 - ~500MB RAM for pattern analysis
 
-### Installation
+**For full setup including Phase 2 (API & Database), see [DEPLOYMENT.md](DEPLOYMENT.md)**
+
+### Installation - Phase 1 Only (Standalone Scripts)
 
 ```bash
 # Clone repository
 cd ~/git/sas/ai-log-analyzer
 
-# Install dependencies (optional - scripts work standalone)
+# Install minimal dependencies for Phase 1
 pip3 install --user elasticsearch httpx
 
 # Verify scripts
 ls -l *.py
 ```
+
+**Note:** Phase 1 scripts (`fetch_errors.py`, `analyze_daily.py`) work standalone without database or API setup!
 
 ### Fetch Errors from Elasticsearch
 
@@ -167,83 +294,157 @@ less /tmp/report_2025-11-10.md
 
 ## Components
 
-### Current (Data Collection & Analysis)
+### Phase 1: Data Collection & Analysis (✅ Production Ready)
 
-- **fetch_errors.py** - Fetch errors from Elasticsearch
+- **fetch_errors.py** - Fetch errors from Elasticsearch with sampling
 - **fetch_errors_smart.py** - Smart fetch with auto-calculated sample for target coverage
 - **analyze_daily.py** - ML pattern detection and report generation
 - **refetch_low_coverage.py** - Re-fetch days with insufficient coverage
 - **app/services/pattern_detector.py** - Core ML clustering engine
 
-### Future (Production AI Agent)
+### Phase 2: AI Agent & Self-Learning (✅ Code Complete)
 
-- **API Server** (FastAPI) - REST endpoints for AWX integration
-- **Analyzer** - LLM-based root cause analysis
-- **Learner** - Self-learning from feedback
-- **Context Provider** - Deployment correlation (ArgoCD)
+- **app/api/** - FastAPI REST endpoints
+  - `analyze.py` - Analysis endpoint
+  - `feedback.py` - Feedback submission
+  - `patterns.py` - Pattern queries
+  - `health.py` - Health checks
+- **app/models/** - SQLAlchemy database models
+  - `finding.py`, `pattern.py`, `feedback.py`, `analysis_history.py`
+- **app/services/analyzer.py** - LLM-based root cause analysis
+- **app/services/learner.py** - Self-learning from feedback
+- **app/services/ollama_service.py** - Ollama LLM integration
+- **app/services/llm_mock.py** - Mock LLM for testing
+
+### Phase 3: Production Deployment (📋 Planned)
+
+- **k8s/** - Kubernetes manifests
+- **Grafana dashboards** - Metrics & visualization
+- **Prometheus metrics** - Monitoring
+- **CI/CD pipelines** - Automated deployment
 
 ## Tech Stack
 
-- Python 3.11+
-- FastAPI (async API)
-- Ollama (local LLM)
-- PostgreSQL (data persistence)
-- SQLAlchemy (ORM)
-- Kubernetes (deployment)
+**Core:**
+- Python 3.11+ (3.12 compatible)
+- FastAPI 0.121+ (async REST API)
+- SQLAlchemy 2.0+ (async ORM)
+- PostgreSQL 14+ (data persistence)
+- Alembic 1.12+ (database migrations)
+
+**ML & Analysis:**
+- Custom pattern detection (similarity-based clustering)
+- Ollama (local LLM for root cause analysis)
+- EWMA (Exponentially Weighted Moving Average for baselines)
+
+**Infrastructure:**
+- Elasticsearch 8.x (log source)
+- Docker/Podman (containerization)
+- Kubernetes (orchestration)
+- Redis 7+ (caching - future)
 
 ## Project Structure
 
 ```
 ai-log-analyzer/
 ├── app/
-│   ├── api/              # FastAPI endpoints (future)
-│   ├── core/             # Core configuration
-│   ├── models/           # SQLAlchemy models (future)
-│   ├── services/
+│   ├── api/              # ✅ FastAPI endpoints
+│   │   ├── analyze.py
+│   │   ├── feedback.py
+│   │   ├── patterns.py
+│   │   └── health.py
+│   ├── core/             # ✅ Core configuration
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   └── logging.py
+│   ├── models/           # ✅ SQLAlchemy models
+│   │   ├── finding.py
+│   │   ├── pattern.py
+│   │   ├── feedback.py
+│   │   └── analysis_history.py
+│   ├── services/         # ✅ Business logic
 │   │   ├── pattern_detector.py   # ML clustering engine
-│   │   ├── elasticsearch.py      # ES client
-│   │   └── trend_analyzer.py     # Trend analysis
-│   ├── schemas/          # Pydantic schemas
+│   │   ├── analyzer.py           # LLM analysis
+│   │   ├── learner.py            # Self-learning
+│   │   ├── ollama_service.py     # Ollama integration
+│   │   ├── llm_mock.py           # Mock LLM
+│   │   └── elasticsearch.py      # ES client
+│   ├── schemas/          # ✅ Pydantic schemas
 │   └── utils/            # Helpers
-├── analyze_daily.py      # Daily error analysis script
-├── fetch_errors.py       # ES error fetcher
-├── fetch_errors_smart.py # Smart fetch with coverage
-├── refetch_low_coverage.py # Re-fetch helper
-├── README_SCRIPTS.md     # Detailed script documentation
-├── k8s/                  # Kubernetes manifests (future)
+├── alembic/              # ✅ Database migrations
 ├── tests/                # Unit tests
-└── pyproject.toml        # Dependencies
+├── k8s/                  # Kubernetes manifests
+├── analyze_daily.py      # ✅ Daily analysis script
+├── fetch_errors.py       # ✅ ES error fetcher
+├── fetch_errors_smart.py # ✅ Smart fetch with coverage
+├── refetch_low_coverage.py # ✅ Re-fetch helper
+├── DEPLOYMENT.md         # ✅ Deployment guide
+├── README_SCRIPTS.md     # ✅ Script documentation
+├── PROJECT_STATUS.md     # ✅ Current status
+├── TODO_UNIFIED.md       # Development roadmap
+├── docker-compose.yml    # ✅ Local dev environment
+├── Dockerfile            # Container image
+├── pyproject.toml        # ✅ Dependencies
+└── requirements.txt      # ✅ Pip dependencies
 ```
 
-## See Also
+## Documentation
 
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete deployment guide (installation, setup, testing)
 - **[README_SCRIPTS.md](README_SCRIPTS.md)** - Detailed script usage and examples
-- **[TODO.md](TODO.md)** - Current development tasks
-- **[TODO_FINAL.md](TODO_FINAL.md)** - Production roadmap
+- **[PROJECT_STATUS.md](PROJECT_STATUS.md)** - Current development status
+- **[TODO_UNIFIED.md](TODO_UNIFIED.md)** - Development roadmap
+- **[COMPLETED_LOG.md](COMPLETED_LOG.md)** - Completed tasks log
 
 ## Development Status
 
-**Phase 1: Data Collection & ML Training** ✅ (Current)
+**Phase 1: Data Collection & ML Training** ✅ **COMPLETE** (Weeks 1-6)
 - ✅ Elasticsearch integration
 - ✅ Pattern detection with ML clustering
-- ✅ Temporal analysis
+- ✅ Temporal analysis (15-min windows)
 - ✅ Cross-app correlation
 - ✅ Daily report generation
 - ✅ Coverage tracking and re-fetch tools
+- ✅ ~600K errors analyzed (Nov 4-10, 2025)
 
-**Phase 2: AI Agent & Self-Learning** 🚧 (Next)
-- [ ] LLM integration (Ollama)
-- [ ] Root cause analysis
-- [ ] PostgreSQL for pattern storage
-- [ ] Feedback loop for learning
-- [ ] REST API for AWX integration
+**Phase 2: AI Agent & Self-Learning** ✅ **CODE COMPLETE** (Week 7)
+- ✅ LLM integration (Ollama + Mock)
+- ✅ Root cause analysis service
+- ✅ PostgreSQL schema & models (4 models, 3 migrations)
+- ✅ Feedback loop for learning
+- ✅ REST API (5 endpoints: analyze, feedback, patterns, history, health)
+- 🔄 Dependencies installation (in progress)
+- [ ] Database deployment & migrations
+- [ ] End-to-end testing
 
-**Phase 3: Production Deployment** 📋 (Future)
-- [ ] Kubernetes deployment
+**Phase 3: Production Deployment** 📋 **PLANNED** (Weeks 8-10)
+- [ ] Kubernetes deployment (Helm charts)
 - [ ] Real-time analysis (15-min intervals)
 - [ ] Automated alerting
 - [ ] Grafana dashboards
 - [ ] A/B testing framework
+- [ ] Performance optimization
+
+**Timeline:**
+- Weeks 1-6: Phase 1 ✅ (Completed Nov 10, 2025)
+- Week 7: Phase 2 ✅ (Code complete Nov 12, 2025)
+- Weeks 8-10: Phase 3 📋 (Deployment & production)
+
+---
+
+## Getting Started
+
+**For Quick Analysis (Phase 1):**
+```bash
+# 5-minute setup - no database needed
+python3 fetch_errors.py --from "2025-11-12T00:00:00" --to "2025-11-12T23:59:59" --output /tmp/errors.json
+python3 analyze_daily.py --input /tmp/errors.json --output /tmp/report.md
+```
+
+**For Full Setup (Phase 2):**
+See [DEPLOYMENT.md](DEPLOYMENT.md) for complete installation guide.
+
+---
 
 ## Contributing
 

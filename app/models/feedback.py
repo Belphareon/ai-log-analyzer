@@ -1,7 +1,7 @@
 """Feedback model for user feedback on findings and patterns."""
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -31,7 +31,7 @@ class Feedback(Base):
     time_to_resolve: Mapped[Optional[int]] = mapped_column(Integer)  # minutes
     
     # Pattern update tracking
-    pattern_updated: Mapped[bool] = mapped_column(Integer, default=False)
+    pattern_updated: Mapped[bool] = mapped_column(Integer, default=0)  # 0=False, 1=True for DB compat
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

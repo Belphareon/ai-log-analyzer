@@ -19,6 +19,17 @@ from datetime import datetime, timedelta
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Level value mapping
+LEVEL_VALUES = {
+    "DEBUG": 0,
+    "INFO": 1,
+    "WARN": 2,
+    "WARNING": 2,
+    "ERROR": 3,
+    "CRITICAL": 4,
+    "FATAL": 4,
+}
+
 
 @router.post("/analyze", response_model=List[FindingAnalysisResponse])
 async def analyze_findings(
@@ -55,10 +66,10 @@ async def analyze_findings(
                     namespace=finding_data.namespace,
                     container=finding_data.container,
                     message=finding_data.message,
-                    normalized_message=finding_data.normalized_message,
+                    normalized_message=finding_data.normalized_message or finding_data.message,  # Default to message if not provided
                     stack_trace=finding_data.stack_trace,
                     level=finding_data.level,
-                    level_value=finding_data.level_value,
+                    level_value=finding_data.level_value or LEVEL_VALUES.get(finding_data.level.upper(), 1),
                     count=finding_data.count,
                     context_data=finding_data.context_data,
                 )

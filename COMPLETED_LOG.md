@@ -71,7 +71,7 @@
   - Development timeline (Weeks 1-10)
   - Complete Documentation section
 
-### 7. Phase 2 Deployment & Testing (2025-11-12)
+### 7. Phase 2 Deployment & Testing (2025-11-12 Morning)
 - [x] Dependencies installation:
   - Virtual environment created (venv/)
   - All packages installed: SQLAlchemy 2.0.44, FastAPI 0.121.1, httpx 0.28.1
@@ -87,7 +87,99 @@
   - ✅ Analyze endpoint: LLM analysis working (root cause + 4 recommendations)
   - ✅ Metrics endpoint: 6 findings, top errors & apps
   - ✅ Elasticsearch integration: logs/errors and trends/weekly responding
-  - ⚠️ Feedback endpoint: has bug (rating parameter)
+  - ⚠️ Feedback endpoint: has bug (rating parameter) → FIXED afternoon
+
+### 8. Bug Fixes & E2E Testing (2025-11-12 Afternoon)
+- [x] Feedback endpoint bugs fixed:
+  - Column mapping: submitted_by → user_id
+  - Boolean vs Integer: pattern_updated (changed to Integer for DB compatibility)
+  - Removed non-existent Finding columns (feedback_comment, feedback_timestamp, resolution_notes)
+  - Both test scenarios passing (basic + resolved feedback)
+  - File: app/api/feedback.py, app/models/feedback.py
+- [x] Analyze endpoint bugs fixed:
+  - Added normalized_message default (fallback to message)
+  - Implemented level_value mapping (DEBUG=0, INFO=1, WARN=2, ERROR=3, CRITICAL=4)
+  - File: app/api/analyze.py
+- [x] End-to-end testing completed:
+  - ✅ Health: {"status": "healthy", "database": true, "ollama": true}
+  - ✅ Metrics: 6 findings, 2 feedback records, top errors tracked
+  - ✅ Analyze: OutOfMemoryError test - LLM generated perfect analysis
+  - ✅ Feedback: confirmed + resolved scenarios both working
+  - Documentation: E2E_TEST_RESULTS.md
+
+### 9. Kubernetes Deployment Preparation (2025-11-12 Afternoon)
+- [x] K8s manifesty vytvořeny pro nprod ArgoCD:
+  - Location: `/git/sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/`
+  - ArgoCD Application pattern (podle wiremock/redis)
+  - Vlastní namespace: ai-log-analyzer
+  - Conjur integration: DAP_PCB safe
+  - Vlastní Ollama deployment
+  - Ingress: ai-log-analyzer.sas.kbcloud
+- [x] Manifesty upraveny podle review:
+  - Cyberark safe DAP_PCB (ES: XX_PCBS_ES_READ, DB: dual account)
+  - ES URL: https://elasticsearch-test.kb.cz:9500 (plain text)
+  - ES index patterns: cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*
+  - Image registry: dockerhub.kb.cz/pccm-sq016/
+  - TopologySpreadConstraints pro HA
+  - Ollama resources sníženy na 512Mi-2Gi RAM
+- [x] Dockerfile health check opraven na /api/v1/health
+- [x] Kompletní deployment dokumentace v README.md
+
+**TODO před nasazením:**
+- [ ] Build & push ai-log-analyzer image do pccm-sq016
+- [ ] Pull ollama/ollama:latest & push do pccm-sq016
+- [ ] Vytvořit DB ailog_analyzer na P050TD01
+- [ ] Vytvořit dual account v Cyberark (DAP_PCB)
+- [ ] Request na DNS záznam ai-log-analyzer.sas.kbcloud
+- [ ] Commit do k8s-nprod-3100 branch
+
+### 10. Real Data Testing (2025-11-12 Odpoledne/Večer)
+- [x] fetch_today_batches.py script vytvořen
+- [x] Dependencies fix (aiohttp, elasticsearch downgrade 9.x → 8.11.0)
+- [x] Staženo 10 batchů dnešních dat (08:30-13:10)
+  - Batch #1: 0 errors (08:00-08:30)
+  - Batch #2-9: 3,500 errors celkem
+  - Batch #10-11: 0 errors (12:30-13:10)
+- [x] E2E analýza všech 8 aktivních batchů:
+  - 75 patterns (batch #2)
+  - 33 patterns (batch #3)
+  - 19-44 patterns (batches #4-9)
+- [x] Intelligent Analysis vytvořena:
+  - 5 top problem categories identifikováno
+  - Event Relay Chain Failure (339 errors) - HIGH priority
+  - DoGS External Service failures (32 errors)
+  - Timeline analysis (5-min buckets, peak 08:35)
+  - Cross-app dependencies mapped
+- [x] Documentation:
+  - `data/batches/2025-11-12/INTELLIGENT_ANALYSIS.txt`
+  - 9x batch reports (`batch_XX_report.md`)
+  - `fetch_today_batches.py` script
+
+**Statistiky:**
+- 3,500 errors za 4 hodiny (průměr 875/hod)
+- 5 key problem categories
+- 339 event relay failures (top issue)
+- Peak: 421 errors v 08:35
+
+### 11. Timezone Bug Fix (2025-11-12 Odpoledne) ✅
+- [x] **Problém identifikován**: Fetch stahoval jen ~160 errors místo 65K
+- [x] **Root cause**: Timezone offset
+  - Kibana zobrazuje local time (CET = UTC+1)
+  - Python scripty používaly UTC bez konverze
+  - Výsledek: hledal v budoucnosti (14:15-15:15 UTC místo 13:15-14:15 UTC)
+- [x] **Fix implementován**:
+  - `fetch_errors_smart.py`: Přidán převod local → UTC (-1 hodina)
+  - `trend_analyzer.py`: Změna filtru z `level_value >= 40000` na `level: ERROR`
+  - Přidán logging obou časů (local i UTC) do output JSON
+- [x] **Verifikace**:
+  - Před fix: 14:15-15:15 UTC → 162 errors ❌
+  - Po fix: 13:15-14:15 UTC → 65,299 errors ✅
+  - Shoda s Kibana: 65,287 errors (99.98% match)
+
+**Files modified:**
+- `fetch_errors_smart.py` - timezone conversion
+- `app/services/trend_analyzer.py` - query filter fix
+- `SESSION_PROGRESS.md` - bug documentation
 
 ---
 

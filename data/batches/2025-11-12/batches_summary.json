@@ -1,0 +1,88 @@
+{
+  "date": "2025-11-12",
+  "batches_count": 10,
+  "batches": [
+    {
+      "batch": 2,
+      "time_range": "08:30-09:00",
+      "total_errors": 1374,
+      "sample_size": 1374,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_02_0830-0900.json"
+    },
+    {
+      "batch": 3,
+      "time_range": "09:00-09:30",
+      "total_errors": 509,
+      "sample_size": 509,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_03_0900-0930.json"
+    },
+    {
+      "batch": 4,
+      "time_range": "09:30-10:00",
+      "total_errors": 311,
+      "sample_size": 311,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_04_0930-1000.json"
+    },
+    {
+      "batch": 5,
+      "time_range": "10:00-10:30",
+      "total_errors": 435,
+      "sample_size": 435,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_05_1000-1030.json"
+    },
+    {
+      "batch": 6,
+      "time_range": "10:30-11:00",
+      "total_errors": 184,
+      "sample_size": 184,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_06_1030-1100.json"
+    },
+    {
+      "batch": 7,
+      "time_range": "11:00-11:30",
+      "total_errors": 331,
+      "sample_size": 331,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_07_1100-1130.json"
+    },
+    {
+      "batch": 8,
+      "time_range": "11:30-12:00",
+      "total_errors": 136,
+      "sample_size": 136,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_08_1130-1200.json"
+    },
+    {
+      "batch": 9,
+      "time_range": "12:00-12:30",
+      "total_errors": 220,
+      "sample_size": 220,
+      "coverage": 100.0,
+      "file": "data/batches/2025-11-12/batch_09_1200-1230.json"
+    },
+    {
+      "batch": 10,
+      "time_range": "12:30-13:00",
+      "total_errors": 0,
+      "sample_size": 0,
+      "coverage": 0,
+      "file": "data/batches/2025-11-12/batch_10_1230-1300.json"
+    },
+    {
+      "batch": 11,
+      "time_range": "13:00-13:10",
+      "total_errors": 0,
+      "sample_size": 0,
+      "coverage": 0,
+      "file": "data/batches/2025-11-12/batch_11_1300-1310.json"
+    }
+  ],
+  "total_errors_all_batches": 3500,
+  "total_samples_all_batches": 3500
+}

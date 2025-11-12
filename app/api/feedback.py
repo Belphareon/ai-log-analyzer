@@ -35,25 +35,20 @@ async def submit_feedback(
         fb = Feedback(
             finding_id=feedback.finding_id,
             feedback_type=feedback.feedback_type,
-            rating=feedback.rating,
             comment=feedback.comment,
-            correct_root_cause=feedback.correct_root_cause,
-            correct_severity=feedback.correct_severity,
             resolution_applied=feedback.resolution_applied,
             time_to_resolve=feedback.time_to_resolve,
-            submitted_by=feedback.submitted_by,
-            submitted_at=datetime.utcnow()
+            user_id=feedback.submitted_by,  # Map to existing column
+            # created_at is set automatically by default
         )
         db.add(fb)
         
         # Update finding with feedback
         finding.feedback_type = feedback.feedback_type
-        finding.feedback_comment = feedback.comment
-        finding.feedback_timestamp = datetime.utcnow()
         
         if feedback.feedback_type == "resolved":
             finding.resolved = True
-            finding.resolution_notes = feedback.resolution_applied
+            finding.resolved_at = datetime.utcnow()
         
         db.commit()
         

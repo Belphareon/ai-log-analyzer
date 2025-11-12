@@ -63,10 +63,7 @@ class FeedbackCreate(BaseModel):
     """Submit feedback on analysis."""
     finding_id: int
     feedback_type: str  # confirmed, false_positive, partially_correct, resolved
-    rating: Optional[int] = Field(None, ge=1, le=5)
     comment: Optional[str] = None
-    correct_root_cause: Optional[str] = None
-    correct_severity: Optional[str] = None
     resolution_applied: Optional[str] = None
     time_to_resolve: Optional[int] = None  # minutes
     submitted_by: Optional[str] = None
