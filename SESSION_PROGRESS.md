@@ -158,6 +158,46 @@
 - Běží test fetch s timezone fixem: `data/last_hour_timezone_fixed.json`
 - Expected: ~65K errors místo ~160
 
+### 📊 Analýza dat (15:40)
+- ✅ Analýza provedena nad `data/last_hour_v2.json` (163 errors)
+- ✅ Report: `data/last_hour_analysis.md`
+- **Výsledky:**
+  - 6 unique error patterns
+  - Top issue: NotFoundException HTTP 404 (~46 occurrences)
+  - Affected apps: bl-pcb-v1 (SIT environment)
+
+### 🚀 Git Commit & Push (15:40)
+- ✅ Commit: "Fix timezone bug & cleanup documentation"
+- ✅ Push úspěšný (8d172b5)
+- **Změny:**
+  - 55 files changed, 32,687 insertions(+), 575 deletions(-)
+  - Timezone fix ve fetch scriptech
+  - Cleanup 12 .md souborů
+  - Real data testing results
+  - K8s manifests
+
 ---
 
-*Aktualizováno: 2025-11-12 15:35*
+## 📋 TODO - Zbývající úkoly
+
+### 🔍 Validace ML funkcionalit
+- [ ] **Machine Learning clustering** - ověřit že funguje správně
+  - Pattern detection (fingerprinting)
+  - Similarity metrics
+  - Normalizace messages
+- [ ] **Cross-app correlation** - spojování souvislostí
+  - Error chains tracking
+  - Temporal clustering (15min windows)
+  - Case/Card ID tracking napříč aplikacemi
+- [ ] Test na reálných datech s 65K errors
+- [ ] Validace Pattern grouping kvality
+
+### 🚀 Deployment
+- [ ] Build & push Docker images
+- [ ] Vytvoření DB na P050TD01
+- [ ] DNS request pro ai-log-analyzer.sas.kbcloud
+- [ ] Commit K8s manifestů do k8s-nprod-3100
+
+---
+
+*Aktualizováno: 2025-11-12 15:45*

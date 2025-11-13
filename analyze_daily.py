@@ -46,6 +46,19 @@ def analyze_errors(data):
         error_code = pattern_detector.extract_error_code(error_list[0]['message'])
         apps = list(set(e['app'] for e in error_list))
         
+        # Get unique trace IDs (for context analysis later)
+        trace_ids = [e.get('trace_id') for e in error_list if e.get('trace_id')]
+        unique_traces = len(set(trace_ids))
+        
+        # Calculate severity based on count and affected apps
+        severity = 'LOW'
+        if extrapolated > 100:
+            severity = 'MEDIUM'
+        if extrapolated > 500 or len(set(ns_extra.keys())) > 3:
+            severity = 'HIGH'
+        if extrapolated > 1000:
+            severity = 'CRITICAL'
+        
         patterns.append({
             'fingerprint': normalized[:80],
             'message_sample': error_list[0]['message'][:150],
@@ -55,7 +68,10 @@ def analyze_errors(data):
             'apps': apps[:5],
             'namespaces': ns_extra,
             'first_seen': min(e['timestamp'] for e in error_list),
-            'last_seen': max(e['timestamp'] for e in error_list)
+            'last_seen': max(e['timestamp'] for e in error_list),
+            'severity': severity,
+            'unique_traces': unique_traces,
+            'total_traces': len(trace_ids)
         })
     
     # Sort by count
@@ -76,7 +92,27 @@ def generate_markdown_report(data, patterns, output_file):
         f.write("## Top 20 Error Patterns\n\n")
         
         for i, p in enumerate(patterns[:20], 1):
-            f.write(f"### {i}. {p['fingerprint']}\n\n")
+            # Severity emoji
+            severity_icons = {
+                'CRITICAL': '🔴',
+                'HIGH': '🟠',
+                'MEDIUM': '🟡',
+                'LOW': '🟢'
+            }
+            icon = severity_icons.get(p.get('severity', 'LOW'), '⚪')
+            
+            f.write(f"### {i}. {icon} {p['fingerprint']}\n\n")
+            f.write(f"**Severity:** {p.get('severity', 'LOW')}\n\n")
+            
+            # Impact Summary
+            env_count = len(p['namespaces'])
+            app_count = len(p['apps'])
+            f.write(f"**Impact:** {p['count']:,} errors across {app_count} app(s) in {env_count} environment(s)\n\n")
+            
+            # Trace context availability
+            if p.get('unique_traces', 0) > 0:
+                f.write(f"**Trace Context:** {p['unique_traces']} unique request(s) tracked\n\n")
+            
             f.write(f"**Estimated Total:** ~{p['count']:,} occurrences\n\n")
             f.write(f"**Sample Count:** {p['sample_count']}\n\n")
             if p['error_code']:

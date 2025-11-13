@@ -56,13 +56,33 @@ async def fetch_with_target_coverage(date_from, date_to, target_coverage=75, max
     # Import here to avoid circular dependency
     from app.services.trend_analyzer import trend_analyzer
     
-    print("⏳ Fetching errors...")
-    errors, _ = await trend_analyzer.fetch_errors_batch(
-        time_from=time_from,
-        time_to=time_to,
-        batch_size=10000,
-        max_total=sample_size
-    )
+    print("⏳ Fetching errors with progress tracking...")
+    print(f"   Progress: [", end="", flush=True)
+    
+    errors = []
+    batch_count = 0
+    total_batches = (sample_size // 10000) + 1
+    
+    # Fetch in batches with progress
+    for i in range(0, sample_size, 10000):
+        batch_size_current = min(10000, sample_size - i)
+        batch_errors, _ = await trend_analyzer.fetch_errors_batch(
+            time_from=time_from,
+            time_to=time_to,
+            batch_size=batch_size_current,
+            max_total=batch_size_current
+        )
+        errors.extend(batch_errors)
+        batch_count += 1
+        
+        # Progress bar
+        progress = int((batch_count / total_batches) * 50)
+        print(f"\r   Progress: [{'=' * progress}{' ' * (50 - progress)}] {batch_count}/{total_batches} batches ({len(errors):,} errors)", end="", flush=True)
+        
+        if len(errors) >= sample_size:
+            break
+    
+    print()  # New line after progress
     
     coverage = (len(errors) / total * 100) if total > 0 else 0
     

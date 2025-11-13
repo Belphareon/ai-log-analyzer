@@ -8,17 +8,38 @@ class PatternDetector:
     """Detect error patterns and classify as new/recurring"""
     
     def normalize_message(self, message: str) -> str:
-        """Normalize error message for pattern matching"""
-        # Remove numbers (IDs) - všechna čísla 3+ digits
-        normalized = re.sub(r'\d{3,}', '{ID}', message)
-        # Remove UUIDs
+        """Normalize error message for pattern matching
+        
+        ORDER MATTERS! More specific patterns must come first
+        to avoid being overwritten by general {ID} pattern.
+        """
+        normalized = message
+        
+        # 1. UUIDs (before general ID pattern)
         normalized = re.sub(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '{UUID}', normalized, flags=re.I)
-        # Remove timestamps
-        normalized = re.sub(r'\d{4}-\d{2}-\d{2}T[\d:\.]+Z?', '{TIMESTAMP}', normalized)
-        # Remove IPs
-        normalized = re.sub(r'\d+\.\d+\.\d+\.\d+', '{IP}', normalized)
-        # Remove hex addresses
+        
+        # 2. Timestamps (before general ID pattern)
+        normalized = re.sub(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?', '{TIMESTAMP}', normalized)
+        
+        # 3. IP addresses (before general ID pattern)
+        normalized = re.sub(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', '{IP}', normalized)
+        
+        # 4. Hex addresses (before general ID pattern)
         normalized = re.sub(r'0x[0-9a-f]+', '{HEX}', normalized, flags=re.I)
+        
+        # 5. Port numbers after IP
+        normalized = re.sub(r'\{IP\}:\d{2,5}', '{IP}:{PORT}', normalized)
+        
+        # 6. HTTP status codes (keep specific)
+        normalized = re.sub(r'\b(HTTP|Status)\s+(\d{3})\b', r'\1 {STATUS}', normalized, flags=re.I)
+        
+        # 7. Durations and measurements (before general ID)
+        normalized = re.sub(r'\b\d+(ms|s|sec|min|minutes|h|hours|%)\b', r'{N}\1', normalized, flags=re.I)
+        
+        # 8. General numbers (IDs) - 3+ digits
+        # This must be LAST as it's most general
+        normalized = re.sub(r'\b\d{3,}\b', '{ID}', normalized)
+        
         return normalized[:200]
     
     def extract_error_code(self, message: str) -> str:

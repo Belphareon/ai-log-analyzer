@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Intelligent Error Analysis - Step 1: Load and basic stats
+WITH TRACE-BASED ROOT CAUSE ANALYSIS
 """
 import json
 import sys
@@ -27,6 +28,168 @@ def load_batches(batch_dir):
     
     print(f"\n✅ Total: {len(all_errors):,} errors loaded\n")
     return all_errors
+
+# ============================================================================
+# TRACE-BASED ROOT CAUSE ANALYSIS (NEW)
+# ============================================================================
+
+class TraceExtractor:
+    """Extract and analyze trace_id groups"""
+    
+    def __init__(self, errors):
+        self.errors = errors
+        self.trace_groups = defaultdict(list)
+        self._group_by_trace_id()
+    
+    def _group_by_trace_id(self):
+        """Group all errors by trace_id"""
+        for error in self.errors:
+            trace_id = error.get('trace_id', 'NO_TRACE')
+            self.trace_groups[trace_id].append(error)
+    
+    def get_trace_chain(self, trace_id):
+        """Get full error chain for given trace_id, sorted by timestamp"""
+        errors = self.trace_groups.get(trace_id, [])
+        return sorted(errors, key=lambda e: e.get('timestamp', ''))
+    
+    def find_root_cause_in_trace(self, trace_id):
+        """Find root cause (first error) in trace chain"""
+        chain = self.get_trace_chain(trace_id)
+        if chain:
+            return chain[0]  # First error chronologically
+        return None
+    
+    def get_root_causes(self):
+        """Find root cause for each unique trace_id"""
+        root_causes_dict = {}  # key: normalized message, value: list of root causes
+        
+        for trace_id in self.trace_groups.keys():
+            root_error = self.find_root_cause_in_trace(trace_id)
+            if root_error:
+                app = root_error.get('app', 'unknown')
+                msg = root_error.get('message', '')
+                namespace = root_error.get('namespace', 'unknown')
+                timestamp = root_error.get('timestamp', '')
+                
+                # Create key from app + first 100 chars of message
+                cause_key = f"{app}: {msg[:100]}"
+                
+                if cause_key not in root_causes_dict:
+                    root_causes_dict[cause_key] = {
+                        'app': app,
+                        'message': msg[:150],
+                        'trace_ids': [],
+                        'first_seen': timestamp,
+                        'last_seen': timestamp,
+                        'total_errors_in_traces': 0,
+                        'affected_namespaces': set(),
+                        'affected_apps': set(),
+                    }
+                
+                # Update stats
+                root_causes_dict[cause_key]['trace_ids'].append(trace_id)
+                root_causes_dict[cause_key]['total_errors_in_traces'] += len(self.trace_groups[trace_id])
+                root_causes_dict[cause_key]['affected_namespaces'].add(namespace)
+                
+                # Collect all affected apps from this trace
+                for error in self.trace_groups[trace_id]:
+                    root_causes_dict[cause_key]['affected_apps'].add(error.get('app', 'unknown'))
+                
+                # Update timestamps
+                chain = self.get_trace_chain(trace_id)
+                if chain:
+                    root_causes_dict[cause_key]['first_seen'] = min(
+                        root_causes_dict[cause_key]['first_seen'],
+                        chain[0].get('timestamp', '')
+                    )
+                    root_causes_dict[cause_key]['last_seen'] = max(
+                        root_causes_dict[cause_key]['last_seen'],
+                        chain[-1].get('timestamp', '')
+                    )
+        
+        # Sort by total errors descending
+        sorted_causes = sorted(
+            root_causes_dict.items(),
+            key=lambda x: x[1]['total_errors_in_traces'],
+            reverse=True
+        )
+        
+        return sorted_causes
+    
+    def get_stats(self):
+        """Get overall statistics"""
+        total_traces = len(self.trace_groups)
+        total_errors = sum(len(errors) for errors in self.trace_groups.values())
+        
+        # Errors per app
+        app_errors = defaultdict(int)
+        for errors in self.trace_groups.values():
+            for error in errors:
+                app = error.get('app', 'unknown')
+                app_errors[app] += 1
+        
+        # Errors per namespace
+        ns_errors = defaultdict(int)
+        for errors in self.trace_groups.values():
+            for error in errors:
+                ns = error.get('namespace', 'unknown')
+                ns_errors[ns] += 1
+        
+        return {
+            'total_traces': total_traces,
+            'total_errors': total_errors,
+            'app_distribution': dict(sorted(app_errors.items(), key=lambda x: -x[1])),
+            'namespace_distribution': dict(sorted(ns_errors.items(), key=lambda x: -x[1])),
+        }
+
+def analyze_trace_based_root_causes(errors):
+    """Analyze errors using trace-based root cause detection"""
+    
+    print(f"\n{'='*80}")
+    print("🔍 TRACE-BASED ROOT CAUSE ANALYSIS")
+    print("="*80)
+    
+    extractor = TraceExtractor(errors)
+    stats = extractor.get_stats()
+    root_causes = extractor.get_root_causes()
+    
+    print(f"\n📊 Trace Statistics:")
+    print(f"  Total unique traces: {stats['total_traces']}")
+    print(f"  Total errors: {stats['total_errors']}")
+    print(f"  Avg errors per trace: {stats['total_errors'] / stats['total_traces']:.1f}")
+    print(f"  Unique root causes: {len(root_causes)}")
+    
+    print(f"\n🎯 Root Causes by App:")
+    for app, count in list(stats['app_distribution'].items())[:5]:
+        pct = (count / stats['total_errors'] * 100) if stats['total_errors'] > 0 else 0
+        print(f"  {app}: {count:4d} errors ({pct:5.1f}%)")
+    
+    print(f"\n🔗 Namespace Distribution:")
+    for ns, count in list(stats['namespace_distribution'].items())[:5]:
+        pct = (count / stats['total_errors'] * 100) if stats['total_errors'] > 0 else 0
+        print(f"  {ns}: {count:4d} errors ({pct:5.1f}%)")
+    
+    print(f"\n🔴 Top Root Causes:")
+    for i, (cause_key, cause_data) in enumerate(root_causes[:5], 1):
+        pct = (cause_data['total_errors_in_traces'] / stats['total_errors'] * 100) if stats['total_errors'] > 0 else 0
+        
+        # Severity
+        if pct >= 10:
+            severity = "🔴 CRITICAL"
+        elif pct >= 5:
+            severity = "🟠 HIGH"
+        elif pct >= 1:
+            severity = "🟡 MEDIUM"
+        else:
+            severity = "🟢 LOW"
+        
+        print(f"\n  {i}. {severity}")
+        print(f"     App: {cause_data['app']}")
+        print(f"     Message: {cause_data['message'][:80]}...")
+        print(f"     Errors: {cause_data['total_errors_in_traces']} ({pct:.1f}%)")
+        print(f"     Traces: {len(cause_data['trace_ids'])}")
+        print(f"     Affected apps: {', '.join(sorted(cause_data['affected_apps']))}")
+        print(f"     Namespaces: {', '.join(sorted(cause_data['affected_namespaces']))}")
 
 def analyze_timeline_5min(errors):
     """Timeline aggregated by 5 minutes"""
@@ -250,6 +413,7 @@ def generate_big_picture(errors):
 if __name__ == "__main__":
     batch_dir = sys.argv[1] if len(sys.argv) > 1 else "data/batches/2025-11-12"
     errors = load_batches(batch_dir)
+    analyze_trace_based_root_causes(errors)  # NEW: Trace-based analysis
     analyze_timeline_5min(errors)
     analyze_api_calls(errors)
     analyze_cross_app_correlation(errors)
