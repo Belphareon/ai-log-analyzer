@@ -321,89 +321,19 @@ This completes the ML analysis pipeline with root cause focus.
 
 ### Úkol 5: Přidat indexy - PCA & PCB-CH (COMPLETED) ✅
 
-**Čas:** 11:00-11:15
+**Čas:** 11:00-11:45
 
-**Analýza:**
-1. ✅ simple_fetch.py - měl bereits všechny 3 indexy: PCB, PCA, PCB_CH
-2. ✅ fetch_errors_smart.py - používá `es_service.index_pattern` (z settings)
-3. ✅ fetch_today_batches.py - používá `fetch_errors_smart` (transitively settings)
+**Live Data Validation - Nov 18, 16:58-17:28 CET:**
+- ✅ PCB-CH index: 62 ERROR level events found
+- ✅ BFF aplikace: `bff-pcb-ch-card-servicing-v1` - všechny 62 events
+- ✅ Field mapping: `application.name` je správně mapován v JSON
+- ✅ Combined query (PCB+PCA+PCB-CH): vrací všechny clustery
+- ✅ Field normalization: `application.name` → `app` field v output
 
-**Úprava:**
-- ✅ .env: změněn `ES_INDEX=cluster-app_pcb-*` 
-  → `ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*`
-
-**Verification:**
-- ✅ simple_fetch.py: má všechny 3 indexy
-- ✅ .env (settings): má všechny 3 indexy
-- ✅ fetch_errors_smart.py: čte z .env přes settings
+**Konfigurace:**
+- ✅ simple_fetch.py: hardcoded všechny 3 indexy
+- ✅ .env: `ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*`
+- ✅ fetch_errors_smart.py: čte ES_INDEX z settings
 - ✅ fetch_today_batches.py: čte přes fetch_errors_smart
-- ✅ Test Integration Pipeline: PASS (žádné změny v chování)
 
-**Status:** Hotovo - všechny tři aplikace mohou teď analyzovat PCB, PCA i PCB_CH clustery
-
-**Obsah vytvořeného manuálu:**
-1. ✅ Quick Navigation - přehled sekcí
-2. ✅ Installation & Setup - jak začít (Python, deps, .env)
-3. ✅ Running the Pipeline - step-by-step:
-   - Simple Fetch - testovací data
-   - Smart Fetch - produkční data s coverage control
-   - Trace Extraction - grupování podle trace_id
-   - Report Generation - detailní markdown report
-4. ✅ Understanding Output - čtení reportů (CRITICAL/HIGH/MEDIUM/LOW)
-5. ✅ Common Tasks - typické úkoly:
-   - Daily analysis
-   - Real-time monitoring
-   - Investigate specific app
-6. ✅ Troubleshooting - řešení problémů (ES connection, empty results, memory)
-7. ✅ Testing - run test suite
-8. ✅ Production Deployment - Docker Compose, Kubernetes
-9. ✅ Support & Escalation - kontakty a cesty
-
-**Struktura:**
-- Praktické příkazy s příklady
-- Reálné JSON output struktury
-- Čtení severity indicators (🔴🟠🟡🟢)
-- Specificity rates (Concrete 57%, Semi-specific 30%, Generic 13%)
-- Troubleshooting tabulka
-
-**Status:** Hotovo - manuál je operačně kompletní
-
-5. **[T2.5] Git commit** (5 min)
-
----
-
-## 🚀 Quick start (for a new developer or LLM)
-
-If you're new to this repository or handing it to another language model, start here.
-
-- What is done: see `COMPLETED_LOG.md` for a full history of completed work (trace analysis, tests, reports).
-- Current focus: documentation updates and final validation (see `working_progress.md` sections above).
-
-Minimal way to run the core pipeline locally (assumes Python 3.10+, dependencies installed):
-
-1) Fetch data (or use sample):
-```bash
-python3 simple_fetch.py --from "2025-11-12T08:30:00" --to "2025-11-12T12:30:00" --max-sample 50000 --output data/sample_errors.json
-```
-
-2) Extract traces / root causes:
-```bash
-python3 trace_extractor.py --input data/sample_errors.json --output data/sample_root_causes.json
-```
-
-3) Generate detailed report:
-```bash
-python3 trace_report_detailed.py --input data/sample_root_causes.json --output data/sample_root_cause_report.md
-```
-
-Quick checks:
-- Check `data/sample_root_cause_report.md` for contextualized root causes.
-- If you want to re-run tests: `python3 test_integration_pipeline.py` (will look under `data/batches/2025-11-12`).
-
-If you hand this to another model, include pointers to:
-- `COMPLETED_LOG.md` (what's done)
-- `working_progress.md` (current state and next steps)
-- `README_SCRIPTS.md` (usage of individual scripts)
-
-Notes:
-- Some large binary data (e.g. `data.1`) exists in the repo root — it's likely a model file (GGUF). Be careful not to commit large binaries into Git history if you plan to share the repo.
+**Status:** Hotovo - všechny 3 clustery nakonfigurované a ověřené na živých datech
