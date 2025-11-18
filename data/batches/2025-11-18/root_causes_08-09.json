@@ -1,0 +1,610 @@
+{
+  "period_start": "2025-11-18T08:00:00",
+  "period_end": "2025-11-18T09:00:00",
+  "stats": {
+    "total_traces": 69,
+    "total_errors": 285,
+    "app_distribution": {
+      "bl-pcb-v1": 211,
+      "bl-pcb-event-processor-relay-v1": 23,
+      "bl-pcb-batch-processor-v1": 22,
+      "bl-pcb-v1-processing": 7,
+      "bl-pcb-click2pay-v1": 6,
+      "bl-pcb-billing-v1": 4,
+      "bl-pcb-atm-locator-v1": 4,
+      "bl-pcb-card-georisk-v1": 3,
+      "bl-pcb-client-rainbow-status-v1": 2,
+      "bl-pcb-document-signing-v1": 2,
+      "bl-pcb-design-lifecycle-v1": 1
+    },
+    "namespace_distribution": {
+      "pcb-sit-01-app": 113,
+      "pcb-dev-01-app": 63,
+      "pcb-fat-01-app": 59,
+      "pcb-uat-01-app": 50
+    }
+  },
+  "root_causes": [
+    {
+      "rank": 1,
+      "app": "bl-pcb-v1",
+      "message": "ServiceBusinessException error handled.",
+      "errors_count": 33,
+      "errors_percent": 11.6,
+      "trace_ids_count": 7,
+      "trace_ids": [
+        "fb7bc51c84454dabad0e26678115e1a2",
+        "569f05a5098c4871ae69de5e9d874a86",
+        "691c1ae84ad58825a461c14f20ebb542",
+        "691c1af23777a951dde5c910cff003a4",
+        "691c1afcf47bd3afda6f260b3aec58b8",
+        "691c1b06b88a35842d2d16f160f6aaac",
+        "691c1b10215754eb2921f5b9b0d82783"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-sit-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:00:46.403000+00:00",
+      "last_seen": "2025-11-18 07:06:56.692000+00:00"
+    },
+    {
+      "rank": 2,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 199999000199999000 and product instance null not found.\n\tat cz",
+      "errors_count": 28,
+      "errors_percent": 9.8,
+      "trace_ids_count": 7,
+      "trace_ids": [
+        "b7612ebe930740f388195215567d9820",
+        "fbfbb0e6723e4454a75f5a52ebd3ebc9",
+        "252239255e7b4bbbae32252061cda26f",
+        "75076e29b8e64ee586b45e108ccc846d",
+        "ecac4aa96d9d47bc8c73e506ccc2cf11",
+        "176c66d9104945bebf6106df99bf5cf9",
+        "8a9ebb986ebd40f599181e2b532d71e7"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:00:00.622000+00:00",
+      "last_seen": "2025-11-18 07:00:41.804000+00:00"
+    },
+    {
+      "rank": 3,
+      "app": "bl-pcb-v1",
+      "message": "SPEED-101#PCB#bl-pcb#bl-pcb-v1#POST#dogs-test.dslab.kb.cz#/v3/BE/api/cases/start#500#",
+      "errors_count": 21,
+      "errors_percent": 7.4,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "9a324306e401b92eec05f3458b0a2b78",
+        "fe64f3a741cca0eef6486a554cf317cf",
+        "12d7e383547bfbde812b8ae24509ac33"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app"
+      ],
+      "first_seen": "2025-11-18 07:07:41.695000+00:00",
+      "last_seen": "2025-11-18 07:07:58.900000+00:00"
+    },
+    {
+      "rank": 4,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 62060 and product instance null not found.\n\tat cz.kb.common.sp",
+      "errors_count": 20,
+      "errors_percent": 7.0,
+      "trace_ids_count": 4,
+      "trace_ids": [
+        "691c1b06f13945784b526912f9895923",
+        "691c1b068ae6d2c8724ac1f1d78c994f",
+        "691c1b108d787e94dfe85195e3138a70",
+        "691c1b10b54ccfdc80a3b3b09f691363"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-sit-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:06:46.679000+00:00",
+      "last_seen": "2025-11-18 07:06:56.691000+00:00"
+    },
+    {
+      "rank": 5,
+      "app": "bl-pcb-v1",
+      "message": "SQL value CERTIFICATE_OF_INSURANCE could not be converted to the enumeration value!",
+      "errors_count": 18,
+      "errors_percent": 6.3,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "fb5c72f85c04cc5d50ad33ff10a3b4a0",
+        "1ef1782108095ac604d971147c96d2aa",
+        "b6166948edef202838b471045e8ffbe7"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app"
+      ],
+      "first_seen": "2025-11-18 07:08:03.931000+00:00",
+      "last_seen": "2025-11-18 07:09:13.200000+00:00"
+    },
+    {
+      "rank": 6,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 121076 and product instance null not found.\n\tat cz.kb.common.s",
+      "errors_count": 18,
+      "errors_percent": 6.3,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1b7e37538e8abd841f6b5bdf6d65",
+        "691c1b7e49b1730fac50be6c2fa1d76b",
+        "691c1b7e8376ad6e91e7115229a31018"
+      ],
+      "affected_apps": [
+        "bl-pcb-billing-v1",
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app",
+        "pcb-fat-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:08:46.968000+00:00",
+      "last_seen": "2025-11-18 07:08:47.158000+00:00"
+    },
+    {
+      "rank": 7,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 47028 and product instance null not found.\n\tat cz.kb.common.sp",
+      "errors_count": 15,
+      "errors_percent": 5.3,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1adecd40bf0699bf2fc4073531f4",
+        "691c1adefa0ceded9d2b7b2ef04a0146",
+        "691c1ae8bc3a555e7294f2f4d2f00335"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:06:06.562000+00:00",
+      "last_seen": "2025-11-18 07:06:16.569000+00:00"
+    },
+    {
+      "rank": 8,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 62118 and product instance null not found.\n\tat cz.kb.common.sp",
+      "errors_count": 15,
+      "errors_percent": 5.3,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1af2481c4b45447d141cb2933dcb",
+        "691c1af234fbe74af376175c8144e5a6",
+        "691c1af24e7f7e2f8e6933627c1de922"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:06:26.593000+00:00",
+      "last_seen": "2025-11-18 07:06:26.836000+00:00"
+    },
+    {
+      "rank": 9,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 62396 and product instance null not found.\n\tat cz.kb.common.sp",
+      "errors_count": 15,
+      "errors_percent": 5.3,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1afc20f1a656369bdaec7d0de6f3",
+        "691c1b060d9675ef4124b7080c0b7f64",
+        "691c1b0656fd4e2bdf8386a16bc8e1fa"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:06:36.627000+00:00",
+      "last_seen": "2025-11-18 07:06:46.662000+00:00"
+    },
+    {
+      "rank": 10,
+      "app": "bl-pcb-batch-processor-v1",
+      "message": "An error occurred during job processing, job BatchJobIdentification(jobName=accountBalancesCzExport, effectiveDate=2025-11-17).",
+      "errors_count": 14,
+      "errors_percent": 4.9,
+      "trace_ids_count": 7,
+      "trace_ids": [
+        "691c1972aabaa6d71eb112d150639d35",
+        "691c1a9debf7169cb543241718abc23c",
+        "691c1bcd08408449bb0c0b81c29ca55a",
+        "691c1cf61dd6e68b2b12c96eace7bb37",
+        "691c1f4d6c13c735c586bcee130c3601",
+        "691c2079b1a0e2f7a72bf1b3737a1e11",
+        "691c21a561e5d0ce4f9bb41f6a7b93c1"
+      ],
+      "affected_apps": [
+        "bl-pcb-batch-processor-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:00:02.113000+00:00",
+      "last_seen": "2025-11-18 07:35:02.073000+00:00"
+    },
+    {
+      "rank": 11,
+      "app": "bl-pcb-v1",
+      "message": "Handling route exception IllegalStateException with error Unable to resolve JWT token from CAAS. by UnhandledExceptionProcessor.",
+      "errors_count": 12,
+      "errors_percent": 4.2,
+      "trace_ids_count": 2,
+      "trace_ids": [
+        "691c1a9cf9d8c8ea2599f87ca314b1eb",
+        "691c21a48d55ed5647a3564199eff3be"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:05:16.605000+00:00",
+      "last_seen": "2025-11-18 07:35:16.729000+00:00"
+    },
+    {
+      "rank": 12,
+      "app": "bl-pcb-client-rainbow-status-v1",
+      "message": "ITO-154#PCB#bl-pcb-client-rainbow-status#bl-pcb-client-rainbow-status-v1#n/a#n/a#n/a#n/a#154#Events are too long in status IMMEDIATE.",
+      "errors_count": 10,
+      "errors_percent": 3.5,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        null
+      ],
+      "affected_apps": [
+        "bl-pcb-atm-locator-v1",
+        "bl-pcb-billing-v1",
+        "bl-pcb-card-georisk-v1",
+        "bl-pcb-client-rainbow-status-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app"
+      ],
+      "first_seen": "2025-11-18 07:00:03.656000+00:00",
+      "last_seen": "2025-11-18 07:30:04.463000+00:00"
+    },
+    {
+      "rank": 13,
+      "app": "bl-pcb-v1",
+      "message": "ITO-004#PCB#bl-pcb#bl-pcb-v1#n/a#n/a#n/a#n/a#004#Configuration error. Code 'B4' was not found in RDM codelist CB_PaymentCardSpecsName for locale cs.",
+      "errors_count": 8,
+      "errors_percent": 2.8,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "800932b32e004f306132a90bf4076ed5"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:03:13.574000+00:00",
+      "last_seen": "2025-11-18 07:03:13.701000+00:00"
+    },
+    {
+      "rank": 14,
+      "app": "bl-pcb-v1",
+      "message": "There is not codelist value for key B4 in codelist CB_PaymentCardSpecsName and locale cs. Will not be translated.",
+      "errors_count": 8,
+      "errors_percent": 2.8,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "ad3ef05fc2d46005a3246feb02ee7906"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:03:19.129000+00:00",
+      "last_seen": "2025-11-18 07:03:19.216000+00:00"
+    },
+    {
+      "rank": 15,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Validation error. Cannot convert cardId 'neexist' of type String to Long.\n\tat cz.kb.common.spee",
+      "errors_count": 8,
+      "errors_percent": 2.8,
+      "trace_ids_count": 2,
+      "trace_ids": [
+        "fcc0688095c94cbbb44fc889dbb9c869",
+        "18e3d64776a943ab8a03bc41bb2e109e"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:13:35.835000+00:00",
+      "last_seen": "2025-11-18 07:13:35.934000+00:00"
+    },
+    {
+      "rank": 16,
+      "app": "bl-pcb-batch-processor-v1",
+      "message": "An error occurred during job processing, job BatchJobIdentification(jobName=accountBalancesSkExport, effectiveDate=2025-11-17).",
+      "errors_count": 6,
+      "errors_percent": 2.1,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1976377421f09610c572252140f2",
+        "691c1cf657df061626174ad347c77486",
+        "691c207ca4b8ba4a1d5d34199a5906b8"
+      ],
+      "affected_apps": [
+        "bl-pcb-batch-processor-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:00:06.473000+00:00",
+      "last_seen": "2025-11-18 07:30:04.354000+00:00"
+    },
+    {
+      "rank": 17,
+      "app": "bl-pcb-v1-processing",
+      "message": "ITO-154#PCB#bl-pcb#bl-pcb-v1#n/a#n/a#n/a#n/a#154#Events are too long in status REGISTERED.",
+      "errors_count": 6,
+      "errors_percent": 2.1,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1f4def9899e949a0aa9a0735132f",
+        "691c1f4d51563062b2f488b024395f40",
+        "691c1f4d6e2a2a8f79a06cf7499fdf36"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1-processing"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app",
+        "pcb-sit-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:25:01.422000+00:00",
+      "last_seen": "2025-11-18 07:25:01.921000+00:00"
+    },
+    {
+      "rank": 18,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 62988 and product instance null not found.\n\tat cz.kb.common.sp",
+      "errors_count": 5,
+      "errors_percent": 1.8,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "691c21eb8dd4f42552144e6b13175527"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:36:12.063000+00:00",
+      "last_seen": "2025-11-18 07:36:12.079000+00:00"
+    },
+    {
+      "rank": 19,
+      "app": "bl-pcb-v1",
+      "message": "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id 62948 and product instance null not found.\n\tat cz.kb.common.sp",
+      "errors_count": 5,
+      "errors_percent": 1.8,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "691c21ecf3d3129616d94cda7330e27f"
+      ],
+      "affected_apps": [
+        "bl-pcb-event-processor-relay-v1",
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:36:12.109000+00:00",
+      "last_seen": "2025-11-18 07:36:12.114000+00:00"
+    },
+    {
+      "rank": 20,
+      "app": "bl-pcb-v1",
+      "message": "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@5f2cc549[category=15,code=err.103,originalCode=<null>,message=Resource not found. Ca",
+      "errors_count": 4,
+      "errors_percent": 1.4,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "15cb8496bfca4fa3b93fd977f257facb"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:00:13.551000+00:00",
+      "last_seen": "2025-11-18 07:00:13.552000+00:00"
+    },
+    {
+      "rank": 21,
+      "app": "bl-pcb-v1",
+      "message": "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@1cf97fcd[category=15,code=err.021,originalCode=<null>,message=Account owner is not a",
+      "errors_count": 4,
+      "errors_percent": 1.4,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "c0788cf077e15eaeaad0da3e94e98e35"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app"
+      ],
+      "first_seen": "2025-11-18 07:08:52.689000+00:00",
+      "last_seen": "2025-11-18 07:08:52.690000+00:00"
+    },
+    {
+      "rank": 22,
+      "app": "bl-pcb-click2pay-v1",
+      "message": "ITO-156#PCB#bl-pcb-click2pay#bl-pcb-click2pay-v1#n/a#n/a#n/a#n/a#156#No event was received since 2025-11-16T23:52:04.569669+01:00[Europe/Prague].",
+      "errors_count": 3,
+      "errors_percent": 1.1,
+      "trace_ids_count": 3,
+      "trace_ids": [
+        "691c1b158d2e03092dd6618f612ca4b4",
+        "691c1b154efbf5dbe323a7e161231d56",
+        "691c1b159abb11eb8a0da05ca61ac643"
+      ],
+      "affected_apps": [
+        "bl-pcb-click2pay-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-sit-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:07:01.473000+00:00",
+      "last_seen": "2025-11-18 07:07:01.674000+00:00"
+    },
+    {
+      "rank": 23,
+      "app": "bl-pcb-click2pay-v1",
+      "message": "ITO-154#PCB#bl-pcb-click2pay#bl-pcb-click2pay-v1#n/a#n/a#n/a#n/a#154#Events are too long in status REGISTERED.",
+      "errors_count": 3,
+      "errors_percent": 1.1,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "691c1b15439175479e297c54fd8f9c45"
+      ],
+      "affected_apps": [
+        "bl-pcb-click2pay-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app"
+      ],
+      "first_seen": "2025-11-18 07:07:01.329000+00:00",
+      "last_seen": "2025-11-18 07:07:01.335000+00:00"
+    },
+    {
+      "rank": 24,
+      "app": "bl-pcb-document-signing-v1",
+      "message": "ITO-156#PCB#bl-pcb-document-signing#bl-pcb-document-signing-v1#n/a#n/a#n/a#n/a#156#No event was received since 2025-11-17T08:17:01.568065890+01:00[Eur",
+      "errors_count": 2,
+      "errors_percent": 0.7,
+      "trace_ids_count": 2,
+      "trace_ids": [
+        "691c1d6d4b086ed4877e1696d5143b2e",
+        "691c1d6dae3a0b5948e9942bd2f7492e"
+      ],
+      "affected_apps": [
+        "bl-pcb-document-signing-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app",
+        "pcb-uat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:17:01.139000+00:00",
+      "last_seen": "2025-11-18 07:17:01.575000+00:00"
+    },
+    {
+      "rank": 25,
+      "app": "bl-pcb-batch-processor-v1",
+      "message": "ITO-131#PCB#bl-pcb-batch-processor#bl-pcb-batch-processor-v1#n/a#n/a#n/a#n/a#131#Some problems in critical account balances transfer to CMS occurred. ",
+      "errors_count": 2,
+      "errors_percent": 0.7,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "691c1e2535599c8e7e0b9185cd4ad6b7"
+      ],
+      "affected_apps": [
+        "bl-pcb-batch-processor-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-sit-01-app"
+      ],
+      "first_seen": "2025-11-18 07:20:05.224000+00:00",
+      "last_seen": "2025-11-18 07:20:05.224000+00:00"
+    },
+    {
+      "rank": 26,
+      "app": "bl-pcb-design-lifecycle-v1",
+      "message": "ITO-156#PCB#bl-pcb-design-lifecycle#bl-pcb-design-lifecycle-v1#n/a#n/a#n/a#n/a#156#No event was received since 2025-11-17T08:08:03.883169878+01:00[Eur",
+      "errors_count": 1,
+      "errors_percent": 0.4,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "691c1b53138793abfdfb395bc66b9249"
+      ],
+      "affected_apps": [
+        "bl-pcb-design-lifecycle-v1"
+      ],
+      "affected_namespaces": [
+        "pcb-dev-01-app"
+      ],
+      "first_seen": "2025-11-18 07:08:03.900000+00:00",
+      "last_seen": "2025-11-18 07:08:03.900000+00:00"
+    },
+    {
+      "rank": 27,
+      "app": "bl-pcb-v1-processing",
+      "message": "ITO-156#PCB#bl-pcb#bl-pcb-v1#n/a#n/a#n/a#n/a#156#No event was received since 2025-11-14T11:48:13.412796+01:00[Europe/Prague].",
+      "errors_count": 1,
+      "errors_percent": 0.4,
+      "trace_ids_count": 1,
+      "trace_ids": [
+        "691c1f4eb87bfd29409f6277c92d1dea"
+      ],
+      "affected_apps": [
+        "bl-pcb-v1-processing"
+      ],
+      "affected_namespaces": [
+        "pcb-fat-01-app"
+      ],
+      "first_seen": "2025-11-18 07:25:02.215000+00:00",
+      "last_seen": "2025-11-18 07:25:02.215000+00:00"
+    }
+  ]
+}
