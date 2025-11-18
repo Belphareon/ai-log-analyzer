@@ -319,9 +319,27 @@ This completes the ML analysis pipeline with root cause focus.
    - Operační manuál pro nového operátora
    - Quick start + common tasks
 
-### Úkol 4: Operační Manuál (HOW_TO_USE.md) (COMPLETED) ✅
+### Úkol 5: Přidat indexy - PCA & PCB-CH (COMPLETED) ✅
 
-**Čas:** 10:30-11:00
+**Čas:** 11:00-11:15
+
+**Analýza:**
+1. ✅ simple_fetch.py - měl bereits všechny 3 indexy: PCB, PCA, PCB_CH
+2. ✅ fetch_errors_smart.py - používá `es_service.index_pattern` (z settings)
+3. ✅ fetch_today_batches.py - používá `fetch_errors_smart` (transitively settings)
+
+**Úprava:**
+- ✅ .env: změněn `ES_INDEX=cluster-app_pcb-*` 
+  → `ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*`
+
+**Verification:**
+- ✅ simple_fetch.py: má všechny 3 indexy
+- ✅ .env (settings): má všechny 3 indexy
+- ✅ fetch_errors_smart.py: čte z .env přes settings
+- ✅ fetch_today_batches.py: čte přes fetch_errors_smart
+- ✅ Test Integration Pipeline: PASS (žádné změny v chování)
+
+**Status:** Hotovo - všechny tři aplikace mohou teď analyzovat PCB, PCA i PCB_CH clustery
 
 **Obsah vytvořeného manuálu:**
 1. ✅ Quick Navigation - přehled sekcí
