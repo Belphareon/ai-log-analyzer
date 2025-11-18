@@ -319,6 +319,37 @@ This completes the ML analysis pipeline with root cause focus.
    - Operační manuál pro nového operátora
    - Quick start + common tasks
 
+### Úkol 4: Operační Manuál (HOW_TO_USE.md) (COMPLETED) ✅
+
+**Čas:** 10:30-11:00
+
+**Obsah vytvořeného manuálu:**
+1. ✅ Quick Navigation - přehled sekcí
+2. ✅ Installation & Setup - jak začít (Python, deps, .env)
+3. ✅ Running the Pipeline - step-by-step:
+   - Simple Fetch - testovací data
+   - Smart Fetch - produkční data s coverage control
+   - Trace Extraction - grupování podle trace_id
+   - Report Generation - detailní markdown report
+4. ✅ Understanding Output - čtení reportů (CRITICAL/HIGH/MEDIUM/LOW)
+5. ✅ Common Tasks - typické úkoly:
+   - Daily analysis
+   - Real-time monitoring
+   - Investigate specific app
+6. ✅ Troubleshooting - řešení problémů (ES connection, empty results, memory)
+7. ✅ Testing - run test suite
+8. ✅ Production Deployment - Docker Compose, Kubernetes
+9. ✅ Support & Escalation - kontakty a cesty
+
+**Struktura:**
+- Praktické příkazy s příklady
+- Reálné JSON output struktury
+- Čtení severity indicators (🔴🟠🟡🟢)
+- Specificity rates (Concrete 57%, Semi-specific 30%, Generic 13%)
+- Troubleshooting tabulka
+
+**Status:** Hotovo - manuál je operačně kompletní
+
 5. **[T2.5] Git commit** (5 min)
 
 ---
