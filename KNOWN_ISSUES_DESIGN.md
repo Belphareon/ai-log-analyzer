@@ -240,7 +240,7 @@ if re.search(known['pattern_regex'], cause['message']):
 
 ## Next Steps
 
-1. Create initial `data/known_issues.json` with 5-10 most common issues
+1. Create initial `data/known_issues.json` with all most common issues
 2. Integrate into `analyze_daily.py` for pattern matching
 3. Update report generation to show KNOWN vs NEW
 4. Test against last week's data
