@@ -140,6 +140,108 @@ nano .env
 
 ### Step 1: Fetch Errors from Elasticsearch
 
+## 📥 Fetching Data from Elasticsearch - UPDATED
+
+### ⭐ RECOMMENDED: Fetch Unlimited (search_after)
+
+For **unlimited data fetching** without ES window limits:
+
+```bash
+python3 fetch_unlimited.py \
+  --from "2025-12-02T07:30:00Z" \
+  --to "2025-12-02T10:30:00Z" \
+  --batch-size 5000 \
+  --output data/errors_unlimited.json
+```
+
+**Features:**
+- ✅ Uses search_after cursor pagination (NO 10K window limit)
+- ✅ HTTPBasicAuth for reliable authentication
+- ✅ Sort by @timestamp only (multi-field sort breaks ES)
+- ✅ Configurable batch size (default: 5000)
+- ✅ Unlimited data fetching - fetch millions of records
+- ✅ Retry logic for transient errors
+
+**When to use:**
+- Need all errors in large time range (> 10K)
+- Production data collection
+- Comprehensive analysis
+
+**Performance:**
+- Fetches ~5000 records per request
+- ~120s timeout per request (adjustable)
+- Memory efficient (cursor-based, not offset-based)
+
+**Example output:**
+```
+🔄 Fetcher - UNLIMITED via search_after
+   Time range: 2025-12-02T07:30:00Z to 2025-12-02T10:30:00Z
+   Batch size: 5,000
+
+🔄 Batch   1... ✅ 5,000 | Total: 5,000
+🔄 Batch   2... ✅ 5,000 | Total: 10,000
+...
+🔄 Batch  14... ✅ 1,901 | Total: 65,901
+✅ Total fetched: 65,901 errors
+💾 Saved to data/errors_unlimited.json (30MB)
+```
+
+---
+
+### Alternative: Simple Fetch (Quick Testing)
+
+For quick tests with smaller datasets:
+
+```bash
+python3 simple_fetch.py \
+  --from "2025-12-02T09:00:00Z" \
+  --to "2025-12-02T10:00:00Z" \
+  --max-sample 50000 \
+  --output data/sample_errors.json
+```
+
+**When to use:**
+- Quick testing or manual investigation
+- Small time range (< 1 hour)
+- Development/debugging
+
+⚠️ **Limitation:** Uses `from/size` pagination with 10K window limit
+- Won't work if `from + size > 10,000`
+- Maximum ~10K records per query
+- For larger datasets, use `fetch_unlimited.py` instead
+
+---
+
+### Alternative: Smart Fetch (Production Sampling)
+
+For intelligent sampling based on error volume:
+
+```bash
+python3 fetch_errors_smart.py \
+  --from "2025-12-01T00:00:00Z" \
+  --to "2025-12-01T23:59:59Z" \
+  --target-coverage 35 \
+  --output data/daily_sample.json
+```
+
+**Features:**
+- Auto-calculates sampling ratio
+- Target coverage % (e.g., 35% = collect 210K from 600K)
+- Timezone-aware conversions
+
+---
+
+### Troubleshooting Data Fetch
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| Error 400: "Result window too large" | Using `simple_fetch.py` with `from+size > 10K` | Use `fetch_unlimited.py` instead |
+| 0 records returned | Time range has no ERROR logs | Check time range, verify in Kibana |
+| Auth errors (401/403) | Credentials wrong or expired | Check .env file, verify ES_USER/ES_PASSWORD |
+| Timeout after 120s | Large batch size or slow ES | Reduce batch size, increase timeout |
+| Memory spike | Too many records at once | Use smaller time range or lower target-coverage |
+
+
 #### Simple Fetch (for quick testing)
 
 ```bash
