@@ -128,7 +128,7 @@ def test_report_generation(trace_file):
     checks = {
         'Has Overview': '## 📊 Overview' in report,
         'Has App Distribution': '## 🎯 App Impact Distribution' in report,
-        'Has Namespace Distribution': '## �� Namespace Distribution' in report,
+        'Has Namespace Distribution': '## 🔗 Namespace Distribution' in report,
         'Has Root Causes': '## 🔍 Concrete Root Causes' in report,
     }
     

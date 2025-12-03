@@ -15,6 +15,94 @@
 
 ---
 
+## ⚡ QUICK REFERENCE - Common Operations
+
+### Run Daily Analysis (Scheduled)
+
+```bash
+# This runs automatically via cron/scheduled job, but if manual:
+python3 analyze_daily.py
+
+# Check results
+ls -lh /data/daily_*.json  # errors
+ls -lh /reports/daily_*.md  # reports
+```
+
+### Run Analysis for Specific Time Period
+
+```bash
+# Fetch errors for specific period (smart sampling)
+python3 fetch_errors_smart.py \
+  --from "2025-12-01T08:00:00" \
+  --to "2025-12-01T12:00:00" \
+  --target-coverage 35 \
+  --output data/my_batch.json
+
+# Extract traces
+python3 trace_extractor.py \
+  --input data/my_batch.json \
+  --output data/root_causes.json
+
+# Generate report
+python3 trace_report_detailed.py \
+  --input data/root_causes.json \
+  --output reports/analysis_2025-12-01.md
+```
+
+### Quick Test (Small Dataset)
+
+```bash
+# Simple fetch (fast, up to 50K errors)
+python3 simple_fetch.py \
+  --from "2025-12-02T09:00:00" \
+  --to "2025-12-02T10:00:00" \
+  --output test.json
+
+# Full pipeline
+python3 trace_extractor.py --input test.json --output test_causes.json
+python3 trace_report_detailed.py --input test_causes.json --output test_report.md
+
+# View report
+cat test_report.md
+```
+
+### Understand Report Output
+
+**Report Sections:**
+1. **Overview** - Total errors, traces, root causes found
+2. **App Impact Distribution** - Which apps are affected (PRIMARY/SECONDARY/TERTIARY)
+3. **Namespace Distribution** - Errors across namespaces (balanced vs concentrated)
+4. **Concrete Root Causes** - Actionable issues with context
+5. **Semi-Specific Issues** - Need manual investigation
+6. **Executive Summary** - Top 1-3 recommended actions
+
+**Severity Indicators:**
+- 🔴 **Critical** - Many errors, immediate action needed
+- 🟠 **High** - Multiple affected apps, important
+- 🟡 **Medium** - Specific to one app/namespace
+- 🟢 **Low** - Isolated incidents, monitoring sufficient
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| "ES Connection refused" | Check ES_HOST in .env, verify network connectivity |
+| "Memory error" | Reduce --max-sample (default 100K), fetch smaller time range |
+| "No root causes found" | Check if errors have trace_id field, verify log format |
+| "Report looks generic" | Normal for new error patterns, ML improves over time |
+| "Test data missing" | Use `fetch_today_batches.py` to get live data first time |
+
+### Performance Notes
+
+- **Fetch time:** ~1-2s per 100K errors
+- **Extraction:** ~0.1s per 1K errors  
+- **Report generation:** <100ms
+- **Peak memory:** ~2GB for 600K errors (full dataset)
+
+---
+
+
+
 ## Installation & Setup
 
 ### Prerequisites
@@ -381,4 +469,82 @@ kubectl logs -n ai-log-analyzer deployment/ai-log-analyzer -f
 - **DevOps:** `devops-team@kb.cz`
 - **Logs:** `/var/log/ai-log-analyzer/app.log` (K8s: `kubectl logs`)
 - **Issues:** Jira project `AILOG`
+
+
+---
+
+## Elasticsearch Field Mapping Reference
+
+### Critical Field Names (DO NOT CONFUSE!)
+
+**Problem**: Field names in ES are flat with dot notation, NOT nested structures.
+
+| Purpose | ES Field Name | Format | Example |
+|---------|---------------|--------|---------|
+| Application Name | `application.name` | Flat string | `"bl-pcb-v1"` |
+| PCBS Master | `kubernetes.labels.eamApplication` | Flat string | `"PCB"` |
+| Cluster | `topic` | Flat string | `"cluster-k8s_nprod_3095-in"` |
+| Trace ID | `traceId` | Flat string (camelCase!) | `"4c316465a7b1133a487ec6e7eb39d66b"` |
+| Timestamp | `@timestamp` | ISO 8601 UTC | `"2025-12-02T09:37:55.027Z"` |
+| Error Message | `message` | String | Full error text |
+| Error Level | `level` | String | `"ERROR"` |
+
+### Common MISTAKES (Updated 2025-12-02)
+
+❌ **WRONG:**
+```python
+# These field names DON'T exist or are incorrect:
+_source = ["kubernetes.labels.app"]  # Should be kubernetes.labels.eamApplication
+_source = ["pod_name", "app_name"]   # These don't exist
+_source = ["trace_id"]                # Should be traceId (camelCase!)
+_source = ["application"]             # This is a string, not nested object!
+```
+
+✅ **CORRECT:**
+```python
+# Proper field names:
+_source = [
+    "application.name",                   # Flat field with dot
+    "kubernetes.labels.eamApplication",   # Flat field with dot
+    "topic",                              # Simple string
+    "traceId",                            # camelCase!
+    "@timestamp",                         # With @ prefix
+    "message"
+]
+```
+
+### Field Extraction Pattern
+
+When processing ES response:
+```python
+error = {
+    'message': source.get('message', ''),
+    'application': source.get('application.name', 'unknown'),           # Use dot notation
+    'pcbs_master': source.get('kubernetes.labels.eamApplication', ''),  # Use dot notation
+    'cluster': source.get('topic', 'unknown'),
+    'timestamp': source.get('@timestamp', ''),
+    'trace_id': source.get('traceId', '')                              # camelCase!
+}
+```
+
+### Data Quality Notes
+
+**As of 2025-12-02:**
+- ✅ `traceId`: Present in ~49,654 documents (75% coverage)
+- ✅ `application.name`: Present in all documents
+- ✅ `kubernetes.labels.eamApplication`: Present in all documents
+- ✅ `topic`: Present in all documents (cluster name)
+
+### Pagination Issue (Known Bug)
+
+**Problem**: Multi-field sort breaks ES search_after pagination
+```python
+# ❌ BREAKS (returns 0 hits):
+sort: ["@timestamp", "_id"]
+
+# ✅ WORKS:
+sort: ["_id"]
+```
+
+**Workaround**: Use single field sort for `search_after` pagination.
 

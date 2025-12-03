@@ -44,7 +44,7 @@ class TrendAnalyzer:
                 }
             },
             "size": batch_size,
-            "_source": ["message", "kubernetes.labels.app", "@timestamp", "traceId", "kubernetes.namespace"]
+            "_source": ["message", "application.name", "@timestamp", "traceId", "kubernetes.labels.eamApplication", "topic"]
         }
         
         # First batch
@@ -63,8 +63,9 @@ class TrendAnalyzer:
             src = hit['_source']
             all_errors.append({
                 'message': src.get('message', ''),
-                'app': src.get('kubernetes', {}).get('labels', {}).get('app', 'unknown'),
-                'namespace': src.get('kubernetes', {}).get('namespace', 'unknown'),
+                'application': src.get('application.name', 'unknown'),
+                'cluster': src.get('topic', 'unknown'),
+                'pcbs_master': src.get('kubernetes', {}).get('labels', {}).get('eamApplication', 'unknown'),
                 'timestamp': datetime.fromisoformat(src.get('@timestamp', '').replace('Z', '+00:00')),
                 'trace_id': src.get('traceId')
             })
@@ -85,8 +86,9 @@ class TrendAnalyzer:
                 src = hit['_source']
                 all_errors.append({
                     'message': src.get('message', ''),
-                    'app': src.get('kubernetes', {}).get('labels', {}).get('app', 'unknown'),
-                    'namespace': src.get('kubernetes', {}).get('namespace', 'unknown'),
+                    'application': src.get('application.name', 'unknown'),
+                    'cluster': src.get('topic', 'unknown'),
+                    'pcbs_master': src.get('kubernetes', {}).get('labels', {}).get('eamApplication', 'unknown'),
                     'timestamp': datetime.fromisoformat(src.get('@timestamp', '').replace('Z', '+00:00')),
                     'trace_id': src.get('traceId')
                 })

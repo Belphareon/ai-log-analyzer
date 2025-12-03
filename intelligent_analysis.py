@@ -192,19 +192,22 @@ def analyze_trace_based_root_causes(errors):
         print(f"     Namespaces: {', '.join(sorted(cause_data['affected_namespaces']))}")
 
 def analyze_timeline_5min(errors):
-    """Timeline aggregated by 5 minutes"""
+    """Timeline aggregated by 5 minutes (displayed in CET timezone)"""
     timeline = defaultdict(int)
     
     for error in errors:
         timestamp = error['timestamp']
         # Extract hour:minute, round to 5min
         dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-        min_bucket = (dt.minute // 5) * 5
-        time_key = f"{dt.hour:02d}:{min_bucket:02d}"
+        # Convert UTC to CET (+1 hour for display)
+        dt_cet = dt.replace(tzinfo=None)
+        dt_cet = dt_cet.replace(hour=(dt_cet.hour + 1) % 24)
+        min_bucket = (dt_cet.minute // 5) * 5
+        time_key = f"{dt_cet.hour:02d}:{min_bucket:02d}"
         timeline[time_key] += 1
     
     print("=" * 80)
-    print("⏰ TIMELINE (5-minute buckets)")
+    print("⏰ TIMELINE (5-minute buckets, CET timezone)")
     print("=" * 80)
     
     sorted_timeline = sorted(timeline.items())
@@ -214,11 +217,11 @@ def analyze_timeline_5min(errors):
         if count > 0:
             bar_len = int((count / max_count) * 40)
             bar = "█" * bar_len
-            print(f"{time}: {count:4d} {bar}")
+            print(f"{time} CET: {count:4d} {bar}")
     
     # Find peak
     peak_time, peak_count = max(timeline.items(), key=lambda x: x[1])
-    print(f"\n🔥 Peak: {peak_time} with {peak_count:,} errors")
+    print(f"\n🔥 Peak: {peak_time} CET with {peak_count:,} errors")
     return timeline
 
 def extract_api_calls(errors):
