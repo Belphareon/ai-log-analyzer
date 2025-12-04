@@ -1,11 +1,13 @@
 # AI Log Analyzer - Operational Manual
 
 **Pro operátory a DevOps týmy**
+**Poslední aktualizace:** 2025-12-03 | **Priorita:** Orchestrační nástroj `analyze_period.py`
 
 ---
 
 ## 📋 Quick Navigation
 
+- **[⭐ ORCHESTRATION - Recommended](#orchestration---recommended-priority)** - PRIMARY approach
 - **[Installation & Setup](#installation--setup)** - První spuštění
 - **[Running the Pipeline](#running-the-pipeline)** - Jak spustit analýzu
 - **[Understanding Output](#understanding-output)** - Čtení reportů
@@ -15,134 +17,151 @@
 
 ---
 
+## ⭐ ORCHESTRATION - Recommended (PRIORITY)
+
+### 🎯 One Command = Complete Analysis A-Z
+
+The **`analyze_period.py`** orchestration tool runs the entire pipeline in a single command:
+
+```bash
+python3 analyze_period.py \
+  --from "2025-12-02T07:30:00Z" \
+  --to "2025-12-02T10:30:00Z" \
+  --output analysis_result.json
+```
+
+**What it does (automatically):**
+1. ✅ Fetches ALL errors from Elasticsearch (search_after pagination - no limits)
+2. ✅ Extracts root causes and identifies patterns
+3. ✅ Generates detailed markdown report
+4. ✅ Creates comprehensive JSON output with statistics
+5. ✅ Shows progress bars for each step
+6. ✅ Provides executive summary with findings
+
+**Output:** Single JSON file with:
+- Complete error dataset
+- Root cause analysis
+- Markdown report (embedded)
+- Comprehensive statistics
+- App/cluster distribution
+- Performance metrics
+
+### 📊 Example Usage
+
+**Daily Analysis:**
+```bash
+python3 analyze_period.py \
+  --from "2025-12-03T00:00:00Z" \
+  --to "2025-12-03T23:59:59Z" \
+  --output daily_analysis_2025-12-03.json
+```
+
+**Specific Time Window:**
+```bash
+python3 analyze_period.py \
+  --from "2025-12-02T08:00:00Z" \
+  --to "2025-12-02T12:00:00Z" \
+  --output morning_spike_analysis.json
+```
+
+**Custom Batch Size (larger for speed):**
+```bash
+python3 analyze_period.py \
+  --from "2025-12-02T00:00:00Z" \
+  --to "2025-12-02T23:59:59Z" \
+  --output full_day_analysis.json \
+  --batch-size 10000
+```
+
+**Real-time (Last hour):**
+```bash
+python3 analyze_period.py \
+  --from "$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ')" \
+  --to "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --output recent_errors.json
+```
+
+### 📈 Sample Output
+
+```json
+{
+  "metadata": {
+    "analysis_type": "Complete Trace-Based Root Cause Analysis",
+    "period_start": "2025-12-02T07:30:00Z",
+    "period_end": "2025-12-02T10:30:00Z",
+    "version": "1.0"
+  },
+  "statistics": {
+    "total_errors_fetched": 65901,
+    "errors_with_trace_id": 49900,
+    "trace_id_coverage_percent": 75.7,
+    "unique_traces": 429,
+    "root_causes_identified": 68,
+    "app_distribution": { ... },
+    "cluster_distribution": { ... }
+  },
+  "batch_data": { ... },
+  "root_causes_analysis": { ... },
+  "markdown_report": "# Analysis Report\n..."
+}
+```
+
+---
+
 ## ⚡ QUICK REFERENCE - Common Operations
 
-### Run Daily Analysis (Scheduled)
+### View Results from analyze_period.py
 
 ```bash
-# This runs automatically via cron/scheduled job, but if manual:
-python3 analyze_daily.py
+# Pretty-print the JSON (with Python)
+python3 -m json.tool analysis_result.json | less
 
-# Check results
-ls -lh /data/daily_*.json  # errors
-ls -lh /reports/daily_*.md  # reports
+# Extract just the markdown report
+python3 << 'PYEOF'
+import json
+with open('analysis_result.json') as f:
+    data = json.load(f)
+print(data['markdown_report'])
+PYEOF
+
+# View statistics
+python3 << 'PYEOF'
+import json
+with open('analysis_result.json') as f:
+    stats = json.load(f)['statistics']
+for key, val in stats.items():
+    print(f"{key}: {val}")
+PYEOF
 ```
 
-### Run Analysis for Specific Time Period
+### Compare Multiple Analysis Results
 
 ```bash
-# Fetch errors for specific period (smart sampling)
-python3 fetch_errors_smart.py \
-  --from "2025-12-01T08:00:00" \
-  --to "2025-12-01T12:00:00" \
-  --target-coverage 35 \
-  --output data/my_batch.json
+# Run analysis for different periods
+python3 analyze_period.py --from "2025-12-02T00:00:00Z" --to "2025-12-02T12:00:00Z" --output morning.json
+python3 analyze_period.py --from "2025-12-02T12:00:00Z" --to "2025-12-02T23:59:59Z" --output evening.json
 
-# Extract traces
-python3 trace_extractor.py \
-  --input data/my_batch.json \
-  --output data/root_causes.json
-
-# Generate report
-python3 trace_report_detailed.py \
-  --input data/root_causes.json \
-  --output reports/analysis_2025-12-01.md
+# Compare statistics
+python3 << 'PYEOF'
+import json
+for fname in ['morning.json', 'evening.json']:
+    with open(fname) as f:
+        stats = json.load(f)['statistics']
+    print(f"\n{fname}:")
+    print(f"  Errors: {stats['total_errors_fetched']}")
+    print(f"  Root Causes: {stats['root_causes_identified']}")
+PYEOF
 ```
-
-### Quick Test (Small Dataset)
-
-```bash
-# Simple fetch (fast, up to 50K errors)
-python3 simple_fetch.py \
-  --from "2025-12-02T09:00:00" \
-  --to "2025-12-02T10:00:00" \
-  --output test.json
-
-# Full pipeline
-python3 trace_extractor.py --input test.json --output test_causes.json
-python3 trace_report_detailed.py --input test_causes.json --output test_report.md
-
-# View report
-cat test_report.md
-```
-
-### Understand Report Output
-
-**Report Sections:**
-1. **Overview** - Total errors, traces, root causes found
-2. **App Impact Distribution** - Which apps are affected (PRIMARY/SECONDARY/TERTIARY)
-3. **Namespace Distribution** - Errors across namespaces (balanced vs concentrated)
-4. **Concrete Root Causes** - Actionable issues with context
-5. **Semi-Specific Issues** - Need manual investigation
-6. **Executive Summary** - Top 1-3 recommended actions
-
-**Severity Indicators:**
-- 🔴 **Critical** - Many errors, immediate action needed
-- 🟠 **High** - Multiple affected apps, important
-- 🟡 **Medium** - Specific to one app/namespace
-- 🟢 **Low** - Isolated incidents, monitoring sufficient
-
-### Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| "ES Connection refused" | Check ES_HOST in .env, verify network connectivity |
-| "Memory error" | Reduce --max-sample (default 100K), fetch smaller time range |
-| "No root causes found" | Check if errors have trace_id field, verify log format |
-| "Report looks generic" | Normal for new error patterns, ML improves over time |
-| "Test data missing" | Use `fetch_today_batches.py` to get live data first time |
-
-### Performance Notes
-
-- **Fetch time:** ~1-2s per 100K errors
-- **Extraction:** ~0.1s per 1K errors  
-- **Report generation:** <100ms
-- **Peak memory:** ~2GB for 600K errors (full dataset)
 
 ---
 
+## 📥 Advanced: Individual Pipeline Steps (If Needed)
 
-
-## Installation & Setup
-
-### Prerequisites
-
-```bash
-# Python 3.11+
-python3 --version
-
-# Dependencies
-pip install -r requirements.txt
-
-# Or with Poetry (recommended for development)
-poetry install
-```
-
-### Configuration
-
-```bash
-# Copy template
-cp .env.example .env
-
-# Edit for your environment
-nano .env
-```
-
-**Key variables:**
-- `ES_HOST` - Elasticsearch host (default: localhost:9200)
-- `ES_INDEX_PATTERN` - Log index pattern (e.g., cluster-app_pcb-*, cluster-app_pca-*)
-- `POSTGRES_URL` - Database connection
-- `OLLAMA_URL` - LLM service (optional)
-
----
-
-## Running the Pipeline
+If you need more control or want to run steps separately:
 
 ### Step 1: Fetch Errors from Elasticsearch
 
-## 📥 Fetching Data from Elasticsearch - UPDATED
-
-### ⭐ RECOMMENDED: Fetch Unlimited (search_after)
+#### ⭐ RECOMMENDED: Fetch Unlimited (search_after)
 
 For **unlimited data fetching** without ES window limits:
 
@@ -157,496 +176,219 @@ python3 fetch_unlimited.py \
 **Features:**
 - ✅ Uses search_after cursor pagination (NO 10K window limit)
 - ✅ HTTPBasicAuth for reliable authentication
-- ✅ Sort by @timestamp only (multi-field sort breaks ES)
-- ✅ Configurable batch size (default: 5000)
 - ✅ Unlimited data fetching - fetch millions of records
 - ✅ Retry logic for transient errors
 
-**When to use:**
-- Need all errors in large time range (> 10K)
-- Production data collection
-- Comprehensive analysis
-
-**Performance:**
-- Fetches ~5000 records per request
-- ~120s timeout per request (adjustable)
-- Memory efficient (cursor-based, not offset-based)
-
-**Example output:**
-```
-🔄 Fetcher - UNLIMITED via search_after
-   Time range: 2025-12-02T07:30:00Z to 2025-12-02T10:30:00Z
-   Batch size: 5,000
-
-🔄 Batch   1... ✅ 5,000 | Total: 5,000
-🔄 Batch   2... ✅ 5,000 | Total: 10,000
-...
-🔄 Batch  14... ✅ 1,901 | Total: 65,901
-✅ Total fetched: 65,901 errors
-💾 Saved to data/errors_unlimited.json (30MB)
-```
-
----
-
-### Alternative: Simple Fetch (Quick Testing)
-
-For quick tests with smaller datasets:
-
-```bash
-python3 simple_fetch.py \
-  --from "2025-12-02T09:00:00Z" \
-  --to "2025-12-02T10:00:00Z" \
-  --max-sample 50000 \
-  --output data/sample_errors.json
-```
-
-**When to use:**
-- Quick testing or manual investigation
-- Small time range (< 1 hour)
-- Development/debugging
-
-⚠️ **Limitation:** Uses `from/size` pagination with 10K window limit
-- Won't work if `from + size > 10,000`
-- Maximum ~10K records per query
-- For larger datasets, use `fetch_unlimited.py` instead
-
----
-
-### Alternative: Smart Fetch (Production Sampling)
-
-For intelligent sampling based on error volume:
-
-```bash
-python3 fetch_errors_smart.py \
-  --from "2025-12-01T00:00:00Z" \
-  --to "2025-12-01T23:59:59Z" \
-  --target-coverage 35 \
-  --output data/daily_sample.json
-```
-
-**Features:**
-- Auto-calculates sampling ratio
-- Target coverage % (e.g., 35% = collect 210K from 600K)
-- Timezone-aware conversions
-
----
-
-### Troubleshooting Data Fetch
-
-| Problem | Cause | Solution |
-|---------|-------|----------|
-| Error 400: "Result window too large" | Using `simple_fetch.py` with `from+size > 10K` | Use `fetch_unlimited.py` instead |
-| 0 records returned | Time range has no ERROR logs | Check time range, verify in Kibana |
-| Auth errors (401/403) | Credentials wrong or expired | Check .env file, verify ES_USER/ES_PASSWORD |
-| Timeout after 120s | Large batch size or slow ES | Reduce batch size, increase timeout |
-| Memory spike | Too many records at once | Use smaller time range or lower target-coverage |
-
-
-#### Simple Fetch (for quick testing)
-
-```bash
-python3 simple_fetch.py \
-  --from "2025-11-18T08:00:00" \
-  --to "2025-11-18T12:00:00" \
-  --max-sample 50000 \
-  --output data/sample_errors.json
-```
-
-**Output:** `data/sample_errors.json` - JSON with error entries
-
-**What it does:**
-- Connects to Elasticsearch
-- Fetches ERROR level logs in time range
-- Samples up to `--max-sample` errors
-- Includes: timestamp, app, namespace, message, trace_id
-
-#### Smart Fetch (production)
-
-```bash
-python3 fetch_errors_smart.py \
-  --from "2025-11-18T08:00:00" \
-  --to "2025-11-18T12:00:00" \
-  --target-coverage 35 \
-  --output data/batch_errors.json
-```
-
-**Smart features:**
-- Auto-calculates sampling based on error volume
-- Target coverage % (default: 35% = 210K errors from 600K)
-- Timezone-aware (converts local → UTC)
-- Metadata: error stats, sampling ratio
-
-### Step 2: Extract Trace-Based Root Causes
+### Step 2: Extract Root Causes
 
 ```bash
 python3 trace_extractor.py \
-  --input data/sample_errors.json \
+  --input data/errors_unlimited.json \
   --output data/root_causes.json
 ```
 
-**Input:** `data/sample_errors.json`
-**Output:** `data/root_causes.json` - JSON with grouped traces & root causes
-
-**What it extracts:**
-- Groups errors by trace_id
-- Finds root cause (first error in chain)
-- Classifies by severity
-- Identifies affected apps & namespaces
-
-**Example output structure:**
-```json
-{
-  "stats": {
-    "total_errors": 3500,
-    "unique_traces": 917,
-    "root_causes": 126
-  },
-  "root_causes": [
-    {
-      "trace_id": "abc123...",
-      "message": "Card 12345 not found",
-      "app": "bl-pcb-v1",
-      "error_count": 42,
-      "first_seen": "2025-11-18T08:32:45",
-      "last_seen": "2025-11-18T11:22:10"
-    }
-  ]
-}
-```
-
-### Step 3: Generate Detailed Report
+### Step 3: Generate Report
 
 ```bash
 python3 trace_report_detailed.py \
   --input data/root_causes.json \
-  --output data/analysis_report.md
+  --output reports/analysis_report.md
 ```
 
-**Input:** `data/root_causes.json`
-**Output:** `data/analysis_report.md` - Markdown report
+### View the Report
 
-**Report includes:**
-- 📊 Overview (error count, traces, root causes)
-- 🏢 App Impact Distribution (which apps affected, roles)
-- 🔴 Concrete Root Causes (top issues with specificity)
-- ⚠️ Semi-Specific Issues (needs investigation)
-- ❓ Generic Issues (insufficient info)
-- 📋 Executive Summary (primary issue + action items)
+```bash
+cat reports/analysis_report.md
+# Or with pager
+less reports/analysis_report.md
+```
+
+---
+
+## Installation & Setup
+
+### Prerequisites
+
+```bash
+# Python 3.11+
+python3 --version
+
+# Dependencies
+pip install -r requirements.txt
+```
+
+### Configuration
+
+```bash
+# Copy template
+cp .env.example .env
+
+# Edit for your environment
+nano .env
+```
+
+**Key variables:**
+- `ES_HOST` - Elasticsearch host
+- `ES_USER` - Username (for BasicAuth)
+- `ES_PASSWORD` - Password (for BasicAuth)
+- `ES_INDEX_PATTERN` - Log index pattern
+- `POSTGRES_URL` - Database connection (optional)
+- `OLLAMA_URL` - LLM service (optional)
 
 ---
 
 ## Understanding Output
 
-### Report Structure
+### Markdown Report Sections
 
-#### 🔴 CRITICAL Issues (Red)
-- Top priority problems
-- Affecting multiple apps
-- Immediate action needed
+1. **Executive Summary** - Top findings and recommended actions
+2. **Overview Statistics** - Total errors, traces, root causes
+3. **App Impact Distribution** - Which apps affected (PRIMARY/SECONDARY)
+4. **Namespace Distribution** - Errors across environments
+5. **Root Cause Analysis**
+   - **Concrete Issues** - Actionable, specific problems
+   - **Semi-Specific Issues** - Need manual investigation
+6. **Severity Indicators** - 🔴🟠🟡🟢 color coding
 
-**Example:**
-```
-🔴 CRITICAL (11.2%, 393 errors): bl-pcb-v1 Service Error
-Context: External service call failed during card processing
-Apps affected: bl-pcb-v1 (primary), bl-pcb-v1-processing (secondary)
-```
+### Severity Scale
 
-#### 🟠 HIGH Issues (Orange)
-- Significant impact
-- Specific error type
-- Should investigate
-
-#### 🟡 MEDIUM Issues (Yellow)
-- Moderate impact
-- May be temporary
-- Monitor trends
-
-#### 🟢 LOW Issues (Green)
-- Low frequency
-- Known issues
-- Can schedule fix
-
-### Key Metrics
-
-**Specificity Rates:**
-- 🎯 **Concrete (57%)**: Actionable causes - HTTP status, service name, ID
-- ⚠️ **Semi-Specific (30%)**: Exception type with context
-- ❓ **Generic (13%)**: General error - needs investigation
+| Level | Indicator | Meaning |
+|-------|-----------|---------|
+| **Critical** | 🔴 | Many errors, immediate action needed |
+| **High** | 🟠 | Multiple apps affected, important |
+| **Medium** | 🟡 | Specific to one area |
+| **Low** | 🟢 | Isolated incidents |
 
 ---
 
 ## Common Tasks
 
-### Task 1: Daily Analysis
+### Task: Analyze Last 24 Hours
 
 ```bash
-# Run analysis for last 24 hours
-python3 simple_fetch.py \
-  --from "$(date -u -d '24 hours ago' '+%Y-%m-%dT%H:%M:%S')" \
-  --to "$(date -u '+%Y-%m-%dT%H:%M:%S')" \
-  --output data/daily_errors.json
-
-python3 trace_extractor.py \
-  --input data/daily_errors.json \
-  --output data/daily_causes.json
-
-python3 trace_report_detailed.py \
-  --input data/daily_causes.json \
-  --output data/daily_report_$(date +%Y-%m-%d).md
+python3 analyze_period.py \
+  --from "$(date -u -d '1 day ago' '+%Y-%m-%dT%H:%M:%SZ')" \
+  --to "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --output daily_report.json
 ```
 
-**Output:** `data/daily_report_2025-11-18.md`
-
-### Task 2: Real-time Monitoring
+### Task: Find Root Cause of Production Issue
 
 ```bash
-# Fetch last 30 minutes
-python3 simple_fetch.py \
-  --from "$(date -u -d '30 minutes ago' '+%Y-%m-%dT%H:%M:%S')" \
-  --to "$(date -u '+%Y-%m-%dT%H:%M:%S')" \
-  --output data/realtime_errors.json --max-sample 10000
+# Use known time window from incident report
+python3 analyze_period.py \
+  --from "2025-12-02T09:10:00Z" \
+  --to "2025-12-02T09:30:00Z" \
+  --output incident_analysis.json
 
-# Quick analysis
-python3 trace_extractor.py \
-  --input data/realtime_errors.json \
-  --output data/realtime_causes.json
-
-python3 trace_report_detailed.py \
-  --input data/realtime_causes.json \
-  --output data/realtime_report.md
+# Check the markdown report within JSON
+python3 -c "import json; print(json.load(open('incident_analysis.json'))['markdown_report'])"
 ```
 
-### Task 3: Investigate Specific App
+### Task: Compare Error Rate Trends
 
 ```bash
-# Fetch errors for specific app
-python3 simple_fetch.py \
-  --from "2025-11-18T08:00:00" \
-  --to "2025-11-18T12:00:00" \
-  --output data/sample.json
+# Morning
+python3 analyze_period.py --from "2025-12-03T06:00:00Z" --to "2025-12-03T12:00:00Z" --output morning.json
 
-# Then examine
-grep -i "bl-pcb-v1" data/sample.json | wc -l  # Count errors
+# Afternoon
+python3 analyze_period.py --from "2025-12-03T12:00:00Z" --to "2025-12-03T18:00:00Z" --output afternoon.json
 
-# Extract causes for that batch
-python3 trace_extractor.py \
-  --input data/sample.json \
-  --output data/causes.json
-
-# View report
-python3 trace_report_detailed.py \
-  --input data/causes.json \
-  --output data/report.md
-
-cat data/report.md
+# Evening
+python3 analyze_period.py --from "2025-12-03T18:00:00Z" --to "2025-12-03T23:59:59Z" --output evening.json
 ```
 
 ---
 
 ## Troubleshooting
 
-### Problem: "Connection refused" to Elasticsearch
+| Problem | Solution |
+|---------|----------|
+| "ES Connection refused" | Check ES_HOST in .env, verify network connectivity |
+| "401 Unauthorized" | Verify ES_USER and ES_PASSWORD in .env, test with curl first |
+| "No root causes found" | Check if errors have trace_id field (should be ~75%+) |
+| "Memory error" | Reduce time range, analyze shorter periods |
+| "Execution timeout" | Increase batch size, reduce time range |
+| "analyze_period.py not found" | Verify you're in correct directory: `/home/jvsete/git/sas/ai-log-analyzer` |
 
-**Solution:**
-1. Check ES is running: `curl -u user:pass https://elasticsearch-test.kb.cz:9500`
-2. Verify `ES_HOST` in `.env`
-3. Check network connectivity: `ping elasticsearch-test.kb.cz`
-
-### Problem: No errors found
-
-**Possible causes:**
-- Time range is incorrect (check timezone)
-- Index pattern doesn't match (check `ES_INDEX_PATTERN`)
-- No errors in that time period (check ES directly)
-
-**Debug:**
-```bash
-# Check available indices
-curl -s https://elasticsearch-test.kb.cz:9500/_cat/indices | grep cluster
-
-# Check error count in time range
-# (use Kibana or curator tool)
-```
-
-### Problem: Report is empty or generic
-
-**Causes:**
-- Error messages lack context
-- Not enough data (< 100 errors)
-- All errors are generic ("Error handler threw exception")
-
-**Solution:**
-- Ensure messages include IDs (card, case, service name)
-- Collect more data (wider time range)
-- Check with dev team on message format
-
-### Problem: "Out of memory" or slow processing
-
-**For large datasets:**
-```bash
-# Use smart fetch with lower coverage
-python3 fetch_errors_smart.py \
-  --from "..." \
-  --to "..." \
-  --target-coverage 10  # 10% = faster
-  --output data/sample.json
-
-# Then process as usual
-```
-
-**Monitor:**
-```bash
-top -p $(pgrep -f python3)  # Check memory usage
-```
-
----
-
-## Testing
-
-### Run Test Suite
+### Test Your Setup
 
 ```bash
-# All tests
-python3 test_integration_pipeline.py
+# Test ES connection
+python3 << 'PYEOF'
+import os, requests
+from requests.auth import HTTPBasicAuth
+url = os.getenv('ES_HOST', 'https://elasticsearch-test.kb.cz:9500')
+auth = HTTPBasicAuth(os.getenv('ES_USER'), os.getenv('ES_PASSWORD'))
+resp = requests.get(f"{url}/_cluster/health", auth=auth, verify=False)
+print(f"Status: {resp.status_code}")
+if resp.status_code == 200:
+    print("✅ ES connection OK")
+    print(resp.json())
+else:
+    print("❌ ES connection failed")
+PYEOF
 
-# Individual tests
-python3 test_pattern_detection.py
-python3 test_temporal_clustering.py
-python3 test_cross_app.py
-```
-
-**Expected output:**
-```
-✅ Integration Test Passed
-   - 3,500 errors loaded
-   - 917 traces extracted
-   - 126 root causes found
-   - Report generated
+# Test a small fetch
+python3 analyze_period.py \
+  --from "2025-12-03T09:00:00Z" \
+  --to "2025-12-03T09:30:00Z" \
+  --output test_result.json
 ```
 
 ---
 
 ## Production Deployment
 
-### Docker Compose (Local)
+### K8s Cronjob (Scheduled Daily Analysis)
 
-```bash
-docker-compose up -d
-```
-
-Services:
-- PostgreSQL: localhost:5432
-- Redis: localhost:6379
-- FastAPI: localhost:8000
-- Ollama: localhost:11434
-
-### Kubernetes (ArgoCD)
-
-```bash
-# Configuration stored in k8s/
-# Auto-deployed via ArgoCD
-
-# Check status
-kubectl get pods -n ai-log-analyzer
-
-# View logs
-kubectl logs -n ai-log-analyzer deployment/ai-log-analyzer -f
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-log-analyzer-daily
+spec:
+  schedule: "0 0 * * *"  # Midnight UTC daily
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: analyzer
+            image: ai-log-analyzer:latest
+            command:
+            - python3
+            - analyze_period.py
+            - --from
+            - "$(date -u -d '1 day ago' '+%Y-%m-%dT%H:%M:%SZ')"
+            - --to
+            - "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            - --output
+            - /results/daily_$(date +%Y-%m-%d).json
+            envFrom:
+            - configMapRef:
+                name: ai-log-analyzer-config
+            volumeMounts:
+            - name: results
+              mountPath: /results
+          volumes:
+          - name: results
+            persistentVolumeClaim:
+              claimName: analyzer-results-pvc
+          restartPolicy: OnFailure
 ```
 
 ---
 
-## Support & Escalation
+## Resources
 
-### Common Escalation Paths
-
-| Issue | Owner | Action |
-|-------|-------|--------|
-| ES connectivity | DevOps | Check ES cluster, network |
-| Memory spike | DevOps | Tune container limits, reduce data range |
-| Generic errors in report | Dev Team | Improve error message format |
-| Business rule changes | Product | Update analyzer configuration |
-
-### Contact
-
-- **DevOps:** `devops-team@kb.cz`
-- **Logs:** `/var/log/ai-log-analyzer/app.log` (K8s: `kubectl logs`)
-- **Issues:** Jira project `AILOG`
-
+- **Main Documentation:** `README.md`
+- **Project Guide:** `MASTER.md`
+- **Script Reference:** `README_SCRIPTS.md`
+- **Deployment Details:** `DEPLOYMENT.md`
+- **Session Progress:** `working_progress.md`
 
 ---
 
-## Elasticsearch Field Mapping Reference
-
-### Critical Field Names (DO NOT CONFUSE!)
-
-**Problem**: Field names in ES are flat with dot notation, NOT nested structures.
-
-| Purpose | ES Field Name | Format | Example |
-|---------|---------------|--------|---------|
-| Application Name | `application.name` | Flat string | `"bl-pcb-v1"` |
-| PCBS Master | `kubernetes.labels.eamApplication` | Flat string | `"PCB"` |
-| Cluster | `topic` | Flat string | `"cluster-k8s_nprod_3095-in"` |
-| Trace ID | `traceId` | Flat string (camelCase!) | `"4c316465a7b1133a487ec6e7eb39d66b"` |
-| Timestamp | `@timestamp` | ISO 8601 UTC | `"2025-12-02T09:37:55.027Z"` |
-| Error Message | `message` | String | Full error text |
-| Error Level | `level` | String | `"ERROR"` |
-
-### Common MISTAKES (Updated 2025-12-02)
-
-❌ **WRONG:**
-```python
-# These field names DON'T exist or are incorrect:
-_source = ["kubernetes.labels.app"]  # Should be kubernetes.labels.eamApplication
-_source = ["pod_name", "app_name"]   # These don't exist
-_source = ["trace_id"]                # Should be traceId (camelCase!)
-_source = ["application"]             # This is a string, not nested object!
-```
-
-✅ **CORRECT:**
-```python
-# Proper field names:
-_source = [
-    "application.name",                   # Flat field with dot
-    "kubernetes.labels.eamApplication",   # Flat field with dot
-    "topic",                              # Simple string
-    "traceId",                            # camelCase!
-    "@timestamp",                         # With @ prefix
-    "message"
-]
-```
-
-### Field Extraction Pattern
-
-When processing ES response:
-```python
-error = {
-    'message': source.get('message', ''),
-    'application': source.get('application.name', 'unknown'),           # Use dot notation
-    'pcbs_master': source.get('kubernetes.labels.eamApplication', ''),  # Use dot notation
-    'cluster': source.get('topic', 'unknown'),
-    'timestamp': source.get('@timestamp', ''),
-    'trace_id': source.get('traceId', '')                              # camelCase!
-}
-```
-
-### Data Quality Notes
-
-**As of 2025-12-02:**
-- ✅ `traceId`: Present in ~49,654 documents (75% coverage)
-- ✅ `application.name`: Present in all documents
-- ✅ `kubernetes.labels.eamApplication`: Present in all documents
-- ✅ `topic`: Present in all documents (cluster name)
-
-### Pagination Issue (Known Bug)
-
-**Problem**: Multi-field sort breaks ES search_after pagination
-```python
-# ❌ BREAKS (returns 0 hits):
-sort: ["@timestamp", "_id"]
-
-# ✅ WORKS:
-sort: ["_id"]
-```
-
-**Workaround**: Use single field sort for `search_after` pagination.
-
+**Last Updated:** 2025-12-03
+**Version:** 2.0 (Orchestration-focused)

@@ -15,6 +15,18 @@
 - **Output:** Actionable root causes with recommendations
 - **Architecture:** Python backend + PostgreSQL DB + FastAPI REST API
 
+### 🚀 ORCHESTRATION TOOL (NEW - USE THIS)
+
+**PRIMARY WAY TO RUN ANALYSIS:** Use `analyze_period.py` - Complete A-Z pipeline in one command!
+
+```bash
+python3 analyze_period.py --from "2025-12-02T07:30:00Z" --to "2025-12-02T10:30:00Z" --output result.json
+```
+
+→ See `HOW_TO_USE.md` for complete examples and usage patterns.
+
+---
+
 ### 🎯 Key Goals
 
 1. **Automated Error Analysis** - Detect root causes without manual intervention
@@ -27,6 +39,7 @@
 ## 📚 Documentation Map
 
 ### Start Here
+- **ORCHESTRATION_PROGRESS.md** - Main project which conains orchestration above whole project, needs improvement
 - **README.md** - Comprehensive project documentation, architecture, features
 - **HOW_TO_USE.md** - Practical quick-start guide, common commands, examples
 
@@ -111,6 +124,9 @@ Actionable Insights
 - Production readiness review
 
 ### Phase 4: Autonomous Mode 📅 IN PROGRESS
+  - ✅ Orchestration tool complete (analyze_period.py)
+  - Known issues database integration (next)
+  - Teams/Slack alerts (next)
 - Autonomous analysis execution
 - Known issues database integration
 - Teams/Slack alerts

@@ -2,14 +2,34 @@
 a) projit soucasny system/postup od A-Z, vyzkouset, pak revize zbytecnych filu, ktere se nehodi odstranit
 b) z toho pak udelat jednoduchou prirucku how to use.md kde bude v krocich popsano, jak se agent obsluhuje, jake scripty pouziva a jak an sebe navazuji
 
-2.
+2. DETECTION & ML IMPROVEMENTS (PRIORITY)
 a) overit detekci vsech problemu, ze se zadny dulezity nevynecha -> pridat indexy pca, pcb-ch
+   - Review fetch_unlimited.py for hardcoded PCB indexes
+   - Add support for PCA index (pca-*)
+   - Add support for PCB-CH index (pcb-ch-*)
+   - Test multi-index queries
+   - Update analyze_period.py with new indexes
+   
 b) overit seznam vsech znamych/dlouhodobych erroru k likvidaci - jira ticket (vymyslet efektivni zpusob kde ukladat)
+   - Export current 49 root causes from last run to known_issues_baseline.json
+   - Design storage format (JSON + metadata):
+     { issue_id, pattern, count, first_seen, last_updated, severity, affected_apps[], affected_namespaces[] }
+   - Create known_issues.json file in data/ directory
+   - Implement filtering in analyze_period.py to:
+     1. Compare new issues against baseline
+     2. Highlight ONLY new issues in reports
+     3. Track baseline updates (when issue count increases significantly)
+   - Setup for future Jira integration (reserve issue_id field)
+   
 c) potvrdit machine-learning (hlavne aby dokazal diky DB snadneji poznavat uz zname errory) a vyhodnoceni trvalo mensi cas
+   - Verify pattern matching logic in intelligent_analysis.py works correctly
+   - Check "new unique patterns" calculation (< 5 errors = new pattern?)
+   - Optimize query time (currently 4s for 743 errors, acceptable)
+   - Prepare for DB integration (Point 4c)
 
 3.
-a) vylepsit zpusob vyhodnoceni - zaklad mame, apps affected, peak detection/rate app,ns
-ale aby to bylo vic nez klasicky alerting (ktery je velmi uzitecny, nicmene nezacyti vse a nema intelginetnejsi reakci):
+a) vylepsit zpusob vyhodnoceni - zaklad mame, lepe vyzusit kombinaci - apps affected, peak detection/rate app,ns... 
+ aby to bylo vic nez klasicky alerting (ktery je velmi uzitecny, nicmene nezachyti vse a nema intelginetnejsi reakci):
 Alert 792 - Major
 Resource:
 prod@cluster-k8s_prod_0792-in@ITO-114@err

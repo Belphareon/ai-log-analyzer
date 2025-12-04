@@ -18,10 +18,10 @@ from dotenv import load_dotenv
 urllib3.disable_warnings()
 load_dotenv()
 
-BASE_URL = os.getenv('ES_URL', 'https://elasticsearch-test.kb.cz:9500')
+BASE_URL = os.getenv('ES_HOST', 'https://elasticsearch-test.kb.cz:9500')
 ES_USER = os.getenv('ES_USER', 'XX_PCBS_ES_READ')
 ES_PASSWORD = os.getenv('ES_PASSWORD', 'ta@@swLT69EX.6164')
-INDICES = os.getenv('ES_INDEX', 'cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*')
+INDICES = os.getenv('ES_INDEX', 'cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb-ch-*')
 
 def fetch_unlimited(date_from, date_to, batch_size=5000, retry=3):
     """Fetch all ERROR logs using search_after pagination"""
@@ -50,7 +50,7 @@ def fetch_unlimited(date_from, date_to, batch_size=5000, retry=3):
             },
             "sort": [{"@timestamp": "asc"}],  # Required for search_after
             "size": batch_size,
-            "_source": ["message", "application.name", "@timestamp", "traceId", "kubernetes.labels.eamApplication", "topic"]
+            "_source": ["message", "application.name", "@timestamp", "traceId", "kubernetes.labels.eamApplication", "kubernetes.namespace", "topic"]
         }
         
         if search_after:
@@ -113,6 +113,7 @@ def fetch_unlimited(date_from, date_to, batch_size=5000, retry=3):
                 'message': msg,
                 'application': source.get('application.name', 'unknown'),
                 'cluster': source.get('topic', 'unknown'),
+                'namespace': source.get('kubernetes', {}).get('namespace', 'unknown'),
                 'timestamp': source.get('@timestamp', ''),
                 'trace_id': source.get('traceId', ''),
                 'pcbs_master': source.get('kubernetes', {}).get('labels', {}).get('eamApplication', 'unknown'),

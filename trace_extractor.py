@@ -40,9 +40,9 @@ class TraceExtractor:
         for trace_id in self.trace_groups.keys():
             root_error = self.find_root_cause_in_trace(trace_id)
             if root_error:
-                app = root_error.get('app', 'unknown')
+                app = root_error.get('application', 'unknown')
                 msg = root_error.get('message', '')
-                namespace = root_error.get('namespace', 'unknown')
+                namespace = root_error.get('namespace', 'unknown') or root_error.get('cluster', 'unknown')
                 timestamp = root_error.get('timestamp', '')
                 
                 # Create key from app + first 100 chars of message
@@ -67,7 +67,7 @@ class TraceExtractor:
                 
                 # Collect all affected apps from this trace
                 for error in self.trace_groups[trace_id]:
-                    root_causes_dict[cause_key]['affected_apps'].add(error.get('app', 'unknown'))
+                    root_causes_dict[cause_key]['affected_apps'].add(error.get('application', 'unknown'))
                 
                 # Update timestamps
                 chain = self.get_trace_chain(trace_id)
@@ -99,14 +99,14 @@ class TraceExtractor:
         app_errors = defaultdict(int)
         for errors in self.trace_groups.values():
             for error in errors:
-                app = error.get('app', 'unknown')
+                app = error.get('application', 'unknown')
                 app_errors[app] += 1
         
         # Errors per namespace
         ns_errors = defaultdict(int)
         for errors in self.trace_groups.values():
             for error in errors:
-                ns = error.get('namespace', 'unknown')
+                ns = error.get('namespace', 'unknown') or error.get('cluster', 'unknown')
                 ns_errors[ns] += 1
         
         return {
