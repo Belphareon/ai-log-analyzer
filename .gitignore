@@ -60,3 +60,27 @@ htmlcov/
 # Temporary
 /tmp/
 *.tmp
+
+# Data files (too large, generated)
+data/*.json
+data/batches/
+*.json
+!package.json
+
+# Test outputs
+test_*.json
+analysis_*.json
+reports/
+
+# Generated files
+*.bak.*
+*_FIXED.py
+*_debug.py
+
+# Session files
+SESSION_*.md
+DAILY_SESSION_*.md
+
+# Backup directories
+.backup_*/
+.archive/
