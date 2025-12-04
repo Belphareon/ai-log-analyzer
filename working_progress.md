@@ -730,3 +730,40 @@ OLD STRATEGY: 7-batch 10K (REPLACED):
 **Current Time:** 2025-12-02 15:00 UTC  
 **Elapsed:** 5.5 hours
 
+
+---
+
+## 📊 TODAY'S SESSION - 2025-12-04
+
+### Session Timeline
+
+| Čas | Úkol | Status | Výsledek |
+|-----|------|--------|----------|
+| 2025-12-04 09:00 | 📖 Kontext review: historie chatu 4, MASTER.md, todo_final.md | ✅ COMPLETE | Plné pochopení peak detection requirements |
+| 2025-12-04 09:30 | 📋 Aktualizace todo_final.md s detailní Point 2a specifikací | ✅ COMPLETE | Všechny 4 fáze implementace popsány |
+
+### Current Focus: Point 2a - Peak Detection Architecture
+
+**Zadání shrnutí:**
+- ✅ 10-sekundová okna pro detekci přesného času začátku peaku
+- ✅ Porovnání s `peak_statistics` v DB (15-min frames, historická data z 2-4 týdnů)
+- ✅ Persistence: `active_peaks` jen během peaku (dočasná), `peak_statistics` permanentní
+- ✅ Report struktura: Root Cause (Why), Impact (What), Propagation Path
+- ✅ Sbírání reálných dat: inicialization z 2 týdnů ES dat + rolling average updates
+
+**Implementační fáze (z todo_final.md):**
+1. **Phase 1: DB Setup** - Připojit na P050TD01, vytvořit tabulky, načíst 2 týdny historických dat
+2. **Phase 2: Continuous Collection** - Deploy `collect_peak_data_continuous.py`, běžet každých 15 minut
+3. **Phase 3: Peak Detection** - Modifikovat `analyze_period.py` s detekčním algoritmem
+4. **Phase 4: Production Tuning** - Sbírat realná data, ladit threshold
+
+---
+
+### Příští kroky:
+1. ⏭️ **Začít s Phase 1** - Připojení k PostgreSQL P050TD01 a setup DB tabulek
+2. 🔄 Implementace collect_peak_data_continuous.py scriptu
+3. 📊 Zbírání historických dat z ES (2 týdny zpětně)
+4. 🎯 Modifikace analyze_period.py s peak detection algoritmem
+
+**Status:** ✅ DOKUMENTACE HOTOVA | 🔄 IMPLEMENTACE ZAČÍNÁ
+

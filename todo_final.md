@@ -71,75 +71,92 @@ monitorovani celeho agenta a postupu uceni, navrhovani optimalizaci pro lepsi uc
 
 ---
 
+
 ## 📋 DETAILED SPECIFICATION: POINT 2a - PEAK DETECTION WITH DB STATISTICS
 
-**Reference:** See `working_progress.md` for complete implementation phases
+### Architecture: Single Peak Statistics Table
 
-### Overview
-Peak detection requires TWO INDEPENDENT PROCESSES plus ONE MODIFIED ORCHESTRATION:
+**NPROD Peak Statistics Table Structure:**
+- **Total rows:** 7 days × 24 hours × 4 quarters × 4 namespaces = **2,688 rows**
+- **Update frequency:** Every 15 minutes (one sample per window per week)
+- **Retention:** Permanent (historical baseline)
 
-### Process A: Data Collection (Continuous Background Task)
-**Purpose:** Sbírání počtu errorů v 15-minutových intervalech
+**Table: peak_statistics**
+```sql
+CREATE TABLE peak_statistics (
+  day_of_week INT,              -- 0-6 (Sun-Sat)
+  hour_of_day INT,              -- 0-23
+  quarter_hour INT,             -- 0-3 (00-15, 15-30, 30-45, 45-60 min)
+  namespace VARCHAR(255),       -- pcb-dev-01-app, pca-sit-01-app, etc.
+  
+  mean_errors FLOAT,            -- Baseline average error count
+  stddev_errors FLOAT,          -- Standard deviation
+  samples_count INT,            -- How many weeks of data (0 if peak, 1+ if normal)
+  last_updated TIMESTAMP,       -- When this constant was calculated
+  
+  UNIQUE(day_of_week, hour_of_day, quarter_hour, namespace)
+);
+```
+
+### Process A: Continuous Data Collection (Every 15 minutes)
+**Purpose:** Update one baseline constant per 15-min window when NO peak is occurring
 
 **Execution:** Every 15 minutes (cron: `*/15 * * * *`)
 
-**Input:** Elasticsearch - errors from last 15 minutes
+**Input:** Elasticsearch - error count from last 15 minutes
 
 **Processing:**
 1. Query ES: COUNT errors WHERE @timestamp >= now-15min AND level=ERROR
-2. Group by: environment, namespace, cluster (separate queries)
+2. Group by: each namespace separately
 3. Calculate: error_count for 15-min window
-4. Current time window: start_time = floor(now to 15-min), end_time = start + 15min
+4. Determine: day_of_week, hour_of_day, quarter_hour from current time
+5. **Logic:**
+   ```
+   error_count = fetch_from_ES()
+   stats = lookup_peak_statistics(day, hour, quarter, namespace)
+   
+   # Threshold: If error_count > mean + 1.5*mean → Potential PEAK
+   if error_count > (stats.mean + stats.mean * 1.5):
+       # PEAK DETECTED - do NOT update peak_statistics
+       # Store in temporary peak_detection data
+       detected_peak = True
+   else:
+       # Normal operation - UPDATE the baseline constant
+       update_rolling_average(error_count, stats)
+       # With 3-window smoothing (look at ±1 hour) to avoid extreme values
+   ```
+
+**Update Strategy (Rolling Average):**
+- Current mean: 300 errors
+- New sample: 310 errors  
+- With 3-window smoothing (±1 hour context): prevents day-to-day noise
+- New mean: weighted average that adapts to changing patterns
+- samples_count incremented (tracks: how many weeks contributed to this constant)
 
 **Output (Database):**
-- Insert into `peak_raw_data` table:
-  - collection_timestamp: when data was collected (now)
-  - window_start: 15-min window start (e.g., 2025-12-04 13:00:00)
-  - window_end: 15-min window end (e.g., 2025-12-04 13:15:00)
-  - error_count: number of errors in that window
-  - day_of_week: 0-6 (Sunday-Saturday)
-  - hour_of_day: 0-23
-  - environment: 'nprod' or 'prod'
-  - namespace: 'pcb-dev-01-app', 'pca-sit-01-app', etc.
-  - cluster: 'cluster-k8s_nprod_3100-in', etc.
-
-**Data Retention:** Keep 30-90 days (rolling window)
+- UPDATE `peak_statistics` table (ONLY when NO peak detected):
+  - mean_errors: rolling average (updated)
+  - stddev_errors: updated standard deviation
+  - samples_count: incremented
+  - last_updated: current timestamp
 
 **Script:** `collect_peak_data_continuous.py` (Run via cron or Kubernetes CronJob)
 
+**Key Point:** We DON'T store raw 15-min data. We ONLY update the constant (mean, stddev) in peak_statistics.
+During a peak, we SKIP the update to preserve the baseline.
+
 ---
 
-### Process B: Weekly Statistics Aggregation
-**Purpose:** Transform raw 15-min data into statistical baseline for anomaly detection
+### Process B: Threshold Tuning & Continuous Improvement
+**Threshold Formula:** error_count > mean + 1.5*mean
 
-**Execution:** Once per week (Sunday 2:00 AM)
+**Example:** If mean=300, then threshold=450 (50% spike above baseline = peak detected)
 
-**Input:** All raw data from `peak_raw_data` from the PAST WEEK
-
-**Processing:**
-1. Group raw data by: (day_of_week, hour_of_day, quarter_hour, environment, namespace, cluster)
-   - quarter_hour: 0-3 representing 00-15, 15-30, 30-45, 45-60 minutes
-2. For each group, calculate:
-   - mean_errors: average error count across all entries
-   - stddev_errors: standard deviation
-   - min_errors, max_errors: min and max values
-   - samples_count: how many data points were aggregated
-3. Apply 3-window smoothing to reduce outliers:
-   - For each window, consider ±1 hour (3 windows total)
-   - Recalculate mean/stddev across smoothed data
-   - This prevents anomalous days from skewing the baseline
-
-**Output (Database):**
-- UPSERT into `peak_statistics` table (10,080 entries per environment)
-  - For nprod with 4 namespaces: 4 × 10,080 = 40,320 rows
-  - For prod with 1 namespace: 1 × 10,080 = 10,080 rows
-
-**Special Cases:**
-- is_holiday: Mark days with special events (Christmas, New Year, Black Friday, etc.)
-  - These should have separate statistics or be marked for manual review
-  - Use: `is_holiday = TRUE` to indicate anomalous traffic patterns
-
-**Script:** `aggregate_peak_statistics_weekly.py`
+**Tuning Based on Data:**
+- Monitor false positives: peaks that aren't real problems
+- If too many false positives: increase to mean + 2*mean
+- If missing real peaks: decrease to mean + 1*mean
+- Adjust continuously as production data arrives
 
 ---
 
@@ -148,10 +165,9 @@ Peak detection requires TWO INDEPENDENT PROCESSES plus ONE MODIFIED ORCHESTRATIO
 **Normal Workflow (No Peak):**
 1. Fetch errors from last 15 minutes (same as current)
 2. Extract root causes (same as current)
-3. Query `peak_statistics` for current time window (day_of_week, hour, quarter_hour, environment, namespace, cluster)
+3. Query `peak_statistics` for current window (day_of_week, hour, quarter_hour, namespace)
 4. Calculate: is_this_a_peak = error_count > (mean + 2*stddev)?
 5. IF NO PEAK → Generate normal report (skip all peak-related sections)
-6. Generate output JSON and markdown report
 
 **Peak Detection Workflow (If Peak Detected):**
 1. Same fetch, same root cause extraction
@@ -171,23 +187,23 @@ Peak detection requires TWO INDEPENDENT PROCESSES plus ONE MODIFIED ORCHESTRATIO
 6. Generate Peak Report Section:
    ```
    ### Peak N: [peak_start_time - peak_end_time] UTC (total_errors)
-   
+
    **Root Cause (Why):**
    - [Specific error/service failure]
    - [When it occurred]
    - [Why cascade happened]
-   
+
    **Affected Components:**
    - Apps: [list with error counts and percentages]
    - Namespaces: [list with error counts]
    - Clusters: [list]
-   
+
    **Impact (What happened):**
    - [error_count] errors in [duration]
    - Error rate: [X errors/min] (normal baseline: [Y errors/min])
    - Top error message: "[actual error text]"
    - [N] apps affected downstream
-   
+
    **Propagation Path:**
    - [upstream_service] (failed at HH:MM:SS)
    → [primary_app] (retry logic, then circuit breaker)
@@ -197,97 +213,82 @@ Peak detection requires TWO INDEPENDENT PROCESSES plus ONE MODIFIED ORCHESTRATIO
 8. Check `peak_history`: is this a known/recurring peak?
    - If YES: note in report ("3rd occurrence this month")
    - If NO: add to `peak_history` with is_known=FALSE
-9. Generate complete output JSON with peak data
 
 ---
 
-### Database Schema (3 Tables)
+### Database Tables
 
-**Table 1: peak_raw_data**
-- Storage: 15-min error counts
-- Retention: 30-90 days (rolling window)
-- Updated: Every 15 minutes by Process A
-- Size: ~6 entries per 15 min × 4 env × 8 namespaces = ~1900 entries per hour
+**Table 1: peak_statistics** (Permanent baseline)
+- Size: 2,688 rows per NPROD (with 4 namespaces)
+- Updated: Every 15 min when no peak (rolling average)
+- Stores: day_of_week, hour_of_day, quarter_hour, namespace, mean_errors, stddev_errors, samples_count, last_updated
 
-**Table 2: peak_statistics**
-- Storage: Aggregated baseline (mean, stddev per time slot)
-- Retention: Permanent (updated weekly)
-- Size: 10,080 entries per environment (~40K for nprod with 4 namespaces)
-- Updated: Once per week by Process B
-- Used: For anomaly detection during orchestration
+**Table 2: peak_history** (Long-term tracking)
+- Stores: peak_id, root_cause_pattern, first_occurrence, last_occurrence, occurrence_count, is_known, resolution_note
+- Updated: When peak is detected (if recurring)
+- Purpose: Track recurring peaks and resolutions
 
-**Table 3: peak_history**
-- Storage: Long-term peak tracking
-- Retention: Permanent
-- Fields: peak_id, root_cause_pattern, affected_namespaces, is_known, resolution_note
-- Updated: Every time peak is detected
-- Used: For recurrence detection and pattern matching
-
-**Table 4: active_peaks** (Temporary, not permanently stored)
-- Storage: In-progress peaks during detection phase
-- Retention: Until peak ends, then deleted
-- Fields: peak_id, start_time, end_time, status
-- Purpose: Prevent duplicate peak reports for same peak
+**Table 3: active_peaks** (Temporary during peak)
+- Stores: peak_id, start_time, end_time, namespace, error_count
+- Deleted: After peak ends (cleanup after report generated)
+- Purpose: Prevent duplicate reports, track ongoing peaks
 
 ---
 
-### Implementation Timeline
+### Implementation Phases
 
-**Phase 1: Database Setup (Day 1-2)**
-- Connect to PostgreSQL P050TD01
-- Create 3 tables (peak_raw_data, peak_statistics, peak_history)
-- Create indexes on frequently-queried columns
+**Phase 1: Database Setup & Initial Data Collection**
+1. Connect to PostgreSQL P050TD01 (jdbc:postgresql://P050TD01.DEV.KB.CZ:5432/ailog_analyzer)
+2. Create `peak_statistics` table with proper indexes
+3. Create `peak_history` and `active_peaks` tables
+4. Collect 2 weeks of historical 15-min window data from ES
+5. Calculate initial mean/stddev for each (day_of_week, hour, quarter, namespace) combination
+   - Use 3-window smoothing (±1 hour) to smooth outliers
+   - Initialize samples_count with number of weeks collected
 
-**Phase 2: Baseline Collection (Day 2-4)**
-- Collect 2 weeks of historical data from ES
-- Insert into peak_raw_data
-- Calculate initial statistics (with 3-window smoothing)
-- Insert into peak_statistics
+**Phase 2: Continuous Data Collection**
+1. Deploy `collect_peak_data_continuous.py` script
+   - Runs every 15 minutes
+   - Updates peak_statistics with rolling average (only when NO peak)
+   - Skips update during peak to preserve baseline
+2. Verify rolling average logic works correctly
+3. Monitor baseline improvements over time
 
-**Phase 3: Enable Continuous Collection (Day 4)**
-- Deploy `collect_peak_data_continuous.py` as CronJob/scheduled task
-- Verify it runs every 15 minutes
-- Monitor raw_data table growth
+**Phase 3: Peak Detection in Orchestration**
+1. Modify `analyze_period.py`:
+   - Query peak_statistics for current window
+   - Compare error_count vs threshold
+   - IF peak detected: parse 10-second windows, find start time
+   - Analyze root cause chain (what happened BEFORE peak)
+2. Implement 10-second window parsing for precise peak detection
+3. Implement root cause chain analysis
+4. Generate peak report section with proper formatting
 
-**Phase 4: Enable Weekly Aggregation (Day 11)**
-- Deploy `aggregate_peak_statistics_weekly.py` as weekly task
-- Verify statistics are updated
-- Compare with initial baseline
-
-**Phase 5: Implement Peak Detection in Orchestration (Day 4-5)**
-- Modify `analyze_period.py` to query peak_statistics
-- Implement 10-second window parsing for peak start detection
-- Implement root cause chain analysis
-- Implement peak report generation
-- Test with historical data
-
-**Phase 6: Production Deployment (Day 5+)**
-- Deploy modified orchestration
-- Enable peak detection and reporting
-- Monitor for false positives
-- Fine-tune threshold (currently: mean + 2*stddev, adjustable)
+**Phase 4: Production Tuning**
+1. Collect real data for 1-2 weeks
+2. Tune threshold based on false positive/negative rates
+3. Monitor peak_history for patterns
+4. Adjust smoothing and threshold as needed
 
 ---
 
-### Key Design Decisions
+### Key Design Points
 
-1. **Two independent processes:** Decouples data collection from analysis/reporting
-2. **15-minute granularity for statistics:** Matches typical business metrics and orchestration runs
-3. **10-second granularity for peak detection:** Finds exact peak start time for root cause analysis
-4. **3-window smoothing:** Reduces impact of anomalous single days on baseline
-5. **Weekly aggregation:** Automatically adapts to changing traffic patterns
-6. **Peak history tracking:** Enables recurrence detection and pattern matching
-7. **Temporary peak storage:** Prevents duplicate reports while peak is ongoing
+1. **Single constant per 15-min window:** peak_statistics stores only mean/stddev, not raw data
+2. **Rolling average:** Updates continuously, adapts to changing patterns
+3. **Peak preservation:** Skip updates during peak to keep baseline clean
+4. **3-window smoothing:** Reduces impact of single anomalous days
+5. **10-second precision:** Finds exact peak start time for root cause analysis
+6. **Temporary active_peaks:** Prevents duplicate reports while peak is ongoing
+7. **Peak history:** Tracks recurring patterns for faster diagnosis
 
 ---
 
 ### Monitoring & Maintenance
 
-- Monitor: peak_raw_data table size (should grow steadily)
-- Monitor: peak_statistics update frequency (should be weekly)
+- Monitor: peak_statistics update frequency (should be continuous when no peak)
 - Monitor: false positive rate (peak detections that aren't real)
-- Adjust: Threshold formula if too many false positives (try mean + 1.5*stddev or mean + 2.5*stddev)
+- Adjust: Threshold formula if too many false positives
 - Review: peak_history monthly for patterns
-- Update: is_holiday flags for special events/dates
+- Update: is_holiday flags for special events
 
-```
