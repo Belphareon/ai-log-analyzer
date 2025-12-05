@@ -767,3 +767,59 @@ OLD STRATEGY: 7-batch 10K (REPLACED):
 
 **Status:** ✅ DOKUMENTACE HOTOVA | 🔄 IMPLEMENTACE ZAČÍNÁ
 
+
+### Session Progress Update (14:35 UTC)
+
+**Phase 1: Database Setup & Initialization - IN PROGRESS ✅**
+
+| Item | Status | Details |
+|------|--------|---------|
+| DB Tables Schema | ✅ COMPLETE | peak_statistics, peak_history, active_peaks defined |
+| init_peak_statistics_db.py | ✅ CREATED | Connects to PostgreSQL P050TD01, creates all tables |
+| collect_historical_peak_data.py | ✅ CREATED | Skeleton ready for ES data collection |
+| SQL Schema File | ✅ CREATED | /tmp/peak_db_schema.sql with full DDL |
+| Sample Data | ✅ CREATED | /tmp/init_peak_statistics_sample.sql for testing |
+
+**What was created:**
+
+1. **init_peak_statistics_db.py** (251 lines)
+   - Connects to PostgreSQL P050TD01 using credentials from todo_final.md
+   - Creates 3 tables with proper indexes
+   - Environment variable support (.env)
+   - Error handling and logging
+
+2. **collect_historical_peak_data.py** (98 lines)
+   - Framework for collecting 2 weeks of ES historical data
+   - Calculates 15-min window statistics per namespace
+   - Ready for full ES integration
+   - Expected output: 8,064 rows for 6 namespaces
+
+3. **Database Structure:**
+   - **peak_statistics:** 2,688 rows per NPROD
+     * day_of_week (0-6), hour_of_day (0-23), quarter_hour (0-3)
+     * mean_errors, stddev_errors, samples_count
+     * Updated by rolling average algorithm
+   
+   - **peak_history:** Recurring peak tracking
+     * peak_id, root_cause_pattern, first/last_occurrence
+     * occurrence_count, is_known, resolution_note
+     * Prevents alert fatigue from same peaks
+   
+   - **active_peaks:** Temporary during peak
+     * peak_id, start_time, end_time, status
+     * Cleaned up after peak ends
+     * Prevents duplicate reports
+
+**Next Immediate Steps (Phase 1 continuation):**
+1. Execute init_peak_statistics_db.py to create DB tables
+2. Load sample data into peak_statistics (or collect real ES data)
+3. Verify 2-4 weeks of baseline statistics
+4. Proceed to Phase 2: collect_peak_data_continuous.py deployment
+
+**Phase 2 Preview (Continuous Collection):**
+- collect_peak_data_continuous.py - runs every 15 min
+- Updates peak_statistics with rolling average
+- Skips update during peak to preserve baseline
+
+**Status:** ✅ PHASE 1 INFRASTRUCTURE COMPLETE | 🔄 READY FOR MANUAL DB INITIALIZATION
+
