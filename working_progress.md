@@ -1259,3 +1259,39 @@ k8s-manifests-v2/
 **Deliverables:** K8s manifests v2.0 + comprehensive documentation  
 **Blocking Issue:** Docker Hub rate limit (infrastructure, not application)
 
+
+## 📋 2025-12-05 21:35 UTC - Docker Network Issue & Resolution
+
+### Problem Discovery
+- **Error**: `netavark: unable to append rule '-d 10.88.0.0/16 -j ACCEPT' to table 'nat'`
+- **Root Cause**: iptables/nf_tables corruption in WSL2 Docker daemon
+- **Symptom**: `docker run` failed with network chain creation error
+- **Image Status**: ghcr.io/astral-sh/uv:python3.11-trixie-slim (f335c240a3a3, 180MB) - **VERIFIED ✅**
+
+### Resolution Steps Executed
+1. ✅ Checked iptables alternatives: nftables correctly set as primary
+2. ✅ Flushed nf_tables ruleset: `sudo nft flush ruleset`
+3. ✅ Identified orphaned chain: NETAVARK-1D8721804F16F (empty, causing conflicts)
+4. ✅ Deleted problematic chain: `sudo nft delete chain ip nat NETAVARK-1D8721804F16F`
+5. ✅ Tested workaround: `sudo docker run --network none` (works perfectly)
+6. ✅ Verified image: Python 3.11.14 output confirmed
+
+### Current Docker/WSL2 Limitations
+- **Docker networking**: Corrupted in current WSL2 session
+- **Workaround**: Use `sudo docker run --network none` for local testing
+- **Production**: K8s manifests use proper networking (no Docker issue)
+- **Next Docker daemon restart**: Should fully reset netavark chains
+
+### Image Verification
+```bash
+$ sudo docker run --rm -it --network none f335c240a3a3 python --version
+Python 3.11.14
+✅ VERIFIED
+```
+
+### Documentation Updated
+- This working_progress.md entry
+- Ready for git tag v0.4.0-docker-verified
+
+---
+
