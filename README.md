@@ -8,32 +8,47 @@ AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislost
 
 ## 🚀 Project Status
 
-**Current Version:** 0.1.0 (Beta)  
-**Last Update:** 2025-11-12
+**Current Version:** 0.4.0 (Phase 4 Complete)
+**Last Update:** 2025-12-05
 
-### What's Working Now:
-- ✅ **Phase 1 (Production Ready):** Data collection & ML analysis
-  - Fetch errors from Elasticsearch
-  - ML-based pattern detection & clustering
-  - Daily automated reports with insights
-  - ~600K errors analyzed (Nov 4-10, 2025)
-  
-- ✅ **Phase 2 (Complete, Testing):** AI Agent & Self-Learning
-  - REST API with FastAPI
-  - PostgreSQL database models
-  - LLM integration (Ollama + Mock)
-  - Feedback loop for self-learning
-  - **Status:** Code complete, dependencies installing
+### ✅ What's Complete:
 
-### Next Steps:
-- 🔄 Database setup & migrations
-- 📊 End-to-end testing with real data
-- 🚀 Production deployment (Kubernetes)
+**Phase 1 (Production Ready):** Data collection & ML analysis
+- ✅ Fetch errors from Elasticsearch
+- ✅ ML-based pattern detection & clustering
+- ✅ Daily automated reports with insights
+- ✅ ~600K errors analyzed (Nov 4-10, 2025)
 
-**See:** [DEPLOYMENT.md](DEPLOYMENT.md) for setup guide  
-**See:** [PROJECT_STATUS.md](PROJECT_STATUS.md) for detailed progress
+**Phase 2 (Complete):** AI Agent & Self-Learning
+- ✅ REST API with FastAPI (`/api/v1/...`)
+- ✅ PostgreSQL database models
+- ✅ LLM integration (Ollama + Mock fallback)
+- ✅ Feedback loop for self-learning
 
----
+**Phase 3 (Complete):** Orchestration & Automation
+- ✅ Workspace reorganization (5 script folders)
+- ✅ Orchestration tool (`analyze_period.py`)
+- ✅ Database integration (2608 baseline records)
+- ✅ EWMA anomaly detection configured
+
+**Phase 4 (Complete):** Kubernetes Deployment Preparation
+- ✅ K8s manifests v2.0 (6 YAML files, production-ready)
+- ✅ Harbor registry configuration (dockerhub.kb.cz/pccm-sq016)
+- ✅ DEPLOYMENT.md + HARBOR_DEPLOYMENT_GUIDE.md (450 lines)
+- ✅ Database schema & baseline data ready
+- ⏳ Docker image build (waiting: Docker Hub rate limit reset)
+
+### 📋 Next (Phase 5 & 6):
+- 🔄 **Phase 5:** Teams integration (webhooks + autonomous alerts)
+- 🔄 **Phase 6:** Autonomous K8s deployment + monitoring
+
+**Timeline:** Docker build → Harbor push → ArgoCD deploy (~20-30 min after rate limit reset)
+
+**See:** [HARBOR_DEPLOYMENT_GUIDE.md](HARBOR_DEPLOYMENT_GUIDE.md) for K8s deployment
+**See:** [k8s-manifests-v2/README.md](k8s-manifests-v2/README.md) for manifest details
+**See:** [DEPLOYMENT.md](DEPLOYMENT.md) for full setup guide
+
+
 
 ## Proč AI Log Analyzer?
 
@@ -400,7 +415,7 @@ ai-log-analyzer/
 
 **Phase 1: Data Collection & ML Training** ✅ **COMPLETE** (Weeks 1-6)
 - ✅ Elasticsearch integration
-- ✅ Pattern detection with ML clustering
+- ✅ Pattern detection with ML clustering  
 - ✅ Temporal analysis (15-min windows)
 - ✅ Cross-app correlation
 - ✅ Daily report generation
@@ -413,24 +428,48 @@ ai-log-analyzer/
 - ✅ PostgreSQL schema & models (4 models, 3 migrations)
 - ✅ Feedback loop for learning
 - ✅ REST API (5 endpoints: analyze, feedback, patterns, history, health)
-- 🔄 Dependencies installation (in progress)
-- [ ] Database deployment & migrations
-- [ ] End-to-end testing
 
-**Phase 3: Production Deployment** 📋 **PLANNED** (Weeks 8-10)
-- [ ] Kubernetes deployment (Helm charts)
-- [ ] Real-time analysis (15-min intervals)
-- [ ] Automated alerting
+**Phase 3: Orchestration & Automation** ✅ **COMPLETE** (Week 8)
+- ✅ Workspace reorganization (5 script folders: core/, fetch/, test/, setup/, analysis/)
+- ✅ Orchestration tool (`analyze_period.py` - combines all steps)
+- ✅ Database integration (Baseline statistics calculated)
+- ✅ EWMA anomaly detection (Configured with 2.0σ threshold)
+- ✅ Baseline data: 2,608 records (14-day history, 15-min windows)
+- ✅ Script consolidation (removed duplicates, organized by function)
+
+**Phase 4: Kubernetes Deployment Preparation** ✅ **COMPLETE** (Week 9)
+- ✅ K8s manifests v2.0 (6 YAML files: namespace, configmap, secret, service, deployment, ingress)
+- ✅ Removed Ollama deployment (optional for Phase 4, heavy resource requirement)
+- ✅ DEPLOYMENT.md - Comprehensive guide (430+ lines)
+- ✅ HARBOR_DEPLOYMENT_GUIDE.md - Step-by-step K8s deployment (450+ lines)
+- ✅ k8s-manifests-v2/README.md - Manifest documentation
+- ✅ Database schema ready (ailog_peak.peak_statistics)
+- ✅ Baseline data loaded (2608 records for anomaly detection)
+- ⏳ Docker image build (Docker Hub rate limit: waiting for reset or token auth)
+- ⏳ Harbor push (after image build)
+- ⏳ ArgoCD deployment (after git commit)
+
+**Phase 5: Teams Integration & Autonomous Alerting** �� **IN PROGRESS**
+- [ ] Teams webhook configuration
+- [ ] Alert message formatting
+- [ ] Integration in analyze_period.py
+- [ ] Autonomous peak detection alerts
+- [ ] Feedback from Teams to database
+
+**Phase 6: Autonomous K8s Deployment & Monitoring** 🔄 **PLANNED**
+- [ ] CronJob for 15-min baseline updates
+- [ ] Prometheus metrics export
 - [ ] Grafana dashboards
-- [ ] A/B testing framework
-- [ ] Performance optimization
+- [ ] Alerting rules (Kubernetes events)
+- [ ] Auto-scaling based on load
 
 **Timeline:**
-- Weeks 1-6: Phase 1 ✅ (Completed Nov 10, 2025)
-- Week 7: Phase 2 ✅ (Code complete Nov 12, 2025)
-- Weeks 8-10: Phase 3 📋 (Deployment & production)
+- Phase 4 Docker build: ~20-30 min (after rate limit reset)
+- Phase 4 Deployment: ~5-10 min (via ArgoCD)
+- Phase 5 Teams: 2-3 days
+- Phase 6 Monitoring: 3-5 days
 
----
+**Status Tracking:** See [working_progress.md](working_progress.md) for daily session logs
 
 ## Getting Started
 
