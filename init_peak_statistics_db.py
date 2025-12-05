@@ -46,6 +46,34 @@ def create_tables(conn):
     cursor = conn.cursor()
     
     sql_commands = [
+        # Table 0: peak_raw_data (for continuous collection)
+        """
+        CREATE TABLE IF NOT EXISTS peak_raw_data (
+          id BIGSERIAL PRIMARY KEY,
+          collection_timestamp TIMESTAMP NOT NULL,
+          window_start TIMESTAMP NOT NULL,
+          window_end TIMESTAMP NOT NULL,
+          error_count INT NOT NULL,
+          day_of_week INT NOT NULL,
+          hour_of_day INT NOT NULL,
+          quarter_hour INT NOT NULL,
+          namespace VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+        """,
+        
+        # Index for peak_raw_data lookups
+        """
+        CREATE INDEX IF NOT EXISTS idx_raw_data_window 
+        ON peak_raw_data(window_start, window_end, namespace);
+        """,
+        
+        # Index for cleanup (delete old data)
+        """
+        CREATE INDEX IF NOT EXISTS idx_raw_data_created_at 
+        ON peak_raw_data(created_at DESC);
+        """,
+        
         # Table 1: peak_statistics
         """
         CREATE TABLE IF NOT EXISTS peak_statistics (
@@ -145,6 +173,7 @@ def main():
     create_tables(conn)
     
     print("\n📊 Database Setup Status:")
+    print("  ✅ peak_raw_data table - ready for 15-min window collection")
     print("  ✅ peak_statistics table - ready for baseline data")
     print("  ✅ peak_history table - ready for peak tracking")
     print("  ✅ active_peaks table - ready for temporary peak tracking")
@@ -152,7 +181,7 @@ def main():
     print("\n🔄 Next Steps:")
     print("  1. Run 'collect_historical_peak_data.py' to load 2 weeks of ES data")
     print("  2. Calculate mean/stddev with 3-window smoothing")
-    print("  3. Deploy 'collect_peak_data_continuous.py' for ongoing updates")
+    print("  3. Deploy 'collect_peak_data_continuous.py' as CronJob every 15 min")
     
     conn.close()
     print("\n✅ Phase 1 Complete!")

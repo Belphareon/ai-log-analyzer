@@ -813,3 +813,51 @@ Result: 3/4 tests passed
 **Status:** ✅ COMPLETE - Problem detection properly configured
 **Next Action:** Populate sample known issues, then move to Micro-task 3
 
+---
+
+## 15. Phase 4: Cluster Deployment & Peak Detection Infrastructure (2025-12-05) ✅
+
+**Čas:** 10:00 - 11:00 (60 minut)
+**Cíl:** Implementovat peak detection data collection pro cluster deployment
+
+### ✅ Completed Tasks:
+
+#### 1. Architecture Decision ✅
+- **Decision:** Move from local development to Kubernetes cluster deployment
+- **Rationale:** Continuous operation, real production data, DB persistence, multi-env support
+- **Code split:** Source code in ai-log-analyzer/ repo, K8s manifests in k8s-infra-apps-nprod/ repo
+
+#### 2. Docker & K8s Artifacts ✅
+- **Dockerfile.peak-detector:** Python 3.11 container with all dependencies
+- **k8s/cronjob-peak-detector.yaml:** CronJob manifest (every 15 min)
+- **k8s/secret-peak-detector.yaml:** Kubernetes Secret template
+
+#### 3. Core Scripts - All Implemented ✅
+
+**A) init_peak_statistics_db.py** ✅
+- Creates 4 tables: peak_raw_data, peak_statistics, peak_history, active_peaks
+- Ready to run: `python3 init_peak_statistics_db.py`
+
+**B) collect_historical_peak_data.py** ✅
+- Synchronized 15-minute windows (00:00-00:15, 00:15-00:30, etc.)
+- Loads 14 days of ES data, applies 3-window smoothing
+- Inserts baseline into peak_statistics
+
+**C) collect_peak_data_continuous.py** ✅
+- Runs every 15 minutes via CronJob
+- Synchronized window boundaries (10:16→10:00-10:15, etc.)
+- Peak detection: error_count > (mean + 1.5×mean)
+- Skips baseline update during peaks to preserve statistics
+
+#### 4. Key Technical Features ✅
+- Synchronized 15-min windows (clock-aligned)
+- Multi-index ES support (pcb-*, pca-*, pcb-ch-*)
+- 3-window smoothing for baseline statistics
+- UPSERT logic for duplicate prevention
+- Structured logging with timestamps
+
+### Summary:
+All 3 core scripts ready for cluster deployment. Next: Test DB connectivity, build image, deploy to NPROD.
+
+**Status:** ✅ IMPLEMENTATION COMPLETE
+
