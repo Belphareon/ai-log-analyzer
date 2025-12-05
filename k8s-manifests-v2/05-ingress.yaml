@@ -1,0 +1,28 @@
+# Optional: Ingress for external access
+# Only deploy if DNS is configured: ai-log-analyzer.sas.kbcloud
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-log-analyzer
+  namespace: ai-log-analyzer
+  labels:
+    app: ai-log-analyzer
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - ai-log-analyzer.sas.kbcloud
+    secretName: ai-log-analyzer-tls
+  rules:
+  - host: ai-log-analyzer.sas.kbcloud
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ai-log-analyzer
+            port:
+              number: 8000

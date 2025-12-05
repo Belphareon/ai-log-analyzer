@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-log-analyzer
+  annotations:
+    argocd.argoproj.io/sync-wave: "-100"
+  labels:
+    name: ai-log-analyzer
+    environment: nprod
+    squad: sq016
