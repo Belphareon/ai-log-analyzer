@@ -111,6 +111,7 @@ class TraceExtractor:
         
         return {
             'total_traces': total_traces,
+            'unique_traces': total_traces,  # Alias for consistency
             'total_errors': total_errors,
             'app_distribution': dict(sorted(app_errors.items(), key=lambda x: -x[1])),
             'namespace_distribution': dict(sorted(ns_errors.items(), key=lambda x: -x[1])),

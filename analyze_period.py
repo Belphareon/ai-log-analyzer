@@ -199,6 +199,22 @@ def analyze_period(date_from, date_to, output_file, batch_size=5000):
     
     # Print detailed summary
     stats = analysis_output['statistics']
+    
+    # Validation checks
+    validation_ok = True
+    if stats['unique_traces'] == 0:
+        log_err("⚠️  WARNING: No unique traces identified! (expected > 0)")
+        validation_ok = False
+    if stats['avg_errors_per_trace'] == 0.0 and stats['total_errors_fetched'] > 0:
+        log_err("⚠️  WARNING: Avg errors per trace is 0! (expected > 0)")
+        validation_ok = False
+    if stats['root_causes_identified'] == 0 and stats['total_errors_fetched'] > 0:
+        log_err("⚠️  WARNING: No root causes identified! (expected > 0)")
+        validation_ok = False
+    
+    if validation_ok:
+        log_ok("All validation checks passed ✅")
+    
     print(f"\n{Color.BOLD}{'='*70}")
     print(f"📊 DETAILED ANALYSIS SUMMARY")
     print(f"{'='*70}{Color.END}")
