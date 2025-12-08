@@ -67,8 +67,20 @@ def run_cmd(cmd, desc, show_progress=True):
         log_err(f"{desc} error: {e}")
         return None
 
+def add_timestamp_to_filename(filename):
+    """Add timestamp to filename if not already present"""
+    if "_20" in filename:  # Already has timestamp
+        return filename
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name, ext = os.path.splitext(filename)
+    return f"{name}_{timestamp}{ext}"
+
 def analyze_period(date_from, date_to, output_file, batch_size=5000):
     start_time = time.time()
+    
+    # Add timestamp to output filename
+    output_file = add_timestamp_to_filename(output_file)
     
     print(f"\n{Color.BOLD}🎯 AI Log Analyzer - Complete Pipeline{Color.END}")
     print(f"Period: {date_from} → {date_to}")
