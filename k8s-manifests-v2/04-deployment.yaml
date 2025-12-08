@@ -42,7 +42,7 @@ spec:
 
       containers:
       - name: ai-log-analyzer
-        image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest
+        image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:v0.4.0-docker-verified
         imagePullPolicy: Always
         
         ports:
