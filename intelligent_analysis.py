@@ -22,12 +22,23 @@ def load_batches(batch_dir):
             continue
         with open(batch_file) as f:
             data = json.load(f)
-            errors = data.get('errors', [])
+            errors = data if isinstance(data, list) else data.get('errors', [])
             all_errors.extend(errors)
             print(f"  ✓ {batch_file.name}: {len(errors)} errors")
     
     print(f"\n✅ Total: {len(all_errors):,} errors loaded\n")
     return all_errors
+
+# ============================================================================
+# HELPER: Get app name with fallbacks
+# ============================================================================
+def get_app(error):
+    """Extract application name with fallbacks"""
+    return error.get('application') or error.get('app') or 'unknown'
+
+def get_ns(error):
+    """Extract namespace name with fallback"""
+    return error.get('namespace') or 'unknown'
 
 # ============================================================================
 # TRACE-BASED ROOT CAUSE ANALYSIS (NEW)
@@ -66,9 +77,9 @@ class TraceExtractor:
         for trace_id in self.trace_groups.keys():
             root_error = self.find_root_cause_in_trace(trace_id)
             if root_error:
-                app = root_error.get('app', 'unknown')
+                app = get_app(root_error)
                 msg = root_error.get('message', '')
-                namespace = root_error.get('namespace', 'unknown')
+                namespace = get_ns(root_error)
                 timestamp = root_error.get('timestamp', '')
                 
                 # Create key from app + first 100 chars of message
@@ -93,7 +104,8 @@ class TraceExtractor:
                 
                 # Collect all affected apps from this trace
                 for error in self.trace_groups[trace_id]:
-                    root_causes_dict[cause_key]['affected_apps'].add(error.get('app', 'unknown'))
+                    app_name = get_app(error)
+                    root_causes_dict[cause_key]['affected_apps'].add(app_name)
                 
                 # Update timestamps
                 chain = self.get_trace_chain(trace_id)
@@ -125,14 +137,14 @@ class TraceExtractor:
         app_errors = defaultdict(int)
         for errors in self.trace_groups.values():
             for error in errors:
-                app = error.get('app', 'unknown')
+                app = get_app(error)
                 app_errors[app] += 1
         
         # Errors per namespace
         ns_errors = defaultdict(int)
         for errors in self.trace_groups.values():
             for error in errors:
-                ns = error.get('namespace', 'unknown')
+                ns = get_ns(error)
                 ns_errors[ns] += 1
         
         return {
@@ -229,7 +241,7 @@ def extract_api_calls(errors):
     api_patterns = []
     
     for error in errors:
-        msg = error['message']
+        msg = error.get('message', '')
         
         # Pattern: #GET#some.host#/api/path#404#
         match = re.search(r'#(GET|POST|PUT|DELETE)#([^#]+)#(/[^#]+)#(\d{3})#', msg)
@@ -240,8 +252,8 @@ def extract_api_calls(errors):
                 'host': host,
                 'path': path,
                 'code': code,
-                'app': error['app'],
-                'namespace': error.get('namespace', 'unknown'),
+                'app': get_app(error),
+                'namespace': get_ns(error),
                 'message': msg
             })
     
@@ -291,9 +303,9 @@ def analyze_cross_app_correlation(errors):
     external_calls = defaultdict(lambda: defaultdict(int))
     
     for error in errors:
-        msg = error['message']
-        app = error['app']
-        ns = error.get('namespace', 'unknown')
+        msg = error.get('message', '')
+        app = get_app(error)
+        ns = get_ns(error)
         
         # Internal service calls (bl-pcb-X calling bl-pcb-Y)
         internal_match = re.search(r'(bl-pcb-[\w-]+)\.([^:]+):(\d+)', msg)
@@ -343,14 +355,15 @@ def generate_big_picture(errors):
     # Count by app and namespace
     app_ns_errors = defaultdict(lambda: defaultdict(int))
     for error in errors:
-        app_ns_errors[error['app']][error.get('namespace', 'unknown')] += 1
+        app_name = get_app(error)
+        app_ns_errors[app_name][get_ns(error)] += 1
     
     # Identify error types
-    business_exceptions = [e for e in errors if 'ServiceBusinessException' in e['message']]
-    not_found = [e for e in errors if 'NotFoundException' in e['message'] or '404' in e['message']]
-    server_errors = [e for e in errors if '503' in e['message'] or '500' in e['message']]
-    auth_errors = [e for e in errors if 'AuthorizationDenied' in e['message'] or '403' in e['message']]
-    event_errors = [e for e in errors if 'event' in e['message'].lower() and 'not processed' in e['message'].lower()]
+    business_exceptions = [e for e in errors if 'ServiceBusinessException' in e.get('message', '')]
+    not_found = [e for e in errors if 'NotFoundException' in e.get('message', '') or '404' in e.get('message', '')]
+    server_errors = [e for e in errors if '503' in e.get('message', '') or '500' in e.get('message', '')]
+    auth_errors = [e for e in errors if 'AuthorizationDenied' in e.get('message', '') or '403' in e.get('message', '')]
+    event_errors = [e for e in errors if 'event' in e.get('message', '').lower() and 'not processed' in e.get('message', '').lower()]
     
     print(f"\n📊 Overall Statistics:")
     print(f"  Total errors: {len(errors):,}")
@@ -367,7 +380,7 @@ def generate_big_picture(errors):
     print(f"\n🔍 Key Findings:")
     
     # Finding 1: bl-pcb-event-processor-relay calling bl-pcb-v1
-    relay_errors = [e for e in errors if e['app'] == 'bl-pcb-event-processor-relay-v1']
+    relay_errors = [e for e in errors if get_app(e) == 'bl-pcb-event-processor-relay-v1']
     print(f"\n  1. Event Processor → Core Service Chain")
     print(f"     • bl-pcb-event-processor-relay-v1 has {len(relay_errors)} errors")
     print(f"     • Majority are failed calls to bl-pcb-v1 (339 failures detected)")
@@ -375,7 +388,7 @@ def generate_big_picture(errors):
     print(f"     ⚠️  ACTION: Investigate event relay timeouts/failures to bl-pcb-v1")
     
     # Finding 2: DoGS external service
-    dogs_errors = [e for e in errors if 'dogs-test.dslab.kb.cz' in e['message']]
+    dogs_errors = [e for e in errors if 'dogs-test.dslab.kb.cz' in e.get('message', '')]
     if dogs_errors:
         print(f"\n  2. External DoGS Service Integration")
         print(f"     • DoGS API calls failing: {len(dogs_errors)} errors (500 server error)")
@@ -383,7 +396,7 @@ def generate_big_picture(errors):
         print(f"     ⚠️  ACTION: Check DoGS service health / API compatibility")
     
     # Finding 3: Account servicing
-    account_errors = [e for e in errors if 'accountservicing' in e['message']]
+    account_errors = [e for e in errors if 'accountservicing' in e.get('message', '')]
     if account_errors:
         print(f"\n  3. Account Servicing Integration")
         print(f"     • bc-accountservicing API failures: {len(account_errors)} (403 Forbidden)")
@@ -391,16 +404,16 @@ def generate_big_picture(errors):
         print(f"     ⚠️  ACTION: Review API credentials / permissions")
     
     # Finding 4: Resource not found pattern
-    card_not_found = [e for e in not_found if 'Card' in e['message'] or 'card' in e['message']]
+    card_not_found = [e for e in not_found if 'Card' in e.get('message', '') or 'card' in e.get('message', '')]
     print(f"\n  4. Card Resource Not Found")
     print(f"     • {len(card_not_found)} card lookup failures")
-    print(f"     • Primarily in SIT environment ({len([e for e in card_not_found if e.get('namespace') == 'pcb-sit-01-app'])} errors)")
+    print(f"     • Primarily in SIT environment ({len([e for e in card_not_found if get_ns(e) == 'pcb-sit-01-app'])} errors)")
     print(f"     ⚠️  ACTION: Review test data quality in SIT")
     
     # Finding 5: Event queuing
     if event_errors:
-        billing = [e for e in event_errors if 'billing' in e['app']]
-        docs = [e for e in event_errors if 'document' in e['app']]
+        billing = [e for e in event_errors if 'billing' in get_app(e)]
+        docs = [e for e in event_errors if 'document' in get_app(e)]
         print(f"\n  5. Event Queue Processing")
         print(f"     • {len(event_errors)} events not processed")
         print(f"     • bl-pcb-billing-v1: {len(billing)} failures")

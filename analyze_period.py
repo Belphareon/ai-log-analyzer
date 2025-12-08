@@ -163,6 +163,28 @@ def analyze_period(date_from, date_to, output_file, batch_size=5000):
     file_size_mb = os.path.getsize(output_file) / (1024 * 1024)
     log_ok(f"Comprehensive analysis saved: {output_file} ({file_size_mb:.1f}MB)")
     
+    # STEP 5: Intelligent Analysis (detailed insights)
+    log_step("STEP 5/5: Running detailed intelligent analysis")
+    batch_dir = "/tmp/batch_for_intelligent_analysis"
+    os.makedirs(batch_dir, exist_ok=True)
+    
+    # Create batch file for intelligent analysis
+    batch_file_for_intel = f"{batch_dir}/batch_001.json"
+    with open(batch_file_for_intel, 'w') as f:
+        json.dump(errors, f)
+    log_ok(f"Created batch for intelligent analysis: {len(errors)} errors")
+    
+    # Run intelligent analysis
+    intel_output = run_cmd(f"python3 intelligent_analysis.py {batch_dir}", "Intelligent Analysis", show_progress=True)
+    
+    if intel_output:
+        # Add intelligent analysis to output
+        analysis_output["intelligent_analysis_output"] = intel_output
+        
+        with open(output_file, 'w') as f:
+            json.dump(analysis_output, f, indent=2, default=str)
+        log_ok(f"Intelligent analysis integrated into output")
+    
     # Print detailed summary
     stats = analysis_output['statistics']
     print(f"\n{Color.BOLD}{'='*70}")
