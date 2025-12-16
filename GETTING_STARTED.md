@@ -110,7 +110,7 @@ XX_MYAPP_ES_READ         - pro vaši aplikaci
 Subject: Tech účet vytvořen - XX_PCB_ES_READ
 
 Username: XX_PCB_ES_READ
-Password: Kx9#mP2$vL8@qR5!
+Password: ************
 Domain: DS
 
 Účet byl vytvořen a je připraven k použití.
@@ -252,7 +252,7 @@ ES_VERIFY_CERTS=false
 ES_URL=https://elasticsearch-prod.kb.cz:9200
 ES_INDEX=cluster-app_pcb-*
 ES_USER=XX_PCB_ES_READ
-ES_PASSWORD=Kx9#mP2$vL8@qR5!
+ES_PASSWORD=your_password_here
 ES_VERIFY_CERTS=false
 ```
 
@@ -266,7 +266,7 @@ ES_VERIFY_CERTS=false
 ES_URL=https://elasticsearch-prod.kb.cz:9200
 ES_INDEX=cluster-app_sas-relay-*
 ES_USER=XX_RELAY_ES_READ
-ES_PASSWORD=aB7!nK3$pM9@zQ2&
+ES_PASSWORD=your_password_here
 ES_VERIFY_CERTS=false
 ```
 
@@ -289,7 +289,7 @@ curl -u "XX_VASE_APP_ES_READ:vase_heslo" \
 
 **Příklad pro PCB aplikaci:**
 ```bash
-curl -u "XX_PCB_ES_READ:Kx9#mP2$vL8@qR5!" \
+curl -u "XX_PCB_ES_READ:your_password_here" \
   -X GET "https://elasticsearch-prod.kb.cz:9200/_cat/indices/cluster-app_pcb-*?v" \
   --insecure
 ```
@@ -306,7 +306,7 @@ green  open   cluster-app_pcb-scheduler-2025.12.16    pQ2rS3tU4V-W5xY6zA7bC8   5
 
 ```bash
 # Počet errorů za poslední hodinu pro PCB
-curl -u "XX_PCB_ES_READ:Kx9#mP2$vL8@qR5!" \
+curl -u "XX_PCB_ES_READ:your_password_here" \
   -X GET "https://elasticsearch-prod.kb.cz:9200/cluster-app_pcb-*/_count" \
   -H 'Content-Type: application/json' \
   -d '{
