@@ -216,16 +216,16 @@ def print_detailed_report(statistics, windows):
     
     print()
     
-    # Smoothing effectiveness check
-    print("🔬 Smoothing Effectiveness (sample patterns):")
+    # Smoothing effectiveness check - PRINT ALL PATTERNS (not just sample!)
+    print("🔬 All Patterns (for Database Ingestion):")
     print()
     
-    # Show first 5 patterns
-    for i, (key, stats) in enumerate(list(statistics.items())[:5]):
+    # Show ALL patterns (not just first 5)
+    for i, (key, stats) in enumerate(sorted(statistics.items()), 1):
         day, hour, qtr, ns = key
         day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         
-        print(f"   Pattern {i+1}: {day_names[day]} {hour:02d}:{qtr*15:02d} - {ns}")
+        print(f"   Pattern {i}: {day_names[day]} {hour:02d}:{qtr*15:02d} - {ns}")
         print(f"      Raw counts:      {stats['raw_counts']}")
         print(f"      Smoothed counts: {[f'{x:.1f}' for x in stats['smoothed_counts']]}")
         print(f"      Mean: {stats['mean']:.2f}, StdDev: {stats['stddev']:.2f}, Samples: {stats['samples']}")
