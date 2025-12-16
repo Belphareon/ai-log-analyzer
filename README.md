@@ -8,45 +8,31 @@ AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislost
 
 ## 🚀 Project Status
 
-**Current Version:** 0.4.0 (Phase 4 Complete)
-**Last Update:** 2025-12-05
+**Current Version:** 0.5.0 (Phase 4 Complete | Phase 5 IN PROGRESS)
+**Last Update:** 2025-12-16
 
-### ✅ What's Complete:
-
-**Phase 1 (Production Ready):** Data collection & ML analysis
-- ✅ Fetch errors from Elasticsearch
-- ✅ ML-based pattern detection & clustering
-- ✅ Daily automated reports with insights
-- ✅ ~600K errors analyzed (Nov 4-10, 2025)
-
-**Phase 2 (Complete):** AI Agent & Self-Learning
-- ✅ REST API with FastAPI (`/api/v1/...`)
-- ✅ PostgreSQL database models
-- ✅ LLM integration (Ollama + Mock fallback)
-- ✅ Feedback loop for self-learning
-
-**Phase 3 (Complete):** Orchestration & Automation
-- ✅ Workspace reorganization (5 script folders)
-- ✅ Orchestration tool (`analyze_period.py`)
-- ✅ Database integration (2608 baseline records)
-- ✅ EWMA anomaly detection configured
-
-**Phase 4 (Complete):** Kubernetes Deployment Preparation
+### ✅ Phase 4: Kubernetes Deployment Preparation (Complete)
 - ✅ K8s manifests v2.0 (6 YAML files, production-ready)
-- ✅ Harbor registry configuration (dockerhub.kb.cz/pccm-sq016)
-- ✅ DEPLOYMENT.md + HARBOR_DEPLOYMENT_GUIDE.md (450 lines)
-- ✅ Database schema & baseline data ready
-- ⏳ Docker image build (waiting: Docker Hub rate limit reset)
+- ✅ Harbor registry configuration
+- ✅ Docker image build & push
+- ✅ Database schema ready
+- ✅ Baseline data initialized
 
-### 📋 Next (Phase 5 & 6):
-- 🔄 **Phase 5:** Teams integration (webhooks + autonomous alerts)
-- 🔄 **Phase 6:** Autonomous K8s deployment + monitoring
+### 🔄 Phase 5: Peak Detection Baseline Collection (IN PROGRESS)
+- ✅ Data collection scripts (collect_peak_detailed.py)
+- ✅ CSV export (export_peak_statistics.py)
+- ✅ Workspace cleanup & reorganization
+- [ ] DB cleanup & data ingestion
+- [ ] Data verification
+- 📋 [See PHASE_ROADMAP.md for details](PHASE_ROADMAP.md)
 
-**Timeline:** Docker build → Harbor push → ArgoCD deploy (~20-30 min after rate limit reset)
+### 📋 Next (Phase 6+):
+- 📊 **Phase 6:** Peak Detection & Root Cause Analysis
+- 🤖 **Phase 7:** Autonomous Deployment & Monitoring
 
-**See:** [HARBOR_DEPLOYMENT_GUIDE.md](HARBOR_DEPLOYMENT_GUIDE.md) for K8s deployment
-**See:** [k8s-manifests-v2/README.md](k8s-manifests-v2/README.md) for manifest details
-**See:** [DEPLOYMENT.md](DEPLOYMENT.md) for full setup guide
+**See:** [PHASE_ROADMAP.md](PHASE_ROADMAP.md) for Phase 5-7 planning  
+**See:** [CONTEXT_RETRIEVAL_PROTOCOL.md](CONTEXT_RETRIEVAL_PROTOCOL.md) for quick reference  
+**See:** [README_SCRIPTS.md](README_SCRIPTS.md) for 8 core scripts documentation
 
 
 

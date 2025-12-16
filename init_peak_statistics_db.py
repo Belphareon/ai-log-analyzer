@@ -45,10 +45,25 @@ def create_tables(conn):
     """Create peak_statistics, peak_history, and active_peaks tables"""
     cursor = conn.cursor()
     
+    # First, set role to DDL user for schema creation
+    try:
+        cursor.execute("SET ROLE role_ailog_analyzer_ddl;")
+        print("✅ Set role to role_ailog_analyzer_ddl")
+    except psycopg2.Error as e:
+        print(f"⚠️  Could not set DDL role: {e}")
+    
+    # Create schema if it doesn't exist
+    try:
+        cursor.execute("CREATE SCHEMA IF NOT EXISTS ailog_peak;")
+        conn.commit()
+        print("✅ Schema ailog_peak created/verified")
+    except psycopg2.Error as e:
+        print(f"⚠️  Schema creation: {e}")
+    
     sql_commands = [
         # Table 0: peak_raw_data (for continuous collection)
         """
-        CREATE TABLE IF NOT EXISTS peak_raw_data (
+        CREATE TABLE IF NOT EXISTS ailog_peak.peak_raw_data (
           id BIGSERIAL PRIMARY KEY,
           collection_timestamp TIMESTAMP NOT NULL,
           window_start TIMESTAMP NOT NULL,
@@ -76,7 +91,7 @@ def create_tables(conn):
         
         # Table 1: peak_statistics
         """
-        CREATE TABLE IF NOT EXISTS peak_statistics (
+        CREATE TABLE IF NOT EXISTS ailog_peak.peak_statistics (
           id SERIAL PRIMARY KEY,
           day_of_week INT NOT NULL,
           hour_of_day INT NOT NULL,
@@ -100,7 +115,7 @@ def create_tables(conn):
         
         # Table 2: peak_history
         """
-        CREATE TABLE IF NOT EXISTS peak_history (
+        CREATE TABLE IF NOT EXISTS ailog_peak.peak_history (
           id SERIAL PRIMARY KEY,
           peak_id VARCHAR(100) UNIQUE,
           first_occurrence TIMESTAMP NOT NULL,
@@ -119,10 +134,12 @@ def create_tables(conn):
         
         # Indexes for peak_history
         """
-        CREATE INDEX IF NOT EXISTS idx_peak_history_known ON peak_history(is_known);
+        CREATE INDEX IF NOT EXISTS idx_peak_&
+ON ailog_peak.peak_history(is_known);
         """,
         """
-        CREATE INDEX IF NOT EXISTS idx_peak_history_root_cause ON peak_history(root_cause_pattern);
+        CREATE INDEX IF NOT EXISTS idx_peak_&
+ON ailog_peak.peak_history(root_cause_pattern);
         """,
         
         # Table 3: active_peaks
