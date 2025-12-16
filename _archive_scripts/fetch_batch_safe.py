@@ -20,7 +20,7 @@ load_dotenv()
 
 BASE_URL = os.getenv('ES_URL', 'https://elasticsearch-test.kb.cz:9500')
 ES_USER = os.getenv('ES_USER', 'XX_PCBS_ES_READ')
-ES_PASSWORD = os.getenv('ES_PASSWORD', 'ta@@swLT69EX.6164')
+ES_PASSWORD = os.getenv('ES_PASSWORD', 'your_password_here')
 INDICES = os.getenv('ES_INDEX', 'cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*')
 
 def fetch_batch(from_idx, size, date_from, date_to, retry=3):
