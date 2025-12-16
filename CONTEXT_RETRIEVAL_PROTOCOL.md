@@ -31,25 +31,40 @@
    - Schema: ailog_peak
 
 3. **Phase 5: Peak Data Collection** ✅
-   - ✅ collect_peak_detailed.py: 2025-12-15 (163,847 errors)
-   - ✅ collect_peak_detailed.py: 2025-12-01 (historical baseline)
+   - ✅ collect_peak_detailed.py: 2025-12-01 (230K errors, ready for load)
    - ✅ Scripts reorganized do `scripts/` s `scripts/INDEX.md`
    - ✅ Workspace cleanup (6 archivů)
+   - ⚠️ DB: testovací data (2025-12-05) - BUDOU SMAZANA
 
-### 🔄 V PROCESU (Phase 5 - Priority)
-1. **Data Ingestion Pipeline** (TODAY PRIORITY)
-   - [ ] Exportovat data do CSV tabulky (`export_peak_statistics.py`)
-   - [ ] Vyčistit DB (DELETE staré záznamy)
-   - [ ] Nahrát nová data do peak_statistics (INSERT)
-   - [ ] Verifikace přes verify_peak_data.py
+### 🔄 V PROCESU (Phase 5B - Priority: DATA INGESTION)
 
-2. **Code Organization** ✅
-   - ✅ Cleanup archivní složky
-   - ✅ Scripts reorganizace
-   - ✅ Documentation cleanup
+**Production Data Status:**
+```
+2025-12-01: ✅ 230,146 errors (4 namespaces: pcb-*)
+            Lokace: /tmp/peak_data_2025_12_01.txt
+            ⚠️ Chybí: pca-dev, pca-sit
+
+2025-12-02 až 2025-12-15: ❌ CHYBÍ - Nutno stáhnout
+2025-12-16: ⏳ TODAY - Ještě se sbírá
+```
+
+**DB Current State:**
+```
+❌ Testovací data (budou smazana):
+   - 2,623 rows z 2025-12-05
+   - 6 namespaces (pca-* + pcb-*)
+   - Status: TO DELETE
+```
+
+**Next 5 Steps (PRIORITY ORDER):**
+1. [ ] **Smazat** testovací data z DB
+2. [ ] **Stáhnout** chybějící data 2025-12-02 až 2025-12-15
+3. [ ] **Ověřit** formát dat z 2025-12-01
+4. [ ] **Nataž** všech dat do DB (s smoothingem)
+5. [ ] **Validovat** kompletní range 2025-12-01 až 2025-12-15
 
 ### 📋 NEXT (Priority Order)
-1. ⏭️ Load data into DB (Phase 5A)
+1. ⏭️ Load data into DB - Phase 5B (THIS PRIORITY!)
 2. ⏭️ Create ingest_peak_statistics.py
 3. ⏭️ Deploy to K8s cluster (Phase 6)
 4. ⏭️ Cluster automate (Phase 7)
@@ -225,16 +240,29 @@ python verify_peak_data.py
 # Kontroluje: duplicates, NaN values, date ranges
 ```
 
-### Krok 3: (TODO) Load New Data
+### Krok 3: PHASE 5B - Load Production Data
 ```bash
-# Zatím ručně, později skript ingest_peak_statistics.py
+# Step 1: DELETE testovací data
+psql -h P050TD01.DEV.KB.CZ -U ailog_analyzer_user_d1 -d ailog_analyzer
+DELETE FROM ailog_peak.peak_statistics WHERE 1=1;
+
+# Step 2: Prepare chybějící data (2025-12-02 až 2025-12-15)
+# Ke každému dni:
+python collect_peak_detailed.py --from "2025-12-02T00:00:00Z" --to "2025-12-03T00:00:00Z"
+# Output: /tmp/peak_data_2025_12_02.txt
+
+# Step 3: Load do DB (skript ingest_peak_statistics.py TBD)
+# (zatím ručně, nebo skript který existuje)
+
+# Step 4: Validate
+python verify_peak_data.py
 ```
 
 ### Krok 4: Commit & Update
 ```bash
 cd /home/jvsete/git/sas/ai-log-analyzer
 git add -A
-git commit -m "Phase 5: Data collection + workspace cleanup"
+git commit -m "Phase 5B: Production data ingestion (2025-12-01 to 2025-12-15)"
 git push
 ```
 

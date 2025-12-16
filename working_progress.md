@@ -670,10 +670,10 @@ Ověřit stav:
 ## 📝 SESSION - 2025-12-16 11:35-11:50 UTC - Phase 5A: Data Ingestion Start
 
 ### 🎯 Phase 5A Tasks
-- [ ] Export peak_statistics to CSV backup
-- [ ] Verify data integrity
-- [ ] Review collected data
-- [ ] Load new data (if available)
+- [x] Export peak_statistics to CSV backup
+- [x] Verify data integrity (⚠️ TESTOVACÍ DATA - BUDOU SMAZANA)
+- [x] Review collected data
+- [ ] Load production data (2025-12-01 to 2025-12-15)
 
 ### ✅ HOTOVO (11:35-11:50 UTC)
 
@@ -683,53 +683,160 @@ Command: python export_peak_statistics.py --output peak_statistics_backup_YYYYMM
 Result: peak_statistics_backup_20251216_105945.csv created
 Size: 276 bytes (2 data rows + header)
 Timestamp: 2025-12-16 10:59:45 UTC
+
+⚠️  UPOZORNĚNÍ: Tato data jsou ze 2025-12-05, testovací data - BUDOU SMAZANA
 ```
 
 **2. Data Verification** ✅
 ```
-Database state: HEALTHY ✓
-Total rows in peak_statistics: 2,623
-Namespaces (6): pca-dev, pca-sit, pcb-dev, pcb-fat, pcb-sit, pcb-uat
-Most recent update: 2025-12-12 16:42:38 UTC
-
-Distribution by day of week:
-- Monday: 367 rows (mean errors: 539.46)
-- Tuesday: 375 rows (mean errors: 594.82)
-- Wednesday: 381 rows (mean errors: 412.12)
-- Thursday: 377 rows (mean errors: 474.67)
-- Friday: 391 rows (mean errors: 128.25)
-- Saturday: 369 rows (mean errors: 194.82)
-- Sunday: 363 rows (mean errors: 110.14)
+❌ ZJIŠTĚNÉ: Data v DB jsou z 2025-12-05 (testovací!)
+   Total rows: 2,623
+   Namespaces: 6 (pca-dev, pca-sit, pcb-dev, pcb-fat, pcb-sit, pcb-uat)
+   Last updated: 2025-12-12 16:42:38 UTC
+   Status: TOTO NEJSOU PRODUKČNÍ DATA!
 ```
 
-### 📊 KEY METRICS
-- **Data Coverage:** 2025-12-01 to 2025-12-12 (11 days historical)
-- **Time Granularity:** 15-minute windows (day_of_week + hour + quarter)
-- **Namespaces Monitored:** 6 K8s applications
-- **Data Quality:** ✅ No NaN, no duplicates, consistent
+### 📊 ZJISTENI - DATA NA DISKU
 
-### 🔍 BASELINE STATISTICS
-```
-Most variable (highest stddev):
-- Tuesday pcb-sit: mean=594.82, stddev=421.49
-  Threshold for alert: 594.82 + 3*421.49 = 1,860 errors
+**✅ Primární baseline (2025-12-01):**
+- Soubor: `/tmp/peak_data_2025_12_01.txt`
+- Errors: 230,146
+- Namespaces: 4 (pcb-dev, pcb-fat, pcb-sit, pcb-uat)
+- ⚠️ Chybí: pca-dev, pca-sit
+- Status: READY PRO NATAŽ DO DB
 
-Most stable (lowest stddev):
-- Friday pcb-fat: mean=128.25, stddev=3.41
-  Threshold for alert: 128.25 + 3*3.41 = 138.48 errors
+**❌ Chybí data (2025-12-02 až 2025-12-15):**
+- Nutné stáhnout z Elasticsearch
+- Plán: Stáhnout po blocích den po dni
+
+### 🎯 NEXT STEPS (Phase 5B)
+1. [ ] **Smazat testovací data** z DB (DELETE peak_statistics WHERE 1=1)
+2. [ ] **Stáhnout chybějící data** 2025-12-02 až 2025-12-15 (dny po dni)
+3. [ ] **Ověřit** nahrání dat ze 2025-12-01 s smoothingem
+4. [ ] **Nataž všech dat** do DB (s ověřením)
+5. [ ] **Validovat** kompletní range 2025-12-01 až 2025-12-16 v DB
+
+### 💾 FILES & LOCATIONS
+```
+Production data (2025-12-01):
+  └─ /tmp/peak_data_2025_12_01.txt (230K errors, 186 patterns)
+
+Testovací data (TO DELETE):
+  └─ /tmp/peak_baseline.csv
+  └─ DB: peak_statistics (2,623 rows - all from 2025-12-05)
+
+Scripts:
+  └─ scripts/collect_peak_detailed.py (já stahuju data)
+  └─ scripts/ingest_peak_statistics.py (TODO: nataž do DB)
 ```
 
-### 🎯 NEXT STEPS
-1. [x] Export backup → CSV
-2. [x] Verify integrity → All good!
-3. [ ] Review if new data needs to be added
-4. [ ] Test detection formula with live data
-5. [ ] Phase 5B: Load new data (if collected)
 
-### 💾 FILES CREATED
+---
+
+## 📋 PHASE 5B - PRODUCTION DATA INGESTION - TODO LIST
+
+### 1️⃣ Smazat testovací data z DB
+```bash
+# PŘED: 2,623 rows (z 2025-12-05)
+psql -h P050TD01.DEV.KB.CZ -U ailog_analyzer_user_d1 -d ailog_analyzer
+DELETE FROM ailog_peak.peak_statistics WHERE 1=1;
+SELECT COUNT(*) FROM ailog_peak.peak_statistics;  -- Must be 0
 ```
-scripts/peak_statistics_backup_20251216_105945.csv
-└── CSV snapshot of current baseline
-    Can be used for disaster recovery
+Status: ⏳ TODO
+
+### 2️⃣ Připravit chybějící data (2025-12-02 až 2025-12-15)
+```bash
+# Ke každému dni spustit:
+python3 scripts/collect_peak_detailed.py \
+  --from "2025-12-02T00:00:00Z" \
+  --to "2025-12-03T00:00:00Z"
+python3 scripts/collect_peak_detailed.py \
+  --from "2025-12-03T00:00:00Z" \
+  --to "2025-12-04T00:00:00Z"
+# ... atd do 2025-12-15
 ```
+Status: ⏳ TODO
+Output directory: `/tmp/` (peak_data_YYYY_MM_DD.txt)
+
+### 3️⃣ Ověřit nahrání dat z 2025-12-01 se smoothingem
+```bash
+# Ověřit formát výstupu z collect_peak_detailed.py
+# - Má mít: day_of_week, hour_of_day, quarter_hour, namespace, mean_errors, stddev_errors
+# - Smoothing: 3-window s váhami (25%, 50%, 25%)
+# - Musí obsahovat i pca-* aplikace (chybí v 2025-12-01!)
+
+# Zdroj dat: /tmp/peak_data_2025_12_01.txt
+# Obsahuje: 230,146 errors, 186 patterns, 4 namespaces (pcb-*)
+```
+Status: ⏳ VALIDATION PENDING
+
+### 4️⃣ Nataž všech dat do DB
+```bash
+# Vytvořit/upravit scripts/ingest_peak_statistics.py
+# - Čte output z collect_peak_detailed.py
+# - UPSERT do peak_statistics tabulky
+# - ON CONFLICT: aktualizovat mean/stddev
+# - last_updated = NOW()
+```
+Status: ⏳ SCRIPT NEEDED
+
+### 5️⃣ Validovat kompletní data 2025-12-01 až 2025-12-16
+```bash
+# Po nahrání všech dat:
+python3 scripts/verify_peak_data.py
+
+# Očekávání:
+# - Total rows: ~7,000-8,000 (186 patterns × ~7 dní)
+# - 6 namespaces (včetně pca-*)
+# - Date range: 2025-12-01 až 2025-12-15
+# - No NULL, no duplicates
+```
+Status: ⏳ TODO
+
+---
+
+## 📋 PHASE 6 - K8S DEPLOYMENT & AUTOMATION - TODO LIST
+
+### 6️⃣ Vytvořit init README
+Detaily: (na příští session)
+```bash
+# Obsah by měl obsahovat:
+# - Installation steps
+# - Configuration
+# - Database setup
+# - First run
+# - Troubleshooting
+```
+Status: ⏳ TODO
+
+### 7️⃣ Doladit K8s nasazení a automatické spuštění
+```bash
+# Kontrola:
+# - Deployment manifests (k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/)
+# - CronJob pro collect_peak_detailed.py (15 minut)
+# - Services, ConfigMaps, Secrets
+# - ArgoCD sync
+
+# Cíl: Automatické sbírání dat a detekce anomálií
+```
+Status: ⏳ TODO
+
+### 8️⃣ Zbývající úkoly z final.md nebo jeho nástupce
+Status: ⏳ TODO
+
+---
+
+## 🔗 REFERENCE - Klíčové Soubory a Cesty
+
+| Položka | Cesta |
+|---------|-------|
+| Projekt | `/home/jvsete/git/sas/ai-log-analyzer/` |
+| Scripts | `/home/jvsete/git/sas/ai-log-analyzer/scripts/` |
+| K8s Config | `/home/jvsete/git/sas/k8s-infra-apps-nprod/` |
+| Database | `P050TD01.DEV.KB.CZ:5432/ailog_analyzer` |
+| DB Schema | `ailog_peak` |
+| DB User | `ailog_analyzer_user_d1` |
+| ES | `elasticsearch-test.kb.cz:9500` |
+| Production Data | `/tmp/peak_data_*.txt` |
+| Testovací Data | `/tmp/peak_baseline.csv` |
 
