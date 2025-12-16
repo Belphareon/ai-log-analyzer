@@ -24,28 +24,63 @@
 | **FIX: Timezone correction** | ✅ | Changed to `win_start.weekday()`, `win_start.hour` |
 | **Re-collecting 2025-12-01** | ✅ | PID 30444 - RUNNING with fix |
 
-### 🐛 BUG DETAILS
+## 🔧 SMOOTHING ALGORITHM (TO IMPLEMENT)
 
-**Problem Found:**
+**Goal:** Detect real peaks by smoothing outliers using 3-window + cross-day aggregation
+
+**Algorithm:**
 ```
-- Data in DB were shifted -1 hour relative to reality
-- Example: Real peak at 14:40 UTC stored as 13:40 (hour=13, quarter=3)
-- Root cause: Using win_end (end of 15-min window) instead of win_start
-- Window 14:30-14:45 end at 14:45, but data from 14:30-14:45 should use START
+For each time bucket (day_of_week, hour, quarter, namespace):
+
+1. HORIZONTAL SMOOTHING (same day):
+   - Take current + adjacent time windows (±2 = 5 windows total)
+   - Calculate average: smooth_h = mean(win[i-2:i+3])
+   
+2. VERTICAL SMOOTHING (same time, different days):
+   - For SAME time bucket from 3+ previous days
+   - Calculate average: smooth_v = mean(day1, day2, day3)
+   
+3. COMBINE:
+   - final_mean = (smooth_h + smooth_v) / 2
+   - If only 1 day available: use only smooth_h
+   - If no adjacent windows: use smooth_h with available neighbors
 ```
 
-**Solution Applied:**
-```python
-# BEFORE (WRONG):
-day_of_week = win_end.weekday()
-hour_of_day = win_end.hour
-quarter_hour = (win_end.minute // 15) % 4
-
-# AFTER (CORRECT):
-day_of_week = win_start.weekday()
-hour_of_day = win_start.hour  
-quarter_hour = (win_start.minute // 15) % 4
+**Example (as user specified):**
 ```
+Day 1 (2025-12-01):
+  13:30 = 25, 13:45 = 4, 14:00 = 51, 14:15 = 9, 14:30 = 13433, 14:45 = 41303
+  After smoothing:
+    14:30 = (25+4+51+9+13433)/5=2704 (horizontal) 
+           + later cross-day data (vertical)
+
+Day 2-3: Will add vertical smoothing when available
+```
+
+**Current Status:** Pending - need 3+ days of data first
+
+**Problem:**
+- ES shows peak at **14:00:00 UTC (81,171 errors)** for pcb-dev-01-app on 2025-12-01
+- DB stores same peak as **hour=13 (41,303 mean_errors)**
+- **ALL data stored with -1 hour offset**
+
+**Root Cause Investigation:**
+1. Changed `collect_peak_detailed.py` from `win_end` to `win_start` for hour calculation
+2. **BUT:** Data collected after change show SAME offset (-1 hour)
+3. **CONCLUSION:** Either:
+   - Python cache still running old code, OR
+   - Bug is in `group_into_windows()` or timestamp parsing from ES
+
+**Workaround Solution (IMMEDIATE):**
+- FIX: Add +1 hour offset in `ingest_from_log.py` when parsing
+- This corrects all data being inserted to DB
+- Will apply to parser: `hour_of_day = (hour_of_day + 1) % 24`
+
+**Root Cause Fix (LATER):**
+- Debug `collect_peak_detailed.py` with print statements
+- Verify windows are generated correctly
+- Check ES timestamp parsing
+- May need to re-run collection AFTER confirming fix works
 
 ### 🔄 CURRENTLY RUNNING
 
@@ -66,21 +101,26 @@ NEXT STEPS:
 ### 📋 TODO NEXT (PRIORITY ORDER)
 
 ```
-PHASE 1 (IMMEDIATE):
-  [ ] 1. Počkat na PID 30444 aby skončil (2-3 min)
-  [ ] 2. Zkontrolovat: ls -lh /tmp/peak_fixed_2025_12_01.txt
-  [ ] 3. Spustit ingest: python ingest_from_log.py --input /tmp/peak_fixed_2025_12_01.txt
-  [ ] 4. OVĚŘIT V DB: Zkontrolovat že hour_of_day je teď SPRÁVNĚ (bez -1h)
-  [ ] 5. Commitnout timezone fix: git add & git commit
+PHASE 1 (IMMEDIATE - OFFSET FIX):
+  [ ] 1. Smazat stará data z DB: DELETE FROM peak_statistics
+  [ ] 2. Opravit ingest_from_log.py: +1 hour offset při parsování
+  [ ] 3. Re-ingest 2025-12-01 data s korekcí
+  [ ] 4. OVĚŘIT: DB má teď hour=14 místo hour=13 pro biggest peak
+  [ ] 5. Commitnout parser fix
 
-PHASE 2 (SMOOTHING FIX):
-  [ ] 6. Vyřešit smoothing: stddev_errors musí být > 0 (teď je vždy 0)
-  [ ] 7. Bude potřeba opravit UPSERT logiku pro agregaci více dní
+PHASE 2 (DEBUG & PERMANENT FIX):
+  [ ] 6. Debug collect_peak_detailed.py - zjistit kde se -1h tvoří
+  [ ] 7. Přidat debug prints k windows a timestamps
+  [ ] 8. Re-run collection s debug outputem
+  [ ] 9. Najít root cause a opravit navždy
 
-PHASE 3 (CONTINUE INGESTION):
-  [ ] 8. Sbírání 2025-12-02 & 2025-12-03
-  [ ] 9. Sbírání zbylých 12 dní (6 batchů po 2 dnech)
-  [ ] 10. FINAL: Ověřit všech ~2,976 rows (384 × 16 dní / 2?)
+PHASE 3 (SMOOTHING):
+  [ ] 10. Vyřešit stddev_errors (teď je vždy 0)
+  [ ] 11. Opravit UPSERT pro agregaci více dní
+
+PHASE 4 (CONTINUE COLLECTION):
+  [ ] 12. Sbírání 2025-12-02 & 2025-12-03 (s opravou offsetu)
+  [ ] 13. Sbírání zbylých dní (6 batchů)
 ```
 
 ---
