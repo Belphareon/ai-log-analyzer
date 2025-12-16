@@ -597,3 +597,70 @@ tail -50 working_progress.md         # Last session log
 **Files organized:** 46 changes in git commit  
 **Workspace ready:** ✅ YES - Phase 5A ready to begin
 
+
+---
+
+## 🔍 VYJASNĚNÍ: Co je "peak_statistics" (važné!)
+
+### ❌ ŠPATNÉ POCHOPENÍ
+"peak_statistics" = statistika o peakech (events, detekce, atd.)
+
+### ✅ SPRÁVNÉ POCHOPENÍ
+"peak_statistics" = **BASELINE PRO DETEKCI** peaků
+- Je to reference data (známá/normální stav)
+- Používá se pro porovnání = detekce anomálií
+
+### 📊 OBSAH TABULKY peak_statistics
+```
+Řádek = (den_týdne, hodina, čtvrthodina, namespace)
+
+Příklad data:
+┌──────┬──────┬────────┬───────────────┬──────────────┬──────────────┐
+│ Den  │ Hod  │ 15min  │ Namespace     │ Průměr chyb  │ StdDev chyb  │
+├──────┼──────┼────────┼───────────────┼──────────────┼──────────────┤
+│ Pon  │ 8:00 │ 0      │ pcb-sit-01    │ 203          │ 45           │
+│ Pon  │ 8:00 │ 15     │ pcb-sit-01    │ 195          │ 42           │
+│ Pon  │ 8:00 │ 30     │ pcb-sit-01    │ 187          │ 41           │
+└──────┴──────┴────────┴───────────────┴──────────────┴──────────────┘
+
+FORMULA PRO DETEKCI PEAKU:
+  Aktuální chyby > (Průměr + 3 * StdDev) = ANOMÁLIE!
+  Aktuální chyby > (Průměr + 5 * StdDev) = KRITICKÁ ANOMÁLIE!
+```
+
+### 📋 TABULKY V DATABÁZI
+```
+ailog_peak schema obsahuje:
+
+1. peak_raw_data         ← Raw data z Elasticsearch (15min okna)
+                           Používá se pro výpočet baseline
+
+2. peak_statistics       ← BASELINE (průměr + stddev)
+                           ⭐ TO CO VÁS ZAJÍMÁ!
+                           Používá se pro detekci anomálií
+
+3. peak_history          ← Historické peaky (skutečné detekované anomálie)
+                           Peaky co se skutečně staly
+
+4. active_peaks          ← Aktuálně běžící peaky
+                           Real-time detekce
+```
+
+### 🎯 PROČ TEN NÁZEV?
+- Původně by to mělo být: `error_baseline` nebo `anomaly_thresholds`
+- Ale v kódu se to tak jmenuje, tak to necháme
+- **DŮLEŽITÉ:** Vědět, že to je BASELINE, ne samotné peaky!
+
+### 💾 AKTUÁLNÍ DATA V DB (2025-12-16)
+```
+Tabulka: peak_statistics (schema: ailog_peak)
+Status: ✅ Načtena data pro:
+  - 2025-12-01 (baseline, historické 16 dní)
+  - 2025-12-15 (recent, 163,847 errors)
+
+Ověřit stav:
+  psql -h P050TD01.DEV.KB.CZ -U ailog_analyzer_user_d1 -d ailog_analyzer
+  SELECT COUNT(*) FROM ailog_peak.peak_statistics;
+  SELECT * FROM ailog_peak.peak_statistics LIMIT 5;
+```
+
