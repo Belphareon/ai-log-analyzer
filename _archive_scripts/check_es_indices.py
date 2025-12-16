@@ -13,7 +13,7 @@ urllib3.disable_warnings()
 ES_CONFIG = {
     'url': os.getenv('ES_URL', 'https://elasticsearch-test.kb.cz:9500'),
     'user': os.getenv('ES_USER', 'XX_PCBS_ES_READ'),
-    'password': os.getenv('ES_PASSWORD', 'ta@@swLT69EX.6164')
+    'password': os.getenv('ES_PASSWORD', 'your_password_here')
 }
 
 print("🔍 Checking available indices in Elasticsearch")

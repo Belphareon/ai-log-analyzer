@@ -12,7 +12,7 @@ urllib3.disable_warnings()
 
 BASE_URL = "https://elasticsearch-test.kb.cz:9500"
 USER = "XX_PCBS_ES_READ"
-PASS = "ta@@swLT69EX.6164"
+PASS = os.getenv('ES_PASSWORD', 'your_password_here')
 INDICES = "cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*"
 
 auth = (USER, PASS)

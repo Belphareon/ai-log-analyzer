@@ -52,7 +52,7 @@ DB_CONFIG = {
 ES_CONFIG = {
     'url': os.getenv('ES_URL', 'https://elasticsearch-test.kb.cz:9500'),
     'user': os.getenv('ES_USER', 'XX_PCBS_ES_READ'),
-    'password': os.getenv('ES_PASSWORD', 'ta@@swLT69EX.6164'),
+    'password': os.getenv('ES_PASSWORD', 'your_password_here'),
     'indices': os.getenv('ES_INDICES', 'cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb-ch-*')
 }
 
