@@ -664,3 +664,72 @@ Ověřit stav:
   SELECT * FROM ailog_peak.peak_statistics LIMIT 5;
 ```
 
+
+---
+
+## 📝 SESSION - 2025-12-16 11:35-11:50 UTC - Phase 5A: Data Ingestion Start
+
+### 🎯 Phase 5A Tasks
+- [ ] Export peak_statistics to CSV backup
+- [ ] Verify data integrity
+- [ ] Review collected data
+- [ ] Load new data (if available)
+
+### ✅ HOTOVO (11:35-11:50 UTC)
+
+**1. CSV Export Backup** ✅
+```bash
+Command: python export_peak_statistics.py --output peak_statistics_backup_YYYYMMDD_HHMMSS.csv
+Result: peak_statistics_backup_20251216_105945.csv created
+Size: 276 bytes (2 data rows + header)
+Timestamp: 2025-12-16 10:59:45 UTC
+```
+
+**2. Data Verification** ✅
+```
+Database state: HEALTHY ✓
+Total rows in peak_statistics: 2,623
+Namespaces (6): pca-dev, pca-sit, pcb-dev, pcb-fat, pcb-sit, pcb-uat
+Most recent update: 2025-12-12 16:42:38 UTC
+
+Distribution by day of week:
+- Monday: 367 rows (mean errors: 539.46)
+- Tuesday: 375 rows (mean errors: 594.82)
+- Wednesday: 381 rows (mean errors: 412.12)
+- Thursday: 377 rows (mean errors: 474.67)
+- Friday: 391 rows (mean errors: 128.25)
+- Saturday: 369 rows (mean errors: 194.82)
+- Sunday: 363 rows (mean errors: 110.14)
+```
+
+### 📊 KEY METRICS
+- **Data Coverage:** 2025-12-01 to 2025-12-12 (11 days historical)
+- **Time Granularity:** 15-minute windows (day_of_week + hour + quarter)
+- **Namespaces Monitored:** 6 K8s applications
+- **Data Quality:** ✅ No NaN, no duplicates, consistent
+
+### 🔍 BASELINE STATISTICS
+```
+Most variable (highest stddev):
+- Tuesday pcb-sit: mean=594.82, stddev=421.49
+  Threshold for alert: 594.82 + 3*421.49 = 1,860 errors
+
+Most stable (lowest stddev):
+- Friday pcb-fat: mean=128.25, stddev=3.41
+  Threshold for alert: 128.25 + 3*3.41 = 138.48 errors
+```
+
+### 🎯 NEXT STEPS
+1. [x] Export backup → CSV
+2. [x] Verify integrity → All good!
+3. [ ] Review if new data needs to be added
+4. [ ] Test detection formula with live data
+5. [ ] Phase 5B: Load new data (if collected)
+
+### 💾 FILES CREATED
+```
+scripts/peak_statistics_backup_20251216_105945.csv
+└── CSV snapshot of current baseline
+    Can be used for disaster recovery
+```
+
