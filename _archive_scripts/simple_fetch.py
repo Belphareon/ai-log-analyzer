@@ -9,7 +9,7 @@ import argparse
 # ES credentials from .env
 ES_URL = "https://elasticsearch-test.kb.cz:9500"
 ES_USER = "XX_PCBS_ES_READ"
-ES_PASSWORD = os.getenv('ES_PASSWORD', 'your_password_here')
+ES_PASSWORD = os.getenv('ES_PASSWORD')  # Required: Set in .env file
 ES_INDEX = "cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*"
 
 def fetch_errors(from_time, to_time, max_sample=5000):

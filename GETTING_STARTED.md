@@ -208,9 +208,14 @@ pip install elasticsearch==8.11.0 aiohttp tenacity structlog
 Pro lightweight setup potřebujeme pouze ES credentials:
 
 ```bash
-# Vytvořte soubor .env
+# Zkopírujte template
+cp .env.example .env
+
+# Upravte .env soubor
 nano .env
 ```
+
+**DŮLEŽITÉ:** Soubor `.env` je v `.gitignore` a NEBUDE nahrán do gitu. Vaše hesla zůstanou pouze lokálně!
 
 ### 4.2 Minimální konfigurace `.env` (POUZE ES)
 
@@ -632,10 +637,14 @@ docker-compose ps
 ### 4.1 Vytvoření `.env` souboru (KOMPLETNÍ)
 
 ```bash
-cp .env.example .env  # pokud existuje
-# nebo vytvořte nový
+# Zkopírujte template s příklady
+cp .env.example .env
+
+# Upravte všechny hodnoty podle vašeho prostředí
 nano .env
 ```
+
+**DŮLEŽITÉ:** Soubor `.env` je v `.gitignore` a NEBUDE nahrán do gitu. Vaše credentials jsou v bezpečí!
 
 ### 4.2 Kompletní konfigurace `.env`
 

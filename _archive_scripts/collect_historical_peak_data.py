@@ -42,13 +42,13 @@ DB_CONFIG = {
     'port': int(os.getenv('DB_PORT', 5432)),
     'database': os.getenv('DB_NAME', 'ailog_analyzer'),
     'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD', 'your_db_password_here')
+    'password': os.getenv('DB_PASSWORD')  # Required: Set in .env file
 }
 
 ES_CONFIG = {
     'url': os.getenv('ES_URL', 'https://elasticsearch-test.kb.cz:9500'),
     'user': os.getenv('ES_USER', 'XX_PCBS_ES_READ'),
-    'password': os.getenv('ES_PASSWORD', 'your_password_here'),
+    'password': os.getenv('ES_PASSWORD'),  # Required: Set in .env file
     'indices': os.getenv('ES_INDICES', 'cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb-ch-*')
 }
 

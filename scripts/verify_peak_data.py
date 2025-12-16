@@ -12,7 +12,7 @@ DB_CONFIG = {
     'port': int(os.getenv('DB_PORT', 5432)),
     'database': os.getenv('DB_NAME', 'ailog_analyzer'),
     'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD', 'your_db_password_here')
+    'password': os.getenv('DB_PASSWORD')  # Required: Set in .env file
 }
 
 print("🔍 Verifying peak data in database...")
