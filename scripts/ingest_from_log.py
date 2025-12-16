@@ -109,16 +109,29 @@ def insert_statistics_to_db(statistics):
     inserted = 0
     failed = 0
     
-    # SQL for UPSERT
+    # SQL for UPSERT with proper aggregation for smoothing
     sql = """
     INSERT INTO ailog_peak.peak_statistics 
     (day_of_week, hour_of_day, quarter_hour, namespace, mean_errors, stddev_errors, samples_count)
     VALUES (%s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (day_of_week, hour_of_day, quarter_hour, namespace)
     DO UPDATE SET 
-        mean_errors = EXCLUDED.mean_errors,
-        stddev_errors = EXCLUDED.stddev_errors,
-        samples_count = EXCLUDED.samples_count
+        mean_errors = (
+            (peak_statistics.mean_errors * peak_statistics.samples_count + EXCLUDED.mean_errors * EXCLUDED.samples_count) /
+            (peak_statistics.samples_count + EXCLUDED.samples_count)
+        ),
+        stddev_errors = CASE 
+            WHEN (peak_statistics.samples_count + EXCLUDED.samples_count) <= 1 THEN 0
+            ELSE sqrt(
+                ((peak_statistics.samples_count - 1) * peak_statistics.stddev_errors * peak_statistics.stddev_errors +
+                 (EXCLUDED.samples_count - 1) * EXCLUDED.stddev_errors * EXCLUDED.stddev_errors +
+                 peak_statistics.samples_count * EXCLUDED.samples_count * 
+                 (peak_statistics.mean_errors - EXCLUDED.mean_errors) * (peak_statistics.mean_errors - EXCLUDED.mean_errors) /
+                 (peak_statistics.samples_count + EXCLUDED.samples_count)) /
+                (peak_statistics.samples_count + EXCLUDED.samples_count - 1)
+            )
+        END,
+        samples_count = peak_statistics.samples_count + EXCLUDED.samples_count
     """
     
     try:
