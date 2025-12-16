@@ -148,9 +148,9 @@ def calculate_statistics_by_time_pattern(window_counts, windows):
     for (win_idx, ns), count in window_counts.items():
         win_start, win_end = windows[win_idx]
         
-        day_of_week = win_end.weekday()
-        hour_of_day = win_end.hour
-        quarter_hour = (win_end.minute // 15) % 4
+        day_of_week = win_start.weekday()
+        hour_of_day = win_start.hour
+        quarter_hour = (win_start.minute // 15) % 4
         
         key = (day_of_week, hour_of_day, quarter_hour, ns)
         pattern_data[key].append(count)
