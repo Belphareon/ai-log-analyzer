@@ -64,9 +64,16 @@ def parse_peak_statistics_from_log(log_file):
         stddev_str = match.group(8)
         samples_str = match.group(9)
         
+        # TIMEZONE OFFSET FIX: Add +1 hour (ES data has -1h offset)
+        hour = (hour + 1) % 24
+        if hour == 0:
+            # Midnight: next day
+            day_of_week = (day_map.get(day_name, 0) + 1) % 7
+        else:
+            day_of_week = day_map.get(day_name, 0)
+        
         # Calculate quarter hour (0, 15, 30, 45)
         quarter_hour = (minute // 15) % 4
-        day_of_week = day_map.get(day_name, 0)
         
         key = (day_of_week, hour, quarter_hour, namespace)
         
