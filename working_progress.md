@@ -335,3 +335,162 @@ Vyčistit workspace, archivovat staré soubory, extrahovat důležité info.
 - [ ] Phase 6a: DB schema validation
 - [ ] Deploy to K8s
 
+
+---
+
+## 📝 SESSION - 2025-12-16 11:00 UTC - Workspace Reorganization & Cleanup
+
+### 🎯 Cíl
+Vyčistit workspace, reorganizovat scripty, aktualizovat dokumentaci.
+
+### ✅ HOTOVO (11:00-11:15 UTC)
+
+**1. Workspace Cleanup**
+- ✅ Archivováno: copilot-chat-backups/ (5MB - backupy chatů, nepotřebné)
+- ✅ Archivováno: updates/ (200KB - staré session noty z listopadu)
+- ✅ Archivováno: .backup_2025-11-18/ (1MB - starý backup, zastaralý)
+- ✅ Archivováno: tests/ (<1KB - prázdný folder)
+- ✅ Smazáno: Dockerfile.peak-detector (experiment)
+- ✅ Smazáno: Dockerfile.tmp (temporary file)
+- ✅ Smazáno: __pycache__ (auto-generated)
+
+**2. Scripts Reorganizace**
+- ✅ Vytvořen: `scripts/` folder s `scripts/INDEX.md` (detailní reference)
+- ✅ Přesunuty: všechny .py scripty (10 skriptů) → scripts/
+- ✅ Přesunut: workflow_manager.sh → scripts/
+- ✅ Zachovány: references v dokumentaci
+
+**3. MD Soubory Cleanup**
+- ✅ Archivováno: COMPLETED_LOG.md (starý log)
+- ✅ Archivováno: DEPLOYMENT.md (zastaralé)
+- ✅ Archivováno: HARBOR_DEPLOYMENT_GUIDE.md (reference v archívu)
+- ✅ Archivováno: KNOWN_ISSUES_DESIGN.md (design doc)
+- ✅ Archivováno: PHASE_ROADMAP.md (starý roadmap)
+- ✅ Archivováno: README_SCRIPTS.md (nahrazeno scripts/INDEX.md)
+
+**4. K8s Archivace**
+- ✅ Archivováno: k8s/ folder (zastaralé manifesty, cluster se ještě řeší)
+
+**5. Dokumentace Update**
+- ✅ Aktualizován: CONTEXT_RETRIEVAL_PROTOCOL.md (v2.1)
+  - Nová struktura s scripts/
+  - Čisté workspace tree
+  - Priority workflow Phase 5A (data ingestion)
+  
+### 📊 VÝSLEDKY CLEANUP
+
+| Kategorie | Před | Po | Poznámka |
+|-----------|------|----|----|
+| Root MD files | 10 | 4 | -6 archivováno |
+| Root PY files | 9 | 0 | Všechny v scripts/ |
+| Root folders | 14 | 9 | -5 do archívu |
+| Total size | 283M | 283M | (venv zůstal) |
+| Clean root | ❌ | ✅ | 4 MD + 7 config files |
+
+**Finální Root Struktura:**
+```
+📄 README.md
+📄 CONTEXT_RETRIEVAL_PROTOCOL.md
+📄 working_progress.md
+📄 HOW_TO_USE.md
+📂 scripts/                          ← ALL PRODUCTION CODE
+📂 app/                              ← FastAPI app
+📂 alembic/                          ← DB migrations
+📂 _archive_md/                      ← Old docs (6 files)
+📂 _archive_scripts/                 ← Old scripts (19 files)
+📂 _archive_old/                     ← Old folders
+🐳 Dockerfile
+📦 requirements.txt
+... (config files)
+```
+
+### 🔄 WHAT'S NEXT (Priority)
+
+**IMMEDIATE (Phase 5A - Data Ingestion):**
+1. [ ] Export peak_statistics to CSV (backup)
+2. [ ] Verify current DB data
+3. [ ] (Optional) Clean old DB records
+4. [ ] Load new data if available
+5. [ ] Verify data integrity
+
+**NEXT SESSION:**
+6. [ ] Create ingest_peak_statistics.py (automated loader)
+7. [ ] Test full pipeline
+8. [ ] Deploy to K8s (Phase 6)
+
+### 📚 KEY DOCUMENTS UPDATED
+
+- `CONTEXT_RETRIEVAL_PROTOCOL.md` (v2.1) - Full workspace guide
+- `scripts/INDEX.md` - Script reference + usage
+- `working_progress.md` - This log
+
+### 💾 GIT STATUS
+
+```bash
+# Files to commit:
+- CONTEXT_RETRIEVAL_PROTOCOL.md (updated)
+- working_progress.md (this log)
+- scripts/ folder structure (reorganized)
+- _archive_*/ folders (new archiving)
+
+# Not committing:
+- .venv/, venv/ (env files)
+- __pycache__/ (auto-generated, already in .gitignore)
+```
+
+
+---
+
+## 🗺️ DŮLEŽITÉ LOKACE - Pro Příští Session
+
+### 📍 Aktuální K8s Konfigurace
+```
+Repo: /home/jvsete/git/sas/k8s-infra-apps-nprod/
+Branch: feature/ai-log-analyzer-v2
+Manifest: infra-apps/ai-log-analyzer/
+Status: ZASTARALÝ - cluster se ještě řeší, zatím ručně
+```
+
+### 📊 Historická Data
+```
+Database: P050TD01.DEV.KB.CZ:5432/ailog_analyzer
+Schema: ailog_peak
+Table: peak_statistics
+
+Dates in DB:
+- 2025-12-01 (initial load, 16 dní zpátky)
+- 2025-12-15 (recent, 163,847 errors)
+
+Query example:
+SELECT date_trunc('day', measurement_time) as day, COUNT(*) 
+FROM peak_statistics 
+GROUP BY day 
+ORDER BY day DESC;
+```
+
+### 💾 Exportované/Backup Data
+```
+Location: (needs export, see scripts/export_peak_statistics.py)
+Format: CSV (YYYYMMDD_HHMMSS timestamp)
+Command: cd scripts/ && python export_peak_statistics.py --from 2025-12-01 --to 2025-12-16
+```
+
+### 📁 Archive Locations
+```
+_archive_md/          - Old documentation (6 files)
+_archive_scripts/     - Old scripts Phase 1-3 (19 files)
+_archive_old/         - Folders archived today:
+                        ├── k8s/                 (zastaralé manifesty)
+                        ├── copilot-chat-backups/ (backupy chatů)
+                        ├── updates/             (staré session noty)
+                        ├── .backup_2025-11-18/  (starý backup)
+                        └── tests/               (prázdný folder)
+```
+
+### 🔑 Key Contacts/Credentials (Cyberark)
+```
+Elasticsearch: XX_PCBS_ES_READ (elastic user)
+Database: DAP_PCB safe (ailog_analyzer_user_d1)
+Elasticsearch URL: elasticsearch-test.kb.cz:9500
+```
+

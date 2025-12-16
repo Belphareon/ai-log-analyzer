@@ -1,9 +1,9 @@
 # CONTEXT RETRIEVAL PROTOCOL
 ## AI Log Analyzer Project - Kontext pro Kontinuitu Práce
 
-**Verze:** 2.0  
+**Verze:** 2.1  
 **Datum vytvoření:** 2025-12-12  
-**Poslední update:** 2025-12-16  
+**Poslední update:** 2025-12-16 11:00 UTC  
 **Účel:** Rychlé načtení kontextu pro pokračování v práci na projektu
 
 ---
@@ -15,307 +15,279 @@
 - **Funkce:** Detekce anomálií, clustering chybových vzorů, temporální analýza
 - **Technologie:** FastAPI + PostgreSQL + Elasticsearch + Ollama (optional)
 - **Deployment:** Kubernetes (ArgoCD) + Harbor registry
-- **Stav:** Phase 4 COMPLETE ✅ | Phase 5 IN PROGRESS 🔄 - Peak Detection Baseline
+- **Stav:** Phase 4 COMPLETE ✅ | Phase 5 IN PROGRESS 🔄 - Peak Detection Baseline Collection
 
 ---
 
-## 🎯 AKTUÁLNÍ STAV (2025-12-16 - Phase 5 IN PROGRESS)
+## 🎯 AKTUÁLNÍ STAV (2025-12-16 11:00 UTC - Phase 5 IN PROGRESS)
 
-### ✅ HOTOVO (Phase 4 + 5 start)
+### ✅ HOTOVO (Phase 4 + 5 setup)
 1. **Docker Image** ✅
    - Tag: `v0.4.0-docker-verified` + `latest`
    - Registry: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer`
 
-2. **K8s Manifests** ✅
-   - Location: `/home/jvsete/git/sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/`
-
-3. **Database Schema** ✅
+2. **Database Schema** ✅
    - PostgreSQL: P050TD01.DEV.KB.CZ:5432/ailog_analyzer
    - Schema: ailog_peak
 
-4. **Phase 5: Peak Collection Started** ✅
-   - ✅ collect_peak_detailed.py spuštěn pro 2025-12-15 (163,847 errors)
-   - ✅ collect_peak_detailed.py spuštěn pro 2025-12-01 (16 dní zpátky - CRITICAL)
-   - ✅ Archivovány staré scripty (19 v _archive_scripts/)
-   - ✅ Smazány test_*.py scripty (8 testů)
-   - ✅ Aktualizován README_SCRIPTS.md
+3. **Phase 5: Peak Data Collection** ✅
+   - ✅ collect_peak_detailed.py: 2025-12-15 (163,847 errors)
+   - ✅ collect_peak_detailed.py: 2025-12-01 (historical baseline)
+   - ✅ Scripts reorganized do `scripts/` s `scripts/INDEX.md`
+   - ✅ Workspace cleanup (6 archivů)
 
-### 🔄 V PROCESU (Phase 5 - Current)
-1. **Data Ingestion Pipeline**
-   - [ ] Exportovat data do CSV tabulky
+### 🔄 V PROCESU (Phase 5 - Priority)
+1. **Data Ingestion Pipeline** (TODAY PRIORITY)
+   - [ ] Exportovat data do CSV tabulky (`export_peak_statistics.py`)
    - [ ] Vyčistit DB (DELETE staré záznamy)
-   - [ ] Nahrát nová data do peak_statistics
+   - [ ] Nahrát nová data do peak_statistics (INSERT)
    - [ ] Verifikace přes verify_peak_data.py
 
-2. **Documentation Cleanup**
-   - [x] Archivovat staré scripty
-   - [x] Aktualizovat README_SCRIPTS.md
-   - [ ] Aktualizovat CONTEXT_RETRIEVAL_PROTOCOL.md (TEN SOUBOR - IN PROGRESS)
-   - [ ] Archivovat staré MD soubory
+2. **Code Organization** ✅
+   - ✅ Cleanup archivní složky
+   - ✅ Scripts reorganizace
+   - ✅ Documentation cleanup
 
-### 📋 TODO (Next Priority)
-1. Vytvořit `ingest_peak_statistics.py` skript
-2. Dokumentovat nový script
-3. Deploy to K8s
-4. Test integration
+### 📋 NEXT (Priority Order)
+1. ⏭️ Load data into DB (Phase 5A)
+2. ⏭️ Create ingest_peak_statistics.py
+3. ⏭️ Deploy to K8s cluster (Phase 6)
+4. ⏭️ Cluster automate (Phase 7)
 
 ---
 
-## 📁 STRUKTURA PROJEKTU
+## 📁 WORKSPACE STRUKTURA (2025-12-16)
 
-### Klíčové Soubory (Phase 5)
 ```
 ai-log-analyzer/
-├── collect_peak_detailed.py          # ⭐ CORE - Sbírá peak data
-├── fetch_unlimited.py                # ⭐ CORE - ES fetcher
-├── analyze_period.py                 # Orchestrator
-├── export_peak_statistics.py         # Export do CSV
-├── init_peak_statistics_db.py        # DB init (1x)
-├── setup_peak_db.py                  # DB setup (1x)
-├── verify_peak_data.py               # Verifikace
-├── grant_permissions.py              # DB perms (1x)
-├── create_known_issues_registry.py   # Registry
-├── working_progress.md               # ✅ SESSION LOG
-├── CONTEXT_RETRIEVAL_PROTOCOL.md     # ✅ REFERENCE
-├── README_SCRIPTS.md                 # ✅ SCRIPT DOCS
-├── PHASE_ROADMAP.md                  # ✅ ROADMAP
-├── HOW_TO_USE.md                     # ✅ USER GUIDE
-├── requirements.txt                  # Python dependencies
-├── Dockerfile                        # Docker build
-└── docker-compose.yml                # Local dev
-```
-
-### Git Struktura
-```
-/home/jvsete/git/sas/
-├── ai-log-analyzer/                           # Development workspace
-└── k8s-infra-apps-nprod/                      # Production K8s manifests
-    └── infra-apps/ai-log-analyzer/            # ← Deploy location
-        └── feature/ai-log-analyzer-v2         # ← Active branch
+├── 📄 README.md                      # ⭐ Main documentation
+├── 📄 CONTEXT_RETRIEVAL_PROTOCOL.md  # ⭐ This file - quick context
+├── 📄 working_progress.md            # ⭐ Session log + tasks
+├── 📄 HOW_TO_USE.md                  # ⭐ User guide + examples
+│
+├── 📂 scripts/                       # ALL PRODUCTION SCRIPTS
+│   ├── INDEX.md                      # 📋 Script reference (START HERE!)
+│   ├── collect_peak_detailed.py      # ⭐ CORE - Peak data collector
+│   ├── fetch_unlimited.py            # Elasticsearch fetcher
+│   ├── analyze_period.py             # Orchestrator
+│   ├── export_peak_statistics.py     # CSV export
+│   ├── verify_peak_data.py           # Data validation
+│   ├── init_peak_statistics_db.py    # DB init (1x)
+│   ├── setup_peak_db.py              # DB setup (1x)
+│   ├── grant_permissions.py          # DB perms (1x)
+│   ├── create_known_issues_registry.py # Known issues
+│   └── workflow_manager.sh           # Shell wrapper
+│
+├── 📂 app/                           # FastAPI application
+│   ├── main.py                       # Entry point
+│   ├── routes/
+│   ├── models/
+│   ├── schemas/
+│   └── utils/
+│
+├── 📂 alembic/                       # Database migrations
+│   ├── versions/
+│   └── env.py
+│
+├── 📂 _archive_md/                   # OLD Documentation (ignore)
+│   ├── COMPLETED_LOG.md
+│   ├── DEPLOYMENT.md
+│   ├── HARBOR_DEPLOYMENT_GUIDE.md
+│   ├── KNOWN_ISSUES_DESIGN.md
+│   ├── PHASE_ROADMAP.md
+│   └── README_SCRIPTS.md
+│
+├── 📂 _archive_scripts/              # OLD Scripts from Phase 1-3
+│   └── (19 zastaralých skriptů)
+│
+├── 📂 _archive_old/                  # OLD Folders (cleanup 2025-12-16)
+│   ├── k8s/                          # Zastaralé manifesty
+│   ├── copilot-chat-backups/         # Chat backupy
+│   ├── updates/                      # Staré session noty
+│   ├── .backup_2025-11-18/           # Starý backup
+│   └── tests/                        # Prázdný test folder
+│
+├── 🐳 Dockerfile                     # Current image build
+├── 📦 requirements.txt               # Python dependencies
+├── 📋 docker-compose.yml             # Dev environment
+├── 🔑 .env                           # Configuration (git-ignored)
+├── alembic.ini                       # DB migration config
+├── pyproject.toml                    # Python project config
+└── .gitignore                        # Git ignore rules
 ```
 
 ---
 
 ## 🔑 KLÍČOVÉ INFORMACE
 
-### Credentials (Cyberark)
-- **Elasticsearch:** XX_PCBS_ES_READ (elastic user)
-- **Database:** DAP_PCB safe (ailog_analyzer_user_d1)
-- **URL:** elasticsearch-test.kb.cz:9500
-
-### Network Config
-- **DNS (Prod):** ai-log-analyzer.sas.kbcloud
-- **DNS (Test):** ai-log-analyzer-test.sas.kbcloud
-- **Tenant Network:** 10.85.88.128/25
-- **DNS Resolver:** 10.85.88.1
-
 ### Database Connection
-- **Host:** P050TD01.DEV.KB.CZ (TODO: verify NPROD host)
-- **Port:** 5432
-- **Database:** ailog_analyzer
-- **Schema:** public (tables: known_errors, analysis_runs, etc.)
+```
+Host: P050TD01.DEV.KB.CZ
+Port: 5432
+Database: ailog_analyzer
+Schema: ailog_peak (tables: peak_statistics, known_errors, etc.)
+User: ailog_analyzer_user_d1 (via Cyberark DAP_PCB safe)
+```
 
-### Elasticsearch Indices (Phase 5 - AKTUÁLNÍ)
-- **Active:** `cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb-ch-*`
-- ~~Old~~ `logstash-kb-k8s-apps-nprod-*`, ~~`logstash-kb-k8s-apps-prod-*`~~
-- **Env var:** `ES_INDEX` (POZOR: byl chybně `ES_INDICES`!)
-- **Fields:** message, app_name, level, @timestamp, kubernetes.namespace
+### Elasticsearch
+```
+Host: elasticsearch-test.kb.cz:9500
+User: elastic (XX_PCBS_ES_READ credential)
+Indices: cluster-app_pcb-*, cluster-app_pca-*, cluster-app_pcb-ch-*
+Fields: message, app_name, level, @timestamp, kubernetes.namespace
+```
+
+### Environment Variables (.env)
+```
+ES_HOST=elasticsearch-test.kb.cz
+ES_PORT=9500
+ES_INDEX=cluster-app_*
+DB_HOST=P050TD01.DEV.KB.CZ
+DB_PORT=5432
+DB_NAME=ailog_analyzer
+DB_USER=ailog_analyzer_user_d1
+```
 
 ---
 
 ## 🛠️ WORKFLOW: Jak Pokračovat
 
-### 1. Před Začátkem Práce
+### 1. START NOVÉ SESSION
 ```bash
-# Načti aktuální stav
-cat /home/jvsete/git/sas/ai-log-analyzer/working_progress.md
-
-# Zkontroluj git branch
-cd /home/jvsete/git/sas/k8s-infra-apps-nprod
-git status
-git branch  # Měl bys být na feature/ai-log-analyzer-v2
-
-# Zkontroluj Docker image v Harbor
-# (pokud potřebuješ rebuild)
-```
-
-### 2. Práce na Změnách
-```bash
-# Development workspace
 cd /home/jvsete/git/sas/ai-log-analyzer
 
-# Testování lokálně (pokud potřeba)
-python -m pytest tests/
+# Zkontroluj git status
+git status
+git log --oneline -5
 
-# Build nového image (pokud změny v Dockerfile)
-podman build -t ai-log-analyzer:latest .
+# Přečti poslední progress
+cat working_progress.md | tail -100
 ```
 
-### 3. Update K8s Manifests
+### 2. SPUSŤ SCRIPT Z `scripts/` SLOŽKY
 ```bash
-# Copy změněné manifesty
-cp k8s-manifests-v2/* /home/jvsete/git/sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/
+# Všechny scripty jsou teď v scripts/
+cd scripts/
 
-# Git commit
-cd /home/jvsete/git/sas/k8s-infra-apps-nprod
-git add infra-apps/ai-log-analyzer/
-git commit -m "Update: [popis změny]"
+# Například: collect data
+python collect_peak_detailed.py --from 2025-12-16T00:00:00Z --to 2025-12-17T00:00:00Z
+
+# Nebo: verify data
+python verify_peak_data.py
+
+# Nebo: export to CSV
+python export_peak_statistics.py --from 2025-12-01 --to 2025-12-16
+
+# HELP - co dělá každý script?
+cat INDEX.md
+```
+
+### 3. COMMIT ZMĚNY
+```bash
+git add -A
+git commit -m "Phase 5: [brief description]"
 git push origin feature/ai-log-analyzer-v2
 ```
 
-### 4. Deployment (ArgoCD)
+---
+
+## 📚 ACTIVE DOCUMENTATION
+
+### PRIMARY (aktuální, používej):
+| Soubor | Obsah | Kdy |
+|--------|-------|-----|
+| **working_progress.md** | Session log + TODO | Každý den |
+| **scripts/INDEX.md** | Script reference | Spouštění scripts |
+| **README.md** | Project overview | First time |
+| **CONTEXT_RETRIEVAL_PROTOCOL.md** | Tenhle soubor | Kontext přenosu |
+| **HOW_TO_USE.md** | User guide | Development |
+
+### ARCHIVED (zastaralé, ignoruj):
+- `_archive_md/COMPLETED_LOG.md` - Starý session log
+- `_archive_md/DEPLOYMENT.md` - Zastaralé deployment noty
+- `_archive_md/PHASE_ROADMAP.md` - Starý roadmap
+- → Viz `_archive_md/` pro úplný seznam
+
+---
+
+## 🎯 PHASE 5 WORKFLOW - Co Dělat Dnes
+
+### Krok 1: Export Data (if needed)
 ```bash
-# ArgoCD automaticky detekuje změny v gitu
-# Manual sync (pokud potřeba):
-argocd app sync ai-log-analyzer
-
-# Monitor deployment
-kubectl get pods -n ai-log-analyzer -w
-kubectl logs -n ai-log-analyzer deployment/ai-log-analyzer -f
+cd scripts/
+python export_peak_statistics.py --from 2025-12-01 --to 2025-12-16
+# Vytvoří: peak_statistics_export_YYYYMMDD_HHMMSS.csv
 ```
 
-### 5. Update Progress Log
+### Krok 2: Verify Current Data
 ```bash
-# Vždy aktualizuj working_progress.md s timestampem
-echo "## 📋 $(date +%Y-%m-%d) - [Popis práce]" >> working_progress.md
-echo "" >> working_progress.md
-echo "### Co bylo uděláno" >> working_progress.md
-echo "- [ ] Todo item 1" >> working_progress.md
+python verify_peak_data.py
+# Kontroluje: duplicates, NaN values, date ranges
+```
+
+### Krok 3: (TODO) Load New Data
+```bash
+# Zatím ručně, později skript ingest_peak_statistics.py
+```
+
+### Krok 4: Commit & Update
+```bash
+cd /home/jvsete/git/sas/ai-log-analyzer
+git add -A
+git commit -m "Phase 5: Data collection + workspace cleanup"
+git push
 ```
 
 ---
 
-## 📝 KONVENCE PRO LOGGING
+## ✅ CHECKLIST - Návrat k Projektu
 
-### Timestamp Format
+Standardní postup když začínáš:
+
+- [ ] Zkontroluj poslední commit: `git log --oneline -3`
+- [ ] Přečti progress: `cat working_progress.md | tail -50`
+- [ ] Zkontroluj branchy: `git branch -v`
+- [ ] Aktualizuj si kontext: `cat CONTEXT_RETRIEVAL_PROTOCOL.md`
+- [ ] Spusť script z `scripts/` (viz `scripts/INDEX.md`)
+- [ ] Loguj progress do `working_progress.md`
+- [ ] Commit + push
+
+---
+
+## 📊 SCRIPTS QUICK REFERENCE
+
+| Script | Typ | Popis | Last Run |
+|--------|-----|-------|----------|
+| **collect_peak_detailed.py** | ⭐ Core | Sbírá peak data z ES | 2025-12-15 |
+| **fetch_unlimited.py** | Util | ES query helper | N/A |
+| **analyze_period.py** | Util | Full pipeline | 2025-12-16 |
+| **export_peak_statistics.py** | Export | Data → CSV | 2025-12-16 |
+| **verify_peak_data.py** | Validation | DB checks | Pending |
+| **init_peak_statistics_db.py** | Setup (1x) | Create tables | 2025-12-12 |
+
+→ **FULL DETAILS:** `scripts/INDEX.md`
+
+---
+
+## 📦 ARCHIVE & CLEANUP (2025-12-16)
+
 ```
-## 📋 YYYY-MM-DD HH:MM UTC - [Titulek session]
-```
+✅ DONE:
+- Workspace cleanup: 6 archiv složek
+- Scripts reorganizace: do scripts/ s INDEX.md
+- MD soubory: archivovány do _archive_md/
+- k8s/: archivován (zastaralé nasazení)
 
-### Session Structure
-```markdown
-## 📋 2025-12-12 14:30 UTC - Feature X Implementation
-
-### 🎯 Cíl
-- Co chci udělat
-
-### ✅ Hotovo
-- [x] Item 1 (14:35 UTC)
-- [x] Item 2 (14:42 UTC)
-
-### 🔄 V Procesu
-- [ ] Item 3 (started 14:50 UTC)
-
-### ⚠️ Problémy
-- Popis problému + jak byl vyřešen
-
-### 📊 Výsledek
-- Stav po ukončení session
+📊 SIZE REDUCTION:
+- Původně: 618MB
+- Nyní: ~404MB (200MB cleanup)
+- Root: 4 MD + config files (čistý!)
 ```
 
 ---
 
-## 🚨 ZNÁMÉ PROBLÉMY & ŘEŠENÍ
+**Version:** 2.1 (Updated 2025-12-16 11:00 UTC)  
+**Status:** ✅ Phase 4 Complete | 🔄 Phase 5 - Peak Detection  
+**Maintainer:** jvsete + AI Assistant  
+**Branch:** `feature/ai-log-analyzer-v2` (k8s-infra-apps-nprod repo)
 
-### Problem 1: Docker Hub Rate Limit
-**Symptom:** `You have reached your pull rate limit`  
-**Solution:** Počkat 6 hodin nebo použít Docker auth token  
-**Workaround:** `podman build --network=host`
-
-### Problem 2: WSL2 Docker Network Corruption
-**Symptom:** `netavark: unable to append rule`  
-**Solution:** `sudo nft flush ruleset` + delete orphaned chains  
-**Workaround:** `docker run --network none` pro lokální testy
-
-### Problem 3: Database Host DEV vs NPROD
-**Symptom:** ConfigMap has `P050TD01.DEV.KB.CZ`  
-**Status:** TODO - verify correct NPROD host  
-**Action:** Check with DevOps if DEV host is correct for NPROD cluster
-
-### Problem 4: Soteri PASSWORD_IN_URL
-**Symptom:** Secret obsahuje password v URL stringu  
-**Solution:** ✅ RESOLVED - Build connection string v Pythonu, ne v ENV  
-**Status:** Clean scan ✅
-
----
-
-## 📚 ACTIVE DOCUMENTATION (Updated 2025-12-16)
-
-### ⭐ POUŽÍVEJ TYTO (PRIMARY):
-1. **working_progress.md** - Session log + TODO (MAIN!)
-2. **CONTEXT_RETRIEVAL_PROTOCOL.md** - Ten soubor (reference)
-3. **README_SCRIPTS.md** - 8 core skriptů (UPDATED 2025-12-16!)
-4. **HOW_TO_USE.md** - User guide
-
-### 🗂️ ARCHIVED / ZASTARALÉ (IGNORUJ):
-- MASTER.md (2025-12-02)
-- README_v2.md
-- ORCHESTRATION_PROGRESS.md (2025-12-08)
-- working_progress_backup_* (nepoužívej!)
-- Viz: **MD_REGISTRY.md** pro úplný seznam
-
-### 📖 Pro Development:
-- **HARBOR_DEPLOYMENT_GUIDE.md** - K8s deployment
-- **KNOWN_ISSUES_DESIGN.md** - Known issues design
-
----
-
-## 🎯 NEXT STEPS - Phase 5 Workflow (Priority)
-
-**IMMEDIATE (TODAY - 2025-12-16):**
-1. [ ] Exportovat výstupy collect_peak_detailed.py do CSV tabulky
-2. [ ] Vyčistit DB - DELETE staré záznamy z peak_statistics
-3. [ ] Nahrát nová data do DB (INSERT)
-4. [ ] Verifikovat přes verify_peak_data.py
-
-**NEXT SESSION:**
-5. [ ] Vytvořit `ingest_peak_statistics.py` skript (JSON → DB loader)
-6. [ ] Dokumentovat v README_SCRIPTS.md
-7. [ ] Archivovat staré MD soubory (_archive_md/)
-
-**FINAL (Deployment):**
-8. [ ] Deploy to K8s cluster nprod-3100
-9. [ ] Test health endpoint
-10. [ ] Verify integration
-
----
-
-## ✅ CHECKLIST: Návrat k Projektu
-
-Když začínáš novou session:
-
-- [ ] Přečti poslední entry v `working_progress.md`
-- [ ] Zkontroluj git branch: `feature/ai-log-analyzer-v2`
-- [ ] Ověř aktuální stav K8s deploymentu (pokud nasazeno)
-- [ ] Načti tento CONTEXT_RETRIEVAL_PROTOCOL.md
-- [ ] Vytvoř nový entry v progress s timestampem
-- [ ] Postupuj po malých krocích, loguj průběžně
-
----
-
-## 📊 Scripts Registry (2025-12-16)
-
-**8 CORE SCRIPTS (v root - AKTIVNÍ):**
-- `collect_peak_detailed.py` ⭐ - Sbírá peak data z ES
-- `fetch_unlimited.py` ⭐ - ES fetcher (dependency)
-- `analyze_period.py` - Full orchestrator A-Z
-- `init_peak_statistics_db.py` - DB init (1x setup)
-- `setup_peak_db.py` - DB setup helper (1x)
-- `verify_peak_data.py` - DB verification
-- `grant_permissions.py` - DB permissions (1x)
-- `create_known_issues_registry.py` - Known issues
-
-**19 ARCHIVED (v _archive_scripts/ - NEPOUŽÍVEJ):**
-- Staré fetch family (fetch_errors.py, fetch_simple.py, atd.)
-- Zastaralé analyzery (analyze_daily.py, intelligent_analysis.py)
-- Staré peak collection (collect_historical_peak_data.py, atd.)
-- Diagnostic scripty (diagnose_es_data.py, check_es_indices.py, atd.)
-- Trace legacy (trace_extractor.py, trace_report_detailed.py)
-
-→ **Detaily:** Viz `README_SCRIPTS.md`
-
----
-
-**Last Updated:** 2025-12-16 10:30 UTC  
-**Maintainer:** AI Assistant + jvsete  
-**Status:** ✅ Phase 4 Complete | 🔄 Phase 5 IN PROGRESS - Peak Detection Baseline Collection
