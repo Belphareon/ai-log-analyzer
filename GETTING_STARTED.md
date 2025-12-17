@@ -230,7 +230,7 @@ nano .env
 # ELASTICSEARCH - VAŠE HODNOTY!
 # -----------------------------------------------------------------------------
 # URL vašeho Elasticsearch clusteru
-ES_URL=https://elasticsearch.vase-domena.cz:9200
+ES_URL=https://elasticsearch-test.kb.cz:9500
 
 # Název vašeho indexu (pattern)
 # Příklady:
@@ -254,7 +254,7 @@ ES_VERIFY_CERTS=false
 # AI LOG ANALYZER - LIGHTWEIGHT CONFIG - PCB EXAMPLE
 # =============================================================================
 
-ES_URL=https://elasticsearch-prod.kb.cz:9200
+ES_URL=https://elasticsearch-test.kb.cz:9500
 ES_INDEX=cluster-app_pcb-*
 ES_USER=XX_PCB_ES_READ
 ES_PASSWORD=your_password_here
@@ -268,7 +268,7 @@ ES_VERIFY_CERTS=false
 # AI LOG ANALYZER - LIGHTWEIGHT CONFIG - RELAY EXAMPLE  
 # =============================================================================
 
-ES_URL=https://elasticsearch-prod.kb.cz:9200
+ES_URL=https://elasticsearch-test.kb.cz:9500
 ES_INDEX=cluster-app_sas-relay-*
 ES_USER=XX_RELAY_ES_READ
 ES_PASSWORD=your_password_here
@@ -288,14 +288,14 @@ ES_VERIFY_CERTS=false
 ```bash
 # Jednoduchý test pomocí curl
 curl -u "XX_VASE_APP_ES_READ:vase_heslo" \
-  -X GET "https://elasticsearch.vase-domena.cz:9200/_cat/indices/cluster-app_vase_aplikace-*?v" \
+  -X GET "https://elasticsearch-test.kb.cz:9500/_cat/indices/cluster-app_vase_aplikace-*?v" \
   --insecure
 ```
 
 **Příklad pro PCB aplikaci:**
 ```bash
 curl -u "XX_PCB_ES_READ:your_password_here" \
-  -X GET "https://elasticsearch-prod.kb.cz:9200/_cat/indices/cluster-app_pcb-*?v" \
+  -X GET "https://elasticsearch-test.kb.cz:9500/_cat/indices/cluster-app_pcb-*?v" \
   --insecure
 ```
 
@@ -312,7 +312,7 @@ green  open   cluster-app_pcb-scheduler-2025.12.16    pQ2rS3tU4V-W5xY6zA7bC8   5
 ```bash
 # Počet errorů za poslední hodinu pro PCB
 curl -u "XX_PCB_ES_READ:your_password_here" \
-  -X GET "https://elasticsearch-prod.kb.cz:9200/cluster-app_pcb-*/_count" \
+  -X GET "https://elasticsearch-test.kb.cz:9500/cluster-app_pcb-*/_count" \
   -H 'Content-Type: application/json' \
   -d '{
     "query": {
@@ -664,7 +664,7 @@ DATABASE_URL=postgresql://ailog:ailog_dev_pass@localhost:5432/ailog_analyzer
 # ELASTICSEARCH - VAŠE HODNOTY!
 # -----------------------------------------------------------------------------
 # URL vašeho Elasticsearch clusteru
-ES_URL=https://elasticsearch.vase-domena.cz:9200
+ES_URL=https://elasticsearch-test.kb.cz:9500
 
 # Název vašeho indexu (pattern)
 ES_INDEX=cluster-app_<VASE_APLIKACE>-*
@@ -927,7 +927,7 @@ echo $ES_PASSWORD
 curl -u "$ES_USER:$ES_PASSWORD" "$ES_URL/_cluster/health" --insecure
 
 # 3. Zkontrolujte firewall/VPN
-ping elasticsearch.vase-domena.cz
+ping elasticsearch-test.kb.cz
 ```
 
 ### Problem: "Permission denied" na indexech

@@ -1,21 +1,19 @@
 # CONTEXT RETRIEVAL PROTOCOL
-## AI Log Analyzer Project - Kontext pro Kontinuitu Práce
+## AI Log Analyzer - Quick Reference
 
-**Verze:** 2.1  
-**Datum vytvoření:** 2025-12-12  
-**Poslední update:** 2025-12-16 11:00 UTC  
-**Účel:** Rychlé načtení kontextu pro pokračování v práci na projektu
+**Verze:** 2.2  
+**Last Update:** 2025-12-17  
+**Účel:** Rychlý přehled pro pokračování v práci
 
 ---
 
-## 📋 PROJEKT OVERVIEW
+## 📋 CO TO JE
 
-### Co je AI Log Analyzer?
-- **Účel:** Automatická analýza logů z Elasticsearch (K8s aplikace)
-- **Funkce:** Detekce anomálií, clustering chybových vzorů, temporální analýza
-- **Technologie:** FastAPI + PostgreSQL + Elasticsearch + Ollama (optional)
-- **Deployment:** Kubernetes (ArgoCD) + Harbor registry
-- **Stav:** Phase 4 COMPLETE ✅ | Phase 5 IN PROGRESS 🔄 - Peak Detection Baseline Collection
+**AI Log Analyzer** - Automatická analýza errorů z Elasticsearch s AI doporučeními
+
+- **Tech Stack:** Python + FastAPI + PostgreSQL + Elasticsearch + Ollama (optional)
+- **Deployment:** Kubernetes (ArgoCD) + Harbor registry  
+- **Current Phase:** Phase 5 (Peak Detection Baseline)
 
 ---
 
@@ -144,24 +142,31 @@ Schema: ailog_peak (tables: peak_statistics, known_errors, etc.)
 User: ailog_analyzer_user_d1 (via Cyberark DAP_PCB safe)
 ```
 
-### Elasticsearch
-```
-Host: elasticsearch-test.kb.cz:9500
-User: elastic (XX_PCBS_ES_READ credential)
-Indices: cluster-app_pcb-*, cluster-app_pca-*, cluster-app_pcb-ch-*
-Fields: message, app_name, level, @timestamp, kubernetes.namespace
+### Elasticsearch (FIXED VALUES)
+```bash
+# Stejné pro všechny - NEMĚNIT!
+ES_URL=https://elasticsearch-test.kb.cz:9500
+ES_VERIFY_CERTS=false
+
+# Specifické pro vaši aplikaci:
+ES_INDEX=cluster-app_<vase_aplikace>-*  # např. pcb-*, pca-*, relay-*
+ES_USER=XX_<VASE_APP>_ES_READ            # z SMAX
+ES_PASSWORD=<z_emailu>                   # z SMAX
 ```
 
-### Environment Variables (.env)
+### Environment Setup
+```bash
+# 1. Zkopírovat template
+cp .env.example .env
+
+# 2. Vyplnit své hodnoty
+nano .env
+
+# 3. Spustit skripty (načtou automaticky)
+python scripts/analyze_period.py ...
 ```
-ES_HOST=elasticsearch-test.kb.cz
-ES_PORT=9500
-ES_INDEX=cluster-app_*
-DB_HOST=P050TD01.DEV.KB.CZ
-DB_PORT=5432
-DB_NAME=ailog_analyzer
-DB_USER=ailog_analyzer_user_d1
-```
+
+**See:** [ENV_SETUP.md](ENV_SETUP.md) pro detaily
 
 ---
 

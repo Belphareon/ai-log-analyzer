@@ -51,6 +51,38 @@ AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislost
 - ✅ Self-learning - zlepšování detekce na základě feedback
 - ✅ Denní reporty s top issues a doporučeními
 
+---
+
+## 🤖 AI Enhancement s Ollama (Optional)
+
+### Bez Ollama (Lightweight):
+- ✅ **"CO se stalo"** - Statistiky, patterns, počty errorů
+- ⏱️ Čas na analýzu: 5-10 minut (automatická)
+- 📊 Výstup: Root causes + temporal clusters
+
+### S Ollama (Full):
+- ✅ **"CO + PROČ + JAK opravit"** - AI insights + doporučení
+- ⏱️ Čas na analýzu: 5-10 minut (automatická + AI analýza)
+- 🤖 Výstup: Root causes + **AI recommendations** + best practices
+
+**Příklad enhanced analýzy:**
+```markdown
+### ConnectionTimeout - 4,521 errors (29.7%)
+
+🔍 AI Analýza:
+- Pravděpodobná příčina: External API overload během morning peak
+- Doporučení: Zvýšit connection pool z 10→25, přidat retry logic
+- Preventivní: Circuit breaker pattern, monitoring pro external API
+- Urgence: HIGH - 30% errorů, blokuje business procesy
+```
+
+**ROI:**
+- 💰 Úspora času: ~90% (z 3-5h manuální analýzy na 30 min fix)
+- 🎯 Kvalita: Konzistentní recommendations based on best practices
+- ⚡ MTTR: Rychlejší incident resolution
+
+**See:** [ENV_SETUP.md](ENV_SETUP.md) pro setup Ollama lokálně
+
 ## Features
 
 ### Phase 1: Data Collection & Analysis (✅ Production Ready)

@@ -53,7 +53,7 @@ Minimálně potřebujete:
 ### Minimální (Lightweight setup):
 
 ```bash
-ES_URL=https://elasticsearch-prod.kb.cz:9200
+ES_URL=https://elasticsearch-test.kb.cz:9500
 ES_INDEX=cluster-app_pcb-*
 ES_USER=XX_PCB_ES_READ
 ES_PASSWORD=your_real_password_here
@@ -64,7 +64,7 @@ ES_VERIFY_CERTS=false
 
 ```bash
 # Elasticsearch
-ES_URL=https://elasticsearch-prod.kb.cz:9200
+ES_URL=https://elasticsearch-test.kb.cz:9500
 ES_INDEX=cluster-app_pcb-*
 ES_USER=XX_PCB_ES_READ
 ES_PASSWORD=your_real_password_here
@@ -110,7 +110,7 @@ ES_PASSWORD = os.getenv('ES_PASSWORD')  # Získá hodnotu
 Pokud nechcete používat `.env` soubor:
 
 ```bash
-export ES_URL="https://elasticsearch-prod.kb.cz:9200"
+export ES_URL="https://elasticsearch-test.kb.cz:9500"
 export ES_INDEX="cluster-app_pcb-*"
 export ES_USER="XX_PCB_ES_READ"
 export ES_PASSWORD="your_password"
