@@ -6,6 +6,10 @@ Verify collected peak data in database
 import psycopg2
 import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),

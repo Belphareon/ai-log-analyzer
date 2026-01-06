@@ -148,9 +148,13 @@ def calculate_statistics_by_time_pattern(window_counts, windows):
     for (win_idx, ns), count in window_counts.items():
         win_start, win_end = windows[win_idx]
         
-        day_of_week = win_start.weekday()
-        hour_of_day = win_start.hour
-        quarter_hour = (win_start.minute // 15) % 4
+        # ✅ TIMEZONE FIX: ES data is in UTC, convert to CET (UTC+1)
+        # This ensures times match local timezone expectations
+        win_start_cet = win_start + timedelta(hours=1)
+        
+        day_of_week = win_start_cet.weekday()
+        hour_of_day = win_start_cet.hour
+        quarter_hour = (win_start_cet.minute // 15) % 4
         
         key = (day_of_week, hour_of_day, quarter_hour, ns)
         pattern_data[key].append(count)

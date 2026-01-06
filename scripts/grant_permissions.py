@@ -3,14 +3,15 @@
 Grant permissions on ailog_peak schema to data user
 """
 
+import os
 import psycopg2
 import sys
 
-DB_HOST = 'P050TD01.DEV.KB.CZ'
-DB_PORT = 5432
-DB_NAME = 'ailog_analyzer'
-DB_USER = 'ailog_analyzer_ddl_user_d1'
-DB_PASSWORD = 'WWvkHhyjje8YSgvU'
+DB_HOST = os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ')
+DB_PORT = int(os.getenv('DB_PORT', 5432))
+DB_NAME = os.getenv('DB_NAME', 'ailog_analyzer')
+DB_USER = os.getenv('DB_DDL_USER', 'ailog_analyzer_ddl_user_d1')
+DB_PASSWORD = os.getenv('DB_DDL_PASSWORD')  # Required: Set in .env file
 
 print("🔐 Granting permissions on ailog_peak schema...")
 

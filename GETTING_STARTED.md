@@ -230,7 +230,7 @@ nano .env
 # ELASTICSEARCH - VAŠE HODNOTY!
 # -----------------------------------------------------------------------------
 # URL vašeho Elasticsearch clusteru
-ES_URL=https://elasticsearch-test.kb.cz:9500
+ES_URL=https://elasticsearch.vase-domena.cz:9200
 
 # Název vašeho indexu (pattern)
 # Příklady:
@@ -254,7 +254,7 @@ ES_VERIFY_CERTS=false
 # AI LOG ANALYZER - LIGHTWEIGHT CONFIG - PCB EXAMPLE
 # =============================================================================
 
-ES_URL=https://elasticsearch-test.kb.cz:9500
+ES_URL=https://elasticsearch-prod.kb.cz:9200
 ES_INDEX=cluster-app_pcb-*
 ES_USER=XX_PCB_ES_READ
 ES_PASSWORD=your_password_here
@@ -268,7 +268,7 @@ ES_VERIFY_CERTS=false
 # AI LOG ANALYZER - LIGHTWEIGHT CONFIG - RELAY EXAMPLE  
 # =============================================================================
 
-ES_URL=https://elasticsearch-test.kb.cz:9500
+ES_URL=https://elasticsearch-prod.kb.cz:9200
 ES_INDEX=cluster-app_sas-relay-*
 ES_USER=XX_RELAY_ES_READ
 ES_PASSWORD=your_password_here
@@ -664,7 +664,7 @@ DATABASE_URL=postgresql://ailog:ailog_dev_pass@localhost:5432/ailog_analyzer
 # ELASTICSEARCH - VAŠE HODNOTY!
 # -----------------------------------------------------------------------------
 # URL vašeho Elasticsearch clusteru
-ES_URL=https://elasticsearch-test.kb.cz:9500
+ES_URL=https://elasticsearch.vase-domena.cz:9200
 
 # Název vašeho indexu (pattern)
 ES_INDEX=cluster-app_<VASE_APLIKACE>-*

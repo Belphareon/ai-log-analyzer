@@ -88,16 +88,18 @@ def parse_peak_statistics_from_log(log_file):
 
 
 
-def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mean_val, all_parsed_stats):
+def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mean_val, all_parsed_stats, peaks_to_skip=None):
     """
     Peak Detection using PARSED DATA (not DB)
     
     Returns: (is_peak: bool, ratio: float, reference: float)
     """
+    if peaks_to_skip is None:
+        peaks_to_skip = set()
     
     # STEP 1: Get 3 previous 15-min windows (same day)
     refs_windows = []
-    for i in range(1, 4):  # -15min, -30min, -45min
+    for i in range(1, 7):  # -15min, -30min, -45min, -60min, -75min, -90min
         minutes_back = i * 15
         total_minutes = hour_of_day * 60 + quarter_hour * 15 - minutes_back
         
@@ -105,16 +107,11 @@ def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mea
             prev_hour = total_minutes // 60
             prev_quarter = (total_minutes % 60) // 15
             key = (day_of_week, prev_hour, prev_quarter, namespace)
-            if key in all_parsed_stats:
+            if key in all_parsed_stats and key not in peaks_to_skip:
                 refs_windows.append(all_parsed_stats[key]['mean'])
     
-    # STEP 2: Get 3 previous days (same time)
+    # STEP 2 (INIT): No historical days - DB is empty
     refs_days = []
-    for d in [-1, -2, -3]:
-        prev_day = (day_of_week + d + 7) % 7
-        key = (prev_day, hour_of_day, quarter_hour, namespace)
-        if key in all_parsed_stats:
-            refs_days.append(all_parsed_stats[key]['mean'])
     
     # STEP 3: Calculate reference
     avg_windows = sum(refs_windows) / len(refs_windows) if refs_windows else None
@@ -139,16 +136,8 @@ def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mea
     
     ratio = mean_val / reference
     
-    # STEP 5: Peak decision
-    # Rule 1: Values < 10 are ALWAYS baseline (never skip)
-    if mean_val < 10:
-        is_peak = False
-    # Rule 2: If reference < 10, use higher threshold (50×)
-    elif reference < 10:
-        is_peak = (ratio >= 50.0)
-    # Rule 3: Normal threshold (15×)
-    else:
-        is_peak = (ratio >= 15.0)
+    # STEP 5: Peak decision (INIT: simple 35× threshold)
+    is_peak = (ratio >= 35.0)
     
     return (is_peak, ratio, reference)
 
@@ -202,6 +191,21 @@ def insert_statistics_to_db(statistics):
     """
     
     try:
+    # PASS 1: Identifikovat všechny peaks
+    print(f"🔍 PASS 1: Detecting all peaks...", peaks_to_skip)
+    peaks_to_skip = set(, peaks_to_skip)
+    for (day_of_week, hour_of_day, quarter_hour, namespace, peaks_to_skip), stats in statistics.items(, peaks_to_skip):
+        is_peak, ratio, reference = detect_and_skip_peaks(
+            day_of_week, hour_of_day, quarter_hour, namespace, float(stats['mean'], peaks_to_skip), statistics
+        , peaks_to_skip)
+        if is_peak:
+            peaks_to_skip.add((day_of_week, hour_of_day, quarter_hour, namespace, peaks_to_skip), peaks_to_skip)
+    
+    print(f"   Found {len(peaks_to_skip, peaks_to_skip)} peaks to skip", peaks_to_skip)
+    
+    # PASS 2: Vložit bez peaks v referencích
+    print(f"🔄 PASS 2: Inserting with peak-aware references...", peaks_to_skip)
+    
         for (day_of_week, hour_of_day, quarter_hour, namespace), stats in statistics.items():
             try:
                 # DEBUG pcb-ch-sit-01-app

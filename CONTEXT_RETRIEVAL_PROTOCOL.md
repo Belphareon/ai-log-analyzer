@@ -69,6 +69,46 @@
 
 ---
 
+## 🎯 PEAK DETECTION - KLÍČOVÉ POŽADAVKY
+
+**PROČ:** Zjistit CO SE DĚJE při anomáliích, detekovat, analyzovat, vyřešit
+
+**LOGIKA VKLÁDÁNÍ DAT:**
+```
+6 REFERENČNÍCH OKEN:
+  - 3 okna PŘED (stejný den): time-45min, time-30min, time-15min
+  - 3 okna stejný čas (jiný den): den-1, den-2, den-3
+
+Kombinovaná reference:
+  reference = (avg(3_pred) + avg(3_dny)) / 2
+
+IF nova_hodnota >= 10× reference:
+  → Označit jako PEAK
+  → VYNECHAT z DB (nezapisovat)
+  → Zapsat do LOG pro analýzu
+  
+ELSE:
+  → Zapsat normálně do DB
+
+Special cases:
+  - Pokud reference < 10: threshold 50× (ne 10×)
+  - Pokud hodnota < 10: NIKDY skip (baseline)
+  - Není třeba více dní! Stačí i 2 dny (Thu+Fri) protože lze vždy najít 3 okna před + reference Den-1
+```
+
+**OUTPUT:**
+1. **DB (peak_statistics):** Pouze normální provoz (bez peaks)
+2. **LOG (peaks_analysis.log):** Všechny peaks s kontextem pro analýzu
+   - Timestamp, namespace, hodnota, baseline, ratio
+   - ± 30min kontext (co se dělo před/po)
+
+**VERIFIKACE:**
+- TOP 20 hodnot v DB < 1000 (peaks skipnuty)
+- Baseline hodnoty (2-65) v DB přítomny
+- Peaks (2890, 43000, atd.) v logu, NE v DB
+
+---
+
 ## 📁 WORKSPACE STRUKTURA (2025-12-16)
 
 ```
@@ -138,9 +178,78 @@ ai-log-analyzer/
 Host: P050TD01.DEV.KB.CZ
 Port: 5432
 Database: ailog_analyzer
-Schema: ailog_peak (tables: peak_statistics, known_errors, etc.)
-User: ailog_analyzer_user_d1 (via Cyberark DAP_PCB safe)
+Schema: ailog_peak (tables: peak_statistics, peak_raw_data, etc.)
+
+USERS:
+- ailog_analyzer_user_d1     → Data operations (SELECT, INSERT, UPDATE, DELETE)
+- ailog_analyzer_ddl_user_d1 → DDL operations (CREATE, ALTER, DROP, GRANT)
+
+ROLES:
+- role_ailog_analyzer_ddl    → DDL role (SET ROLE před DDL operacemi)
 ```
+
+**KRITICKY DŮLEŽITÉ - Jak se připojit k DB:**
+
+**1. DATA OPERACE (SELECT, INSERT, UPDATE, DELETE):**
+```python
+from dotenv import load_dotenv
+import psycopg2
+import os
+
+load_dotenv()  # ⚠️ POVINNÉ! Načte .env soubor
+
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
+    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
+    'password': os.getenv('DB_PASSWORD')  # Z .env souboru
+}
+conn = psycopg2.connect(**DB_CONFIG)
+cursor = conn.cursor()
+
+# Normální operace (INSERT/SELECT/UPDATE/DELETE)
+cursor.execute("SELECT * FROM ailog_peak.peak_statistics LIMIT 10")
+```
+
+**2. DDL OPERACE (CREATE TABLE, ALTER, GRANT):**
+```python
+from dotenv import load_dotenv
+import psycopg2
+import os
+
+load_dotenv()
+
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
+    'user': os.getenv('DB_DDL_USER', 'ailog_analyzer_ddl_user_d1'),  # DDL user!
+    'password': os.getenv('DB_DDL_PASSWORD')  # Z .env souboru
+}
+conn = psycopg2.connect(**DB_CONFIG)
+cursor = conn.cursor()
+
+# ⚠️ POVINNÉ: SET ROLE před DDL operacemi
+cursor.execute("SET ROLE role_ailog_analyzer_ddl;")
+print("✅ DDL role set")
+
+# Nyní můžeš dělat DDL operace
+cursor.execute("CREATE SCHEMA IF NOT EXISTS ailog_peak;")
+cursor.execute("CREATE TABLE IF NOT EXISTS ailog_peak.peak_statistics (...);")
+cursor.execute("GRANT SELECT ON ailog_peak.peak_statistics TO ailog_analyzer_user_d1;")
+conn.commit()
+```
+
+**VŽDY kontroluj NEJDŘÍV:**
+1. Existuje .env soubor? `ls -la .env`
+2. Má DB_PASSWORD? `grep DB_PASSWORD .env` (bez zobrazení hodnoty)
+3. Volej `load_dotenv()` PŘED `psycopg2.connect()`!
+4. Pro DDL: použij DB_DDL_USER + SET ROLE!
+
+**Všechny DB skripty používají tento přístup:**
+- **Data skripty:** verify_peak_data.py, ingest_from_log.py, clear_peak_db.py
+- **DDL skripty:** setup_peak_db.py, grant_permissions.py, init_peak_statistics_db.py
 
 ### Elasticsearch (FIXED VALUES)
 ```bash

@@ -88,8 +88,10 @@ def parse_peak_statistics_from_log(log_file):
 
 
 
-def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mean_val, all_parsed_stats):
+def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mean_val, all_parsed_stats, peaks_to_skip=None):
     """
+    if peaks_to_skip is None:
+        peaks_to_skip = set()
     Peak Detection using PARSED DATA (not DB)
     
     Returns: (is_peak: bool, ratio: float, reference: float)
@@ -105,7 +107,7 @@ def detect_and_skip_peaks(day_of_week, hour_of_day, quarter_hour, namespace, mea
             prev_hour = total_minutes // 60
             prev_quarter = (total_minutes % 60) // 15
             key = (day_of_week, prev_hour, prev_quarter, namespace)
-            if key in all_parsed_stats:
+            if key in all_parsed_stats and key not in peaks_to_skip:
                 refs_windows.append(all_parsed_stats[key]['mean'])
     
     # STEP 2: Get 3 previous days (same time)
@@ -163,7 +165,22 @@ def insert_statistics_to_db(statistics):
     with open("/tmp/insert_debug.txt", "w") as f:
         f.write(f"insert_statistics_to_db called with {len(statistics)} keys\n")
     
-    try:
+    # PASS 1: Identify all peaks
+    print(f"🔍 PASS 1: Detecting all peaks...")
+    peaks_to_skip = set()
+    for (day_of_week, hour_of_day, quarter_hour, namespace), stats in statistics.items():
+        is_peak, ratio, reference = detect_and_skip_peaks(
+            day_of_week, hour_of_day, quarter_hour, namespace, float(stats['mean']), statistics
+        )
+        if is_peak:
+            peaks_to_skip.add((day_of_week, hour_of_day, quarter_hour, namespace))
+    
+    print(f"   Found {len(peaks_to_skip)} peaks to skip")
+    
+    # PASS 2: Insert with peak-aware references
+    print(f"🔄 PASS 2: Inserting with clean references...")
+
+        try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         print(f"✅ Connected to {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
@@ -211,8 +228,7 @@ def insert_statistics_to_db(statistics):
                 # PEAK DETECTION
                 mean_val = float(stats["mean"])
                 is_peak, ratio, reference = detect_and_skip_peaks(
-                    day_of_week, hour_of_day, quarter_hour, namespace, mean_val, statistics
-                )
+                    day_of_week, hour_of_day, quarter_hour, namespace, mean_val, statistics, peaks_to_skip)
                 
                 # Skip if peak detected
                 if is_peak:
