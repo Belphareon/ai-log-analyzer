@@ -1,103 +1,77 @@
 # AI Log Analyzer
 
-**Intelligent log analysis with self-learning AI for Kubernetes applications**
+**Intelligent automated analysis of Kubernetes application errors with AI recommendations**
 
-AI Log Analyzer automaticky detekuje error patterns, analyzuje jejich souvislosti a učí se z historických dat. Nahrazuje manuální procházení logů inteligentní analýzou založenou na ML pattern detection.
-
----
-
-## 🚀 Project Status
-
-**Current Version:** 0.5.0 (Phase 4 Complete | Phase 5 IN PROGRESS)
-**Last Update:** 2025-12-16
-
-### ✅ Phase 4: Kubernetes Deployment Preparation (Complete)
-- ✅ K8s manifests v2.0 (6 YAML files, production-ready)
-- ✅ Harbor registry configuration
-- ✅ Docker image build & push
-- ✅ Database schema ready
-- ✅ Baseline data initialized
-
-### 🔄 Phase 5: Peak Detection Baseline Collection (IN PROGRESS)
-- ✅ Data collection scripts (collect_peak_detailed.py)
-- ✅ CSV export (export_peak_statistics.py)
-- ✅ Workspace cleanup & reorganization
-- [ ] DB cleanup & data ingestion
-- [ ] Data verification
-- 📋 [See PHASE_ROADMAP.md for details](PHASE_ROADMAP.md)
-
-### 📋 Next (Phase 6+):
-- 📊 **Phase 6:** Peak Detection & Root Cause Analysis
-- 🤖 **Phase 7:** Autonomous Deployment & Monitoring
-
-**See:** [PHASE_ROADMAP.md](PHASE_ROADMAP.md) for Phase 5-7 planning  
-**See:** [CONTEXT_RETRIEVAL_PROTOCOL.md](CONTEXT_RETRIEVAL_PROTOCOL.md) for quick reference  
-**See:** [README_SCRIPTS.md](README_SCRIPTS.md) for 8 core scripts documentation
-
-
-
-## Proč AI Log Analyzer?
-
-**Problém:**
-- 600K+ errorů týdně v Kubernetes clusteru
-- Manuální analýza trvá hodiny
-- Opakující se patterns nejsou automaticky detekovány
-- Chybějící souvislosti mezi errory napříč aplikacemi
-
-**Řešení:**
-- ✅ Automatická detekce error patterns pomocí ML
-- ✅ Temporal clustering - detekce error burstů v časových oknech
-- ✅ Cross-app correlation - sledování chyb napříč aplikacemi
-- ✅ Self-learning - zlepšování detekce na základě feedback
-- ✅ Denní reporty s top issues a doporučeními
+AI Log Analyzer detekuje error patterns, analyzuje root causes a generuje AI doporučení pro opravu. Nahrazuje manuální hodinový debugging automatickou analýzou v minutách.
 
 ---
 
-## 🤖 AI Enhancement s Ollama (Optional)
+## 🚀 Current Phase: Phase 5B (INIT Baseline Collection)
 
-### Bez Ollama (Lightweight):
-- ✅ **"CO se stalo"** - Statistiky, patterns, počty errorů
-- ⏱️ Čas na analýzu: 5-10 minut (automatická)
-- 📊 Výstup: Root causes + temporal clusters
+**Version:** 0.6.0  
+**Last Update:** 2026-01-12  
+**Status:** 🔄 INIT Phase 3 Weeks in progress
 
-### S Ollama (Full):
-- ✅ **"CO + PROČ + JAK opravit"** - AI insights + doporučení
-- ⏱️ Čas na analýzu: 5-10 minut (automatická + AI analýza)
-- 🤖 Výstup: Root causes + **AI recommendations** + best practices
+### ✅ Completed Phases
+- ✅ Phase 1-4: Docker, K8s, schema, deployments
+- ✅ Data collection from Elasticsearch
+- ✅ Workspace reorganization
 
-**Příklad enhanced analýzy:**
-```markdown
-### ConnectionTimeout - 4,521 errors (29.7%)
+### 🔄 Current Work (Phase 5B)
+- 🔄 INIT Phase: Load 3 weeks baseline (1-21.12.2025)
+- [ ] REGULAR Phase: Daily ingestion with peak detection
+- [ ] Phase 6: Peak analysis + AI insights  
+- [ ] Phase 7: Autonomous PR generation with GitHub Copilot
 
-🔍 AI Analýza:
-- Pravděpodobná příčina: External API overload během morning peak
-- Doporučení: Zvýšit connection pool z 10→25, přidat retry logic
-- Preventivní: Circuit breaker pattern, monitoring pro external API
-- Urgence: HIGH - 30% errorů, blokuje business procesy
+### 📋 Quick Links
+- **Start Here:** [GETTING_STARTED.md](GETTING_STARTED.md) - Complete setup & execution
+- **Today's Tasks:** [working_progress.md](working_progress.md) - Session log + checklist  
+- **Quick Ref:** [CONTEXT_RETRIEVAL_PROTOCOL.md](CONTEXT_RETRIEVAL_PROTOCOL.md) - DB, scripts, quick commands
+- **Scripts:** [scripts/INDEX.md](scripts/INDEX.md) - All script documentation
+
+---
+
+## 🎯 Vision: AI-Driven Incident Response
+
+### Current Workflow (Manual)
+```
+Error spike detected
+    ↓
+Hours of log analysis
+    ↓
+Root cause guessed
+    ↓
+Manual PR creation
+    ↓
+Code review cycle
+    ↓
+TOTAL: 3-5 hours per incident
 ```
 
-**ROI:**
-- 💰 Úspora času: ~90% (z 3-5h manuální analýzy na 30 min fix)
-- 🎯 Kvalita: Konzistentní recommendations based on best practices
-- ⚡ MTTR: Rychlejší incident resolution
+### AI Log Analyzer Workflow (Automated)
+```
+Error spike detected (via peak detection)
+    ↓
+Automatic AI analysis (5 min)
+    ↓
+Root cause identified + recommendations
+    ↓
+GitHub Copilot generates PR automatically
+    ↓
+Code review + merge
+    ↓
+TOTAL: 30 min per incident (90% faster!)
+```
 
-**See:** [ENV_SETUP.md](ENV_SETUP.md) pro setup Ollama lokálně
+**Key Components:**
+1. **Peak Detection** - Identifies anomalies automatically
+2. **Pattern Analysis** - Groups similar errors
+3. **AI Analysis** - Uses Ollama for intelligent insights
+4. **GitHub Copilot** - Generates PRs based on recommendations
 
-## Features
+---
 
-### Phase 1: Data Collection & Analysis (✅ Production Ready)
-
-- 🤖 **ML Pattern Detection** - Automatic clustering of similar errors
-  - Smart normalization (Card 12345 → Card {ID})
-  - Fingerprint generation for pattern matching
-  - Similarity-based clustering (Levenshtein distance)
-  
-- ⏰ **Temporal Analysis** - Time-based error detection
-  - 15-minute time windows for burst detection
-  - Identifies cascading failures
-  - Tracks error spikes and anomalies
-  
-- 🔄 **Cross-App Correlation** - Multi-service error tracking
+## 🤖 AI Analysis (with Ollama)
   - Tracks errors across microservices
   - Same namespace/environment correlation
   - Case/Card ID chain tracking

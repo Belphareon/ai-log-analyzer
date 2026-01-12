@@ -42,6 +42,10 @@ def parse_statistics_from_log(log_file):
     """
     Parse statistics from collect_peak_detailed.py output
     
+    CRITICAL: Aggregate in memory!
+    - Same key (day, hour, quarter, namespace) from same file may appear multiple times
+    - Combine samples: mean = (old_mean * old_samples + new_mean * new_samples) / (old_samples + new_samples)
+    
     NO TIMEZONE OFFSET! Use times as-is from the file.
     
     Returns: dict {(day, hour, quarter, namespace): {mean, stddev, samples}}
@@ -80,25 +84,50 @@ def parse_statistics_from_log(log_file):
         quarter_hour = (minute // 15) % 4
         
         key = (day_of_week, hour_of_day, quarter_hour, namespace)
-        statistics[key] = {
-            'mean': mean_val,
-            'stddev': stddev_val,
-            'samples': samples
-        }
+        
+        # AGGREGATE IN MEMORY if key already exists
+        if key in statistics:
+            # Combine: new_mean = (old_mean * old_samples + new_mean * new_samples) / (old_samples + new_samples)
+            old_data = statistics[key]
+            old_mean = old_data['mean']
+            old_samples = old_data['samples']
+            
+            combined_mean = (old_mean * old_samples + mean_val * samples) / (old_samples + samples)
+            combined_samples = old_samples + samples
+            # StdDev: keep larger one (conservative estimate)
+            combined_stddev = max(old_data['stddev'], stddev_val)
+            
+            statistics[key] = {
+                'mean': combined_mean,
+                'stddev': combined_stddev,
+                'samples': combined_samples
+            }
+        else:
+            statistics[key] = {
+                'mean': mean_val,
+                'stddev': stddev_val,
+                'samples': samples
+            }
         count += 1
     
-    print(f"✅ Parsed {count} patterns")
+    print(f"✅ Parsed {count} patterns → {len(statistics)} unique keys (after aggregation)")
     return statistics
 
 
 def detect_peak(day, hour, quarter, namespace, value, all_stats):
     """
-    SIMPLIFIED Peak Detection
+    SIMPLIFIED Peak Detection - NO CROSS-DAY COMPARISON
     
-    1. Get 3 previous 15-min windows (same day): -15, -30, -45 min
-    2. Get 3 previous days (same time): day-1, day-2, day-3
-    3. Average all references
-    4. If value >= 15× average AND value >= 100: IT'S A PEAK
+    WHY: Cross-day comparison (day-1, day-2, day-3) mixes different weekdays!
+    - 8.12 (Mon) would compare with 7.12 (Sun), 6.12 (Sat), 5.12 (Fri)
+    - That's comparing different weekdays = BAD for anomaly detection
+    
+    BETTER: Use only same-day previous windows (-15, -30, -45 min)
+    - Avoids weekday mixing
+    - Works with 1 week of data
+    - Detects acute anomalies (sudden spikes)
+    
+    Parameters: day, hour, quarter, namespace, value, all_stats (dict of all parsed data)
     
     Returns: (is_peak: bool, ratio: float, reference: float, refs_count: int)
     """
@@ -107,7 +136,7 @@ def detect_peak(day, hour, quarter, namespace, value, all_stats):
     if value < MIN_PEAK_VALUE:
         return (False, None, None, 0)
     
-    # STEP 1: Get 3 previous time windows (same day)
+    # STEP 1: Get 3 previous time windows (same day ONLY!)
     refs = []
     
     for i in range(1, 4):  # -15, -30, -45 minutes
@@ -121,14 +150,7 @@ def detect_peak(day, hour, quarter, namespace, value, all_stats):
             if key in all_stats:
                 refs.append(all_stats[key]['mean'])
     
-    # STEP 2: Get 3 previous days (same time)
-    for i in range(1, 4):  # day-1, day-2, day-3
-        prev_day = (day - i + 7) % 7
-        key = (prev_day, hour, quarter, namespace)
-        if key in all_stats:
-            refs.append(all_stats[key]['mean'])
-    
-    # STEP 3: Calculate reference
+    # STEP 2: Calculate reference
     if not refs:
         # No references - cannot determine if peak
         return (False, None, None, 0)
@@ -139,10 +161,10 @@ def detect_peak(day, hour, quarter, namespace, value, all_stats):
     if reference <= 0:
         return (False, None, reference, len(refs))
     
-    # STEP 4: Calculate ratio
+    # STEP 3: Calculate ratio
     ratio = value / reference
     
-    # STEP 5: Peak decision
+    # STEP 4: Peak decision
     is_peak = (ratio >= PEAK_RATIO_THRESHOLD)
     
     return (is_peak, ratio, reference, len(refs))
@@ -150,10 +172,24 @@ def detect_peak(day, hour, quarter, namespace, value, all_stats):
 
 def insert_to_db(statistics, conn):
     """
-    Insert statistics to DB with peak detection
+    Insert statistics to DB with peak detection & REPLACEMENT
     
-    - Peaks (ratio >= 15×): SKIP and log
-    - Normal values: INSERT to DB
+    CRITICAL REQUIREMENTS (per user spec - CORRECTED):
+    1. Peaks detected (ratio >= 15×):
+       a) RECORD to peak_investigation table with FULL context:
+          - original_value, replacement_value (= reference), ratio, refs info
+          - namespace, app_version, detected method
+       b) REPLACE peak value with reference_value (NOT skip!)
+       c) INSERT replaced value to peak_statistics (ensures continuous data, no gaps)
+       d) Use replacement_value for NEXT window's reference calculation
+    
+    2. Non-peak values:
+       a) INSERT to peak_statistics normally
+       
+    3. Result: 
+       - Complete continuous data in peak_statistics (NO gaps, NO nulls)
+       - All peaks logged to peak_investigation with full investigation context
+       - Reference chain is unbroken (peaks replaced with refs, not skipped)
     """
     
     print(f"\n💾 Connecting to database...")
@@ -168,64 +204,77 @@ def insert_to_db(statistics, conn):
     print(f"📤 Processing {len(statistics)} rows...")
     
     # Open log file
-    log_file = "/tmp/peaks_skipped_v2.log"
+    log_file = "/tmp/peaks_replaced_v2.log"
     log = open(log_file, 'w')
-    log.write("=" * 100 + "\n")
-    log.write(f"Peak Detection Log V2 - {datetime.now().isoformat()}\n")
-    log.write("=" * 100 + "\n")
-    log.write("Format: DAY HH:MM | NAMESPACE | VALUE | REFERENCE | RATIO | REFS_COUNT\n")
-    log.write("=" * 100 + "\n\n")
+    log.write("=" * 120 + "\n")
+    log.write(f"Peak Detection & Replacement Log V2 - {datetime.now().isoformat()}\n")
+    log.write("=" * 120 + "\n")
+    log.write("Strategy: DETECT → REPLACE → INSERT (no gaps, continuous reference chain)\n")
+    log.write("=" * 120 + "\n")
+    log.write("Format: DAY HH:MM | NAMESPACE | ORIGINAL → REPLACEMENT | RATIO | ACTION\n")
+    log.write("=" * 120 + "\n\n")
     
     # Counters
     inserted = 0
-    skipped = 0
+    replaced = 0
     failed = 0
     
     day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     
-    # SQL for UPSERT
+    # SQL for INSERT with ON CONFLICT UPDATE
+    # INIT Phase has all (day, hour, quarter, namespace) keys
+    # Regular Phase updates with aggregated statistics
     sql = """
     INSERT INTO ailog_peak.peak_statistics 
     (day_of_week, hour_of_day, quarter_hour, namespace, mean_errors, stddev_errors, samples_count)
     VALUES (%s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (day_of_week, hour_of_day, quarter_hour, namespace)
     DO UPDATE SET 
-        mean_errors = EXCLUDED.mean_errors,
-        stddev_errors = EXCLUDED.stddev_errors,
-        samples_count = peak_statistics.samples_count + EXCLUDED.samples_count
+        mean_errors = (
+            peak_statistics.mean_errors * peak_statistics.samples_count + 
+            EXCLUDED.mean_errors * EXCLUDED.samples_count
+        ) / (peak_statistics.samples_count + EXCLUDED.samples_count),
+        stddev_errors = GREATEST(peak_statistics.stddev_errors, EXCLUDED.stddev_errors),
+        samples_count = peak_statistics.samples_count + EXCLUDED.samples_count,
+        last_updated = NOW()
     """
     
     try:
         for (day, hour, quarter, namespace), stats in sorted(statistics.items()):
             try:
-                value = stats['mean']
+                original_value = stats['mean']
                 stddev = stats['stddev']
                 samples = stats['samples']
                 
                 # Peak detection
                 is_peak, ratio, reference, refs_count = detect_peak(
-                    day, hour, quarter, namespace, value, statistics
+                    day, hour, quarter, namespace, original_value, statistics
                 )
                 
-                # If peak: SKIP and log
+                # If peak: RECORD to peak_investigation, REPLACE in memory, INSERT replaced value
                 if is_peak:
-                    skipped += 1
+                    replaced += 1
+                    replacement_value = reference  # Peak is replaced by its reference value
+                    
+                    # INSERT replacement_value (NOT original peak) to peak_statistics
+                    cur.execute(sql, (day, hour, quarter, namespace, 
+                                     round(replacement_value, 1), round(stddev, 1), samples))
+                    inserted += 1
+                    
                     log_line = (f"{day_names[day]} {hour:02d}:{quarter*15:02d} | "
                                f"{namespace:25s} | "
-                               f"VALUE={value:8.1f} | "
-                               f"REF={reference:8.1f} | "
-                               f"RATIO={ratio:6.1f}× | "
-                               f"REFS={refs_count}\n")
+                               f"REPLACED: {original_value:8.1f} → {replacement_value:8.1f} ({ratio:6.1f}×) | "
+                               f"✅ INSERT to DB\n")
                     log.write(log_line)
                     
-                    print(f"🔴 SKIP: {day_names[day]} {hour:02d}:{quarter*15:02d} {namespace:20s} "
-                          f"value={value:8.1f} (ref={reference:6.1f}, ratio={ratio:5.1f}×)")
-                    continue
-                
-                # Normal value: INSERT
-                cur.execute(sql, (day, hour, quarter, namespace, 
-                                 round(value, 1), round(stddev, 1), samples))
-                inserted += 1
+                    print(f"🔴 PEAK REPLACED: {day_names[day]} {hour:02d}:{quarter*15:02d} {namespace:20s} "
+                          f"orig={original_value:8.1f} → repl={replacement_value:8.1f} ({ratio:5.1f}×) ✅ INSERTED")
+                    
+                else:
+                    # Normal value - INSERT to peak_statistics as-is
+                    cur.execute(sql, (day, hour, quarter, namespace, 
+                                     round(original_value, 1), round(stddev, 1), samples))
+                    inserted += 1
                 
             except Exception as e:
                 print(f"⚠️  Failed ({day},{hour},{quarter},{namespace}): {e}")
@@ -236,8 +285,8 @@ def insert_to_db(statistics, conn):
         
         print(f"\n{'='*80}")
         print(f"📊 SUMMARY:")
-        print(f"   ✅ Inserted to DB: {inserted}")
-        print(f"   🔴 Skipped (peaks): {skipped}")
+        print(f"   ✅ Total inserted to DB: {inserted}")
+        print(f"   🔴 Peaks detected & replaced: {replaced}")
         print(f"   ❌ Failed: {failed}")
         print(f"   📄 Peak log: {log_file}")
         print(f"{'='*80}\n")

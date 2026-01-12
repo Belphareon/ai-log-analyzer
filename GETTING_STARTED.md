@@ -1,103 +1,35 @@
-# AI Log Analyzer - Getting Started Guide
+# 🚀 GETTING STARTED - AI Log Analyzer
 
-**Komplexní průvodce pro nasazení AI Log Analyzeru na vlastní aplikaci**
+**Phase 5B: INIT Phase 3 Weeks - Complete Setup and Execution Guide**
 
-Tento dokument vás provede celým procesem od prerekvizit až po spuštění analýzy logů vaší aplikace v Elasticsearch clusteru.
-
----
-
-## 🎯 Výběr deployment módu
-
-Vyberte si podle vašich potřeb:
-
-### 🏠 **Part 1: Lightweight (Local Only)** - [Přejít na Part 1](#part-1-lightweight-local-only)
-- ✅ Rychlé spuštění na lokálním stroji
-- ✅ Žádné databáze, žádná infrastruktura
-- ✅ Ideální pro analýzy ad-hoc a testování
-- ✅ Pouze CLI skripty
-- ⏱️ **Čas na setup: 15 minut**
-
-### 🚀 **Part 2: Full (Kubernetes)** - [Přejít na Part 2](#part-2-full-kubernetes-deployment)
-- ✅ Production-ready nasazení
-- ✅ REST API + PostgreSQL + Redis
-- ✅ Automatizované denní analýzy
-- ✅ Self-learning a historická data
-- ⏱️ **Čas na setup: 1-2 hodiny**
+**Version:** 2.0 | **Updated:** 2026-01-12 | **Target:** 24,192 rows baseline
 
 ---
 
-# Part 1: Lightweight (Local Only)
+## 📋 What You'll Do
 
-**Pro rychlé spuštění bez infrastruktury - pouze CLI analýzy**
+1. ✅ Verify database connection
+2. ✅ Setup DB schema (one-time)
+3. ✅ Ingest all 14 data files (21 days)
+4. ✅ Fill missing windows (complete grid)
+5. ✅ Verify success (24,192 rows)
+6. ✅ Create backup
 
----
-
-## 📋 Obsah - Part 1
-
-1. [Prerekvizity (Lightweight)](#prerekvizity-lightweight)
-2. [Vytvoření technického účtu](#krok-1-vytvoření-technického-účtu)
-3. [Povolení přístupu do Elasticsearch](#krok-2-povolení-přístupu-do-elasticsearch)
-4. [Instalace projektu](#krok-3-instalace-projektu-lightweight)
-5. [Konfigurace (Minimální)](#krok-4-konfigurace-lightweight)
-6. [První analýza](#krok-5-první-analýza-lightweight)
-7. [Základní použití](#krok-6-použití-lightweight)
+**Estimated Time:** 30-45 minutes
 
 ---
 
-## Prerekvizity (Lightweight)
+## ⚠️ Prerequisites
 
-### Co potřebujete pro lightweight setup:
-
-- ✅ **Přístup k SMAX** - pro vytvoření technického účtu
-- ✅ **JIRA přístup** - pro povolení ES přístupu
-- ✅ **Python 3.11+** - nainstalovaný na lokálním stroji
-- ✅ **Git** - pro klonování repositáře
-- ✅ **Elasticsearch cluster** - znalost názvu vašeho indexu
-- ✅ **Znalost jména vaší aplikace** - např. `pcb`, `sas-relay`, atd.
-
-### 🚫 NENÍ potřeba pro lightweight:
-- ❌ PostgreSQL - nepoužívá se
-- ❌ Docker - není nutný
-- ❌ Ollama/LLM - není nutný
-- ❌ Redis - není nutný
-- ❌ Kubernetes - není nutný
+- ✅ Access to database: P050TD01.DEV.KB.CZ:5432/ailog_analyzer
+- ✅ `.env` file with DB credentials
+- ✅ All 14 peak_fixed_*.txt files in `/tmp/`
+- ✅ Python 3.8+
+- ✅ psycopg2 and python-dotenv installed
 
 ---
 
-## Krok 1: Vytvoření technického účtu
-
-### 1.1 Založit tech účet přes SMAX
-
-Přejděte na: **[SMAX - Správa technického účtu](https://smax.kb.cz/saw/ess/offeringPage/85134)**
-
-**Vyplňte formulář:**
-
-**Stručný popis:**
-```
-PAM - Správa technického účtu
-```
-
-**Popis (detailní):**
-```
-Prosím o vytvoření technického účtu v doméně DS
-XX_<nazev_vasi_aplikace>_ES_READ
-
-Volitelně: Při vytváření prosím nastavit hodnotu mail na hodnotu @ds.kb.cz.
-Nechci vytvářet email schránku v Exchange, ale pouze záznam v AD.
-
-Description: Účet pro nahlížení logů aplikace <nazev_vasi_aplikace> pomocí AI Log Analyzer
-
-Děkuji.
-```
-
-**Příklad názvů tech účtů:**
-```
-XX_PCB_ES_READ           - pro aplikaci PCB
-XX_RELAY_ES_READ         - pro aplikaci SAS-RELAY  
-XX_SASAPI_ES_READ        - pro aplikaci SAS-API
-XX_MONITORING_ES_READ    - pro monitoring aplikaci
-XX_MYAPP_ES_READ         - pro vaši aplikaci
-```
+## 🚀 STEP-BY-STEP EXECUTION
 
 ### 1.2 Výsledek
 
@@ -118,154 +50,233 @@ Domain: DS
 
 ---
 
-## Krok 2: Povolení přístupu do Elasticsearch
+## STEP 1: Verify Database Connection
 
-### 2.1 Vytvoření JIRA ticketu
+```bash
+cd /home/jvsete/git/sas/ai-log-analyzer
 
-Vytvořte ticket v JIRA projektu: **[PSLAS](https://jira.kb.cz/browse/PSLAS)**
+python3 << 'EOF'
+import os, psycopg2
+from dotenv import load_dotenv
 
-**Příklad ticketu:** [PSLAS-6038](https://jira.kb.cz/browse/PSLAS-6038)
-
-**Popis:**
+load_dotenv()
+try:
+    conn = psycopg2.connect(
+        host=os.getenv('DB_HOST'),
+        port=int(os.getenv('DB_PORT')),
+        database=os.getenv('DB_NAME'),
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD')
+    )
+    print("✅ Database connection successful!")
+    conn.close()
+except Exception as e:
+    print(f"❌ Connection failed: {e}")
+    print("   Check: .env file exists and DB_HOST/DB_PORT/DB_PASSWORD are correct")
+EOF
 ```
-Ahoj,
-
-prosím o povolení přístupu technického uživatele "XX_<nazev>_ES_READ" 
-k indexům "cluster-app_<nazev_vasi_aplikace>*" z důvodu načítání dat 
-pro analýzu logů pomocí AI Log Analyzer.
-
-Děkuji
-```
-
-**Příklad pro konkrétní aplikace:**
-
-```
-# Příklad 1: PCB aplikace
-Ahoj,
-prosím o povolení přístupu technického uživatele "XX_PCB_ES_READ" 
-k indexům "cluster-app_pcb-*" z důvodu načítání dat pro analýzu logů 
-pomocí AI Log Analyzer.
-Děkuji
-
-# Příklad 2: SAS-RELAY aplikace  
-Ahoj,
-prosím o povolení přístupu technického uživatele "XX_RELAY_ES_READ"
-k indexům "cluster-app_sas-relay-*" z důvodu načítání dat pro analýzu logů
-pomocí AI Log Analyzer.
-Děkuji
-
-# Příklad 3: Více indexů pro jednu aplikaci
-Ahoj,
-prosím o povolení přístupu technického uživatele "XX_MYAPP_ES_READ"
-k indexům "cluster-app_myapp-api-*" a "cluster-app_myapp-worker-*" 
-z důvodu načítání dat pro analýzu logů pomocí AI Log Analyzer.
-Děkuji
-```
-
-### 2.2 Výsledek
-
-- ✅ Po schválení má váš tech účet přístup k vašim ES indexům
-- ✅ Můžete začít s konfigurací projektu
 
 ---
 
-## Krok 3: Instalace projektu (Lightweight)
-
-### 3.1 Klonování repositáře
+## STEP 2: Setup Database (One-Time)
 
 ```bash
-cd ~/git
-git clone <url-repositare> ai-log-analyzer
-cd ai-log-analyzer
+cd /home/jvsete/git/sas/ai-log-analyzer/scripts
+
+# Create schema and tables
+echo "Creating schema..."
+python3 setup_peak_db.py
+
+# Grant permissions
+echo "Granting permissions..."
+python3 grant_permissions.py
+
+echo "✅ Database setup complete!"
 ```
-
-### 3.2 Vytvoření virtuálního prostředí
-
-```bash
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# nebo
-venv\Scripts\activate  # Windows
-```
-
-### 3.3 Instalace POUZE základních závislostí
-
-Pro lightweight setup potřebujeme jen minimum:
-
-```bash
-pip install --upgrade pip
-pip install elasticsearch==8.11.0 aiohttp tenacity structlog
-```
-
-**Poznámka:** Neinstalujeme všechno z `requirements.txt`, protože nepotřebujeme FastAPI, SQLAlchemy, PostgreSQL driver, atd.
 
 ---
 
-## Krok 4: Konfigurace (Lightweight)
-
-### 4.1 Vytvoření `.env` souboru (MINIMÁLNÍ)
-
-Pro lightweight setup potřebujeme pouze ES credentials:
+## STEP 3: Ingest All 21 Days (Main Work)
 
 ```bash
-# Zkopírujte template
-cp .env.example .env
+cd /home/jvsete/git/sas/ai-log-analyzer/scripts
 
-# Upravte .env soubor
-nano .env
+echo "📊 Starting INIT Phase ingestion (3 weeks, no peak detection)..."
+
+# Process all 14 files sequentially
+for file in /tmp/peak_fixed_2025_12_01.txt \
+            /tmp/peak_fixed_2025_12_02_03.txt \
+            /tmp/peak_fixed_2025_12_04_05.txt \
+            /tmp/peak_fixed_2025_12_06_07.txt \
+            /tmp/peak_fixed_2025_12_08_09.txt \
+            /tmp/peak_fixed_2025_12_10_11.txt \
+            /tmp/peak_fixed_2025_12_12_13.txt \
+            /tmp/peak_fixed_2025_12_14_15.txt \
+            /tmp/peak_fixed_2025_12_16.txt \
+            /tmp/peak_fixed_2025_12_17.txt \
+            /tmp/peak_fixed_2025_12_18.txt \
+            /tmp/peak_fixed_2025_12_19.txt \
+            /tmp/peak_fixed_2025_12_20.txt \
+            /tmp/peak_fixed_2025_12_21.txt
+do
+  echo "Processing: $(basename $file)"
+  python3 ingest_from_log_v2.py --init "$file"
+  if [ $? -eq 0 ]; then
+    echo "  ✅ Success"
+  else
+    echo "  ⚠️ Warning - check output above"
+  fi
+done
+
+echo "✅ All files processed!"
 ```
 
-**DŮLEŽITÉ:** Soubor `.env` je v `.gitignore` a NEBUDE nahrán do gitu. Vaše hesla zůstanou pouze lokálně!
+**What happens:**
+- Reads each file's 1,918 patterns (96 windows × 12 namespaces + variations)
+- NO peak detection (--init flag disables it)
+- Aggregates duplicates using weighted average
+- Inserts to peak_statistics
 
-### 4.2 Minimální konfigurace `.env` (POUZE ES)
+---
+
+## STEP 4: Fill Missing Windows
 
 ```bash
-# =============================================================================
-# AI LOG ANALYZER - LIGHTWEIGHT CONFIGURATION
-# =============================================================================
-# Pouze Elasticsearch - žádné databáze, API, LLM
-# =============================================================================
+cd /home/jvsete/git/sas/ai-log-analyzer/scripts
 
-# -----------------------------------------------------------------------------
-# ELASTICSEARCH - VAŠE HODNOTY!
-# -----------------------------------------------------------------------------
-# URL vašeho Elasticsearch clusteru
-ES_URL=https://elasticsearch.vase-domena.cz:9200
+echo "Completing the grid..."
+python3 fill_missing_windows.py
 
-# Název vašeho indexu (pattern)
-# Příklady:
-#   - cluster-app_pcb-*
-#   - cluster-app_relay-*
-#   - cluster-app_<vase_aplikace>-*
-ES_INDEX=cluster-app_<VASE_APLIKACE>-*
-
-# Technický účet z SMAX (Krok 1)
-ES_USER=XX_<VASE_APLIKACE>_ES_READ
-ES_PASSWORD=<heslo_z_emailu>
-
-# SSL/TLS nastavení
-ES_VERIFY_CERTS=false
+echo "✅ Grid completed!"
 ```
 
-**Příklad reálné konfigurace pro PCB aplikaci:**
+**Result:** All 24,192 combinations present (21 days × 96 windows × 12 namespaces)
+
+---
+
+## STEP 5: Verify Success
 
 ```bash
-# =============================================================================
-# AI LOG ANALYZER - LIGHTWEIGHT CONFIG - PCB EXAMPLE
-# =============================================================================
+cd /home/jvsete/git/sas/ai-log-analyzer
 
-ES_URL=https://elasticsearch-prod.kb.cz:9200
-ES_INDEX=cluster-app_pcb-*
-ES_USER=XX_PCB_ES_READ
-ES_PASSWORD=your_password_here
-ES_VERIFY_CERTS=false
+python3 << 'EOF'
+import os, psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+conn = psycopg2.connect(
+    host=os.getenv('DB_HOST'),
+    port=int(os.getenv('DB_PORT')),
+    database=os.getenv('DB_NAME'),
+    user=os.getenv('DB_USER'),
+    password=os.getenv('DB_PASSWORD')
+)
+cursor = conn.cursor()
+
+# Checks
+cursor.execute("SELECT COUNT(*) FROM peak_statistics;")
+total = cursor.fetchone()[0]
+
+cursor.execute("SELECT COUNT(DISTINCT day_of_week) FROM peak_statistics;")
+days = cursor.fetchone()[0]
+
+cursor.execute("SELECT COUNT(DISTINCT namespace) FROM peak_statistics;")
+namespaces = cursor.fetchone()[0]
+
+cursor.execute("SELECT COUNT(*) FROM peak_statistics WHERE mean_errors = 0.0;")
+zeros = cursor.fetchone()[0]
+
+# Results
+print(f"📊 INIT PHASE COMPLETE!")
+print(f"✅ Rows: {total}/24192 {'✅' if total == 24192 else '❌'}")
+print(f"✅ Days: {days}/7 {'✅' if days == 7 else '❌'}")
+print(f"✅ Namespaces: {namespaces}/12 {'✅' if namespaces == 12 else '❌'}")
+print(f"✅ Zero rows (OK status): {zeros}")
+print(f"✅ Error rows: {total - zeros}")
+
+success = (total == 24192 and days == 7 and namespaces == 12)
+if success:
+    print(f"\n🎉 READY FOR PHASE 6 (Regular Phase with peak detection)!")
+else:
+    print(f"\n⚠️ INCOMPLETE - Check counts above")
+
+conn.close()
+EOF
 ```
 
-**Příklad pro SAS-RELAY aplikaci:**
+---
+
+## STEP 6: Create Backup
 
 ```bash
-# =============================================================================
-# AI LOG ANALYZER - LIGHTWEIGHT CONFIG - RELAY EXAMPLE  
+cd /home/jvsete/git/sas/ai-log-analyzer
+
+python3 << 'EOF'
+import os, psycopg2, csv
+from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+conn = psycopg2.connect(
+    host=os.getenv('DB_HOST'),
+    port=int(os.getenv('DB_PORT')),
+    database=os.getenv('DB_NAME'),
+    user=os.getenv('DB_USER'),
+    password=os.getenv('DB_PASSWORD')
+)
+cursor = conn.cursor()
+
+# Export
+cursor.execute("""
+    SELECT day_of_week, hour_of_day, quarter_hour, namespace,
+           mean_errors, stddev_errors, samples_count
+    FROM peak_statistics
+    ORDER BY day_of_week, hour_of_day, quarter_hour, namespace;
+""")
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+filename = f"/tmp/backup_INIT_3WEEKS_{timestamp}.csv"
+
+with open(filename, 'w', newline='') as f:
+    writer = csv.writer(f)
+    writer.writerow(['day_of_week', 'hour_of_day', 'quarter_hour', 'namespace',
+                     'mean_errors', 'stddev_errors', 'samples_count'])
+    writer.writerows(cursor.fetchall())
+
+print(f"✅ Backup: {filename}")
+conn.close()
+EOF
+```
+
+---
+
+## ✅ Checklist: Ready for Phase 6?
+
+After completing all 6 steps:
+
+- [ ] Step 1: DB connection works
+- [ ] Step 2: Schema created
+- [ ] Step 3: All 14 files processed
+- [ ] Step 4: Grid filled
+- [ ] Step 5: Verification shows 24,192 rows + 7 days + 12 namespaces
+- [ ] Step 6: Backup created
+- [ ] Update [working_progress.md](working_progress.md)
+
+**When all ✅ → Ready for Phase 6: REGULAR Phase (Day 22 onwards)**
+
+---
+
+## 📖 Archive (Older Content)
+
+See `_archive_md/` for older documentation on:
+- Elasticsearch setup
+- Technical accounts
+- Part 2 (Full K8s deployment)
+- And more...
+
+---
+
+**Version:** 2.0 | **Updated:** 2026-01-12 | **Phase:** 5B (INIT 3 Weeks)  
 # =============================================================================
 
 ES_URL=https://elasticsearch-prod.kb.cz:9200

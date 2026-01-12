@@ -15,42 +15,40 @@
 - **Calculates:** mean_errors, stddev_errors, samples_count
 - **Example:** `python collect_peak_detailed.py --from "..." --to "..." > /tmp/peak_fixed_2025_12_01.txt`
 
-### `ingest_from_log.py`
-- **Parse collect_peak_detailed.py output → load to PostgreSQL with peak detection**
+### `ingest_init_inplace.py` ⭐ UPDATED 2026-01-08
+- **Initialize DB with IN-PLACE peak replacement (not skip)**
+- **Special INIT MODE:** Uses 5 previous 15-min windows (same day only)
 - **Input:** `--input /tmp/peak_fixed_YYYY_MM_DD.txt`
-- **Peak Detection (IMPLEMENTED 2025-12-19):**
-  - Uses **PARSED DATA** (not DB) for references
-  - 3 windows BEFORE (same day): -15min, -30min, -45min
-  - 3 days BACK (same time): day-1, day-2, day-3
-  - Baseline normalization: reference < 5 → use 5
-  - Threshold: 15× (normal), 50× (when reference < 10)
-  - Values < 10: NEVER skip (baseline)
+- **NEW FIX (2026-01-08):**
+  - ✅ `create_missing_patterns()`: Fills ALL missing namespace×time combinations with mean=0
+  - ✅ Peak detection: value > 300 → treat as peak
+  - ✅ Replacement: peak → reference value (NOT skip!)
+  - ✅ In-place update: replaced value becomes reference for next window
+  - ✅ Baseline normalization: value ≤ 0 → normalize to 1
 - **Output:**
   - Normal values → INSERT to DB
-  - Peaks (≥15×) → SKIP + log to `/tmp/peaks_skipped.log`
-- **DB:** UPSERT to `ailog_peak.peak_statistics` (Welford's algorithm for multi-day aggregation)
-- **Example:** `python ingest_from_log.py --input /tmp/peak_fixed_2025_12_01.txt`
-- **⚠️ WARNING:** Only use AFTER initial DB load! For empty DB, use `ingest_init.py` instead
+  - Peaks → REPLACE with reference → INSERT to DB
+  - Log replacements to `/tmp/peaks_replaced.log`
+- **Result:** No gaps in DB, continuous reference chain
+- **Example:** `python ingest_init_inplace.py --input /tmp/peak_fixed_2025_12_01.txt`
 
-### `ingest_init.py` ⭐ NEW
-- **Initialize peak statistics from log into EMPTY database**
-- **Special INIT MODE: Uses ONLY previous 15-min windows (no historical days)**
+### `ingest_from_log.py` ⭐ UPDATED 2026-01-08
+- **REGULAR phase: Parse & load with peak replacement (not skip)**
 - **Input:** `--input /tmp/peak_fixed_YYYY_MM_DD.txt`
-- **Peak Detection (INIT MODE):**
-  - Uses **6 previous 15-min windows** (same day): -15, -30, -45, -60, -75, -90 min
-  - NO historical days (DB is empty, only this file's data available)
-  - Baseline normalization: reference < 5 → use 5
-  - **Skip threshold: ratio >= 50× AND value >= 100** (conservative - only extreme peaks)
-  - Special handling: 6:00 AM peaks (daily pattern) → log separately for investigation
-  - **Warnings:** Reports all values > 200 that are NOT detected as peak
-- **Outputs:**
+- **NEW FIX (2026-01-08):**
+  - ✅ Renamed: `insert_statistics_to_db()` → `insert_statistics_to_db_with_peak_replacement()`
+  - ✅ `create_missing_patterns()`: Fills ALL missing namespace×time combinations with mean=0
+  - ✅ Peak detection: Uses historical data (3 days back + 3 windows before)
+  - ✅ Replacement: peak → reference value (NOT skip!)
+  - ✅ In-place update: replaced value becomes reference for next iteration
+  - ✅ Baseline normalization: value ≤ 0 → normalize to 1
+- **Output:**
   - Normal values → INSERT to DB
-  - Extreme peaks → SKIP + log to `/tmp/peaks_init_skipped.log`
-  - 6:00 AM anomalies → `/tmp/peaks_init_anomaly_6am.log`
-  - Suspicious values > 200 → `/tmp/peaks_init_warnings.log`
-- **When to use:** Loading initial data into empty DB
-- **Example:** `python ingest_init.py --input /tmp/peak_fixed_2025_12_01.txt`
-- **Next step:** After successful INIT for full week, use `ingest_regular.py`
+  - Peaks → REPLACE with reference → INSERT to DB
+  - Log replacements to `/tmp/peaks_replaced.log`
+- **Result:** No gaps, proper reference chain across days
+- **Example:** `python ingest_from_log.py --input /tmp/peak_fixed_2025_12_08_09.txt`
+- **When to use:** AFTER INIT phase complete (DB has history for references)
 
 ### `fetch_unlimited.py`
 - **ES query with search_after scrolling (internal library only)**
@@ -73,6 +71,24 @@
 
 ### `init_peak_statistics_db.py`, `setup_peak_db.py`, `grant_permissions.py`
 - **First-time DB setup only** (schema, tables, permissions) - run once
+
+### `backup_db.py` ⭐ NEW 2026-01-08
+- **Backup peak_statistics table to CSV**
+- **Output:** `/tmp/backup_peak_statistics_YYYYMMDD_HHMMSS.csv`
+- **Use when:** Before major operations (cleaning, re-ingestion)
+- **Example:** `python backup_db.py`
+
+### `fill_missing_windows.py` ⭐ NEW 2026-01-08
+- **Fill missing 15-min windows for complete namespace × time grid**
+- **Problem solved:** Some NS have no errors in certain periods (quiet systems)
+- **Solution:** 
+  - Identifies all unique (day, hour, quarter) combinations
+  - Identifies all 12 namespaces (including those with no data)
+  - Inserts mean=0 for ALL missing combinations
+- **Output:** Adds missing windows to DB with mean_errors=0, stddev_errors=0, samples_count=1
+- **Use when:** AFTER INIT phase 1 (to prepare for REGULAR phase with full reference data)
+- **Example:** `python fill_missing_windows.py`
+- **Result:** Complete grid - all NS have all time windows (some may be 0=no errors)
 
 ---
 
@@ -108,6 +124,17 @@
 ### `export_peak_statistics.py`
 - **Export to CSV:** `--from YYYY-MM-DD --to YYYY-MM-DD --output file.csv`
 - **Example:** `python export_peak_statistics.py --from 2025-12-01 --to 2025-12-16 --output backup.csv`
+
+### `verify_distribution.py` ⭐ NEW 2026-01-08
+- **Verify data distribution in DB**
+- **Checks:**
+  - Total unique time windows (expected: 7 days × 96 windows = 672)
+  - Total unique namespaces (expected: 12)
+  - Expected total: unique_times × unique_ns
+  - Breakdown by namespace (each should have same count)
+- **Output:** Shows which NS are complete (✅) vs incomplete (⚠️)
+- **Use after:** INIT phase to verify grid completeness
+- **Example:** `python verify_distribution.py`
 
 ---
 
