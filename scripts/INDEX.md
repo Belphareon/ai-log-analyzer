@@ -1,395 +1,221 @@
-# Scripts Index - AI Assistant Reference
+# Scripts Index - Phase 5B (INIT Phase 3 Weeks)
 
-**Data Flow:** `Elasticsearch → collect_peak_detailed.py → /tmp/*.txt → ingest_from_log.py → PostgreSQL`  
-**DB Table:** `ailog_peak.peak_statistics` | **Unique Key:** `(day_of_week, hour_of_day, quarter_hour, namespace)`
+**Data Flow:** `Elasticsearch → collect_peak_detailed.py → /tmp/*.txt → ingest_from_log_v2.py → PostgreSQL`  
+**DB Table:** `ailog_peak.peak_statistics` | **Unique Key:** `(day_of_week, hour_of_day, quarter_hour, namespace)`  
+**Phase:** Phase 5B - INIT Phase 3 Weeks (21 days baseline, no peak detection)
 
 ---
 
-## Core Pipeline
+## 🎯 Quick Start
 
-### `collect_peak_detailed.py`
-- **Fetch errors from ES → group into 15-min windows → apply 3-window smoothing → output stats**
+**INIT Phase (3 Weeks - NO peak detection):**
+```bash
+cd /home/jvsete/git/sas/ai-log-analyzer/scripts
+
+# Setup DB (one-time)
+python3 setup_peak_db.py
+python3 grant_permissions.py
+
+# Ingest all 14 files (1-21.12)
+for file in /tmp/peak_fixed_2025_12_*.txt; do
+  python3 ingest_from_log_v2.py --init "$file"
+done
+
+# Complete the grid
+python3 fill_missing_windows.py
+
+# Verify (should be 24,192 rows)
+python3 verify_peak_data.py
+```
+
+---
+
+## 📊 Core Pipeline Scripts
+
+### `collect_peak_detailed.py` - Data Collection from Elasticsearch
+**Purpose:** Fetch errors from ES → group into 15-min windows → calculate statistics
+
 - **Input:** `--from "2025-12-01T00:00:00Z" --to "2025-12-02T00:00:00Z"` (Z suffix required!)
 - **Output:** Text to stdout → redirect to `/tmp/peak_fixed_YYYY_MM_DD.txt`
-- **Groups:** (day_of_week 0-6, hour 0-23, quarter 0-3, namespace)
-- **Calculates:** mean_errors, stddev_errors, samples_count
-- **Example:** `python collect_peak_detailed.py --from "..." --to "..." > /tmp/peak_fixed_2025_12_01.txt`
+- **What it does:**
+  - Queries Elasticsearch for errors in time range
+  - Groups by (day_of_week, hour, quarter_hour, namespace)
+  - Applies 3-window smoothing to normalize spikes
+  - Calculates mean_errors, stddev_errors, samples_count
 
-### `ingest_init_inplace.py` ⭐ UPDATED 2026-01-08
-- **Initialize DB with IN-PLACE peak replacement (not skip)**
-- **Special INIT MODE:** Uses 5 previous 15-min windows (same day only)
-- **Input:** `--input /tmp/peak_fixed_YYYY_MM_DD.txt`
-- **NEW FIX (2026-01-08):**
-  - ✅ `create_missing_patterns()`: Fills ALL missing namespace×time combinations with mean=0
-  - ✅ Peak detection: value > 300 → treat as peak
-  - ✅ Replacement: peak → reference value (NOT skip!)
-  - ✅ In-place update: replaced value becomes reference for next window
-  - ✅ Baseline normalization: value ≤ 0 → normalize to 1
-- **Output:**
-  - Normal values → INSERT to DB
-  - Peaks → REPLACE with reference → INSERT to DB
-  - Log replacements to `/tmp/peaks_replaced.log`
-- **Result:** No gaps in DB, continuous reference chain
-- **Example:** `python ingest_init_inplace.py --input /tmp/peak_fixed_2025_12_01.txt`
-
-### `ingest_from_log.py` ⭐ UPDATED 2026-01-08
-- **REGULAR phase: Parse & load with peak replacement (not skip)**
-- **Input:** `--input /tmp/peak_fixed_YYYY_MM_DD.txt`
-- **NEW FIX (2026-01-08):**
-  - ✅ Renamed: `insert_statistics_to_db()` → `insert_statistics_to_db_with_peak_replacement()`
-  - ✅ `create_missing_patterns()`: Fills ALL missing namespace×time combinations with mean=0
-  - ✅ Peak detection: Uses historical data (3 days back + 3 windows before)
-  - ✅ Replacement: peak → reference value (NOT skip!)
-  - ✅ In-place update: replaced value becomes reference for next iteration
-  - ✅ Baseline normalization: value ≤ 0 → normalize to 1
-- **Output:**
-  - Normal values → INSERT to DB
-  - Peaks → REPLACE with reference → INSERT to DB
-  - Log replacements to `/tmp/peaks_replaced.log`
-- **Result:** No gaps, proper reference chain across days
-- **Example:** `python ingest_from_log.py --input /tmp/peak_fixed_2025_12_08_09.txt`
-- **When to use:** AFTER INIT phase complete (DB has history for references)
-
-### `fetch_unlimited.py`
-- **ES query with search_after scrolling (internal library only)**
-- Imported by collect_peak_detailed.py - don't call directly
+**Example:**
+```bash
+python3 collect_peak_detailed.py --from "2025-12-01T00:00:00Z" --to "2025-12-02T00:00:00Z" > /tmp/peak_fixed_2025_12_01.txt
+```
 
 ---
 
-## Database Management
+### `ingest_from_log_v2.py` ⭐ MAIN SCRIPT - Two-Phase Ingestion
+**Purpose:** Load peak data from .txt file into PostgreSQL (INIT or REGULAR mode)
 
-### `clear_peak_db.py`
-- **DELETE all rows from peak_statistics (for re-ingestion)**
-- **Example:** `python clear_peak_db.py`
+**Input:** `--input /tmp/peak_fixed_YYYY_MM_DD.txt` + `--init` flag for INIT phase
 
-### `truncate_peak_db.py`
-- **TRUNCATE peak_statistics table - fresh start before re-ingestion**
-- **Interactive:** Asks for confirmation before deleting all rows
-- **Use when:** DB has corrupted/aggregated data from UPSERT conflicts
-- **Example:** `python truncate_peak_db.py` → answer `yes` to confirm
-- **Next:** After TRUNCATE, re-ingest all data files
+#### INIT Mode (--init flag)
+- No peak detection
+- Just aggregate and store baseline data
+- Used for loading 3 weeks (21 days)
 
-### `init_peak_statistics_db.py`, `setup_peak_db.py`, `grant_permissions.py`
-- **First-time DB setup only** (schema, tables, permissions) - run once
+```bash
+python3 ingest_from_log_v2.py --init /tmp/peak_fixed_2025_12_01.txt
+```
 
-### `backup_db.py` ⭐ NEW 2026-01-08
-- **Backup peak_statistics table to CSV**
-- **Output:** `/tmp/backup_peak_statistics_YYYYMMDD_HHMMSS.csv`
-- **Use when:** Before major operations (cleaning, re-ingestion)
-- **Example:** `python backup_db.py`
+**What it does:**
+1. Reads file (1,918 patterns: 96 windows × 12 namespaces)
+2. Aggregates duplicates using weighted average
+3. Inserts to peak_statistics WITHOUT peak detection
+4. Result: Clean baseline data
 
-### `fill_missing_windows.py` ⭐ NEW 2026-01-08
-- **Fill missing 15-min windows for complete namespace × time grid**
-- **Problem solved:** Some NS have no errors in certain periods (quiet systems)
-- **Solution:** 
-  - Identifies all unique (day, hour, quarter) combinations
-  - Identifies all 12 namespaces (including those with no data)
-  - Inserts mean=0 for ALL missing combinations
-- **Output:** Adds missing windows to DB with mean_errors=0, stddev_errors=0, samples_count=1
-- **Use when:** AFTER INIT phase 1 (to prepare for REGULAR phase with full reference data)
-- **Example:** `python fill_missing_windows.py`
-- **Result:** Complete grid - all NS have all time windows (some may be 0=no errors)
+#### REGULAR Mode (default, no flag)
+- With peak detection enabled
+- Compares against 3 previous 15-min windows (same day)
+- If ratio >= 15× AND value >= 100 → PEAK!
+- Replaces peak with reference value
+
+```bash
+python3 ingest_from_log_v2.py /tmp/peak_fixed_2025_12_22.txt
+```
+
+**What it does:**
+1. Reads file
+2. For each window:
+   - Find 3 previous 15-min windows on SAME day (-15, -30, -45 min)
+   - Calculate ratio = value / average(references)
+   - If ratio >= 15× AND value >= 100 → replace with reference
+3. Inserts (replaced or original) to DB
+
+**Key Features:**
+- In-memory aggregation for duplicate keys
+- ON CONFLICT UPDATE with weighted average
+- Peak detection uses same-day only references
+- Handles missing windows gracefully
 
 ---
 
-## Validation & Export
+### `fill_missing_windows.py` - Complete the Grid
+**Purpose:** Fill missing (day, hour, quarter, namespace) combinations with mean=0
+
+- **When to use:** AFTER INIT phase (before REGULAR phase)
+- **Why:** Ensures all 24,192 combinations exist (21 days × 96 windows × 12 namespaces)
+
+```bash
+python3 fill_missing_windows.py
+```
+
+**Expected result:** 24,192 total rows (all combinations present)
+
+---
+
+## 🗄️ Database Management Scripts
+
+### Setup Scripts (Run Once)
+
+#### `setup_peak_db.py`
+- Creates schema: `ailog_peak`
+- Creates table: `peak_statistics` with proper columns
+
+```bash
+python3 setup_peak_db.py
+```
+
+#### `grant_permissions.py`
+- Grants SELECT, INSERT, UPDATE, DELETE to data user
+- Runs ONCE after schema creation
+
+```bash
+python3 grant_permissions.py
+```
+
+### Data Management
+
+#### `clear_peak_db.py`
+- DELETE all rows from peak_statistics (for fresh re-ingestion)
+- Safe: Uses regular user (no DDL issues)
+- Interactive: Asks for confirmation
+
+```bash
+python3 clear_peak_db.py
+```
+
+#### `backup_db.py`
+- Exports all peak_statistics to CSV file
+- Output: `/tmp/backup_peak_statistics_YYYYMMDD_HHMMSS.csv`
+- Use BEFORE major operations
+
+```bash
+python3 backup_db.py
+```
+
+---
+
+## ✅ Validation & Verification Scripts
 
 ### `verify_peak_data.py`
-- **Check data integrity** (gaps, anomalies, counts)
-- **Example:** `python verify_peak_data.py`
+- Checks total row count
+- Verifies day_of_week values (0-6)
+- Counts distinct namespaces (should be 12)
+- Finds NULL values
+- Shows value ranges
 
-### `query_top_values.py`
-- **Quick query: Show top 20 highest values in DB**
-- Displays statistics (total rows, max, avg)
-- **Example:** `python query_top_values.py`
+```bash
+python3 verify_peak_data.py
+```
 
-### `check_peak_detection.py`
-- **Verify peak detection effectiveness**
-- Shows top 30 values in DB and checks if critical peaks (>500) are correctly skipped
-- **Output:**
-  - ✅ Top 30 highest values (should be < 500 if peak detection works)
-  - ✅ Count of values > 500 (should be 0)
-  - Total rows count
-- **Usage:** `python check_peak_detection.py`
-- **When to use:** After ingest to verify peaks were properly skipped
-- **Success criteria:** No values > 500 in output = peak detection working! ✅
-
-### `verify_after_fix.py`
-- **POST-FIX VERIFICATION: Check if all 9 user-reported peaks are correctly skipped**
-- **Compares:** Expected values vs DB actual values after fix
-- **Tests:** 6 extreme peaks (should be ~10-50 in DB) + 3 normal traffic windows
-- **Example:** `python verify_after_fix.py` (run AFTER truncate + re-ingest)
-- **Exit code:** 0 if all pass, 1 if any fail
+**Expected output for INIT Phase complete:**
+```
+✅ Total rows: 24,192
+✅ Days: 7 (0-6)
+✅ Namespaces: 12
+✅ NULL values: 0
+✅ Value range: 0.0 - 9,965.3
+```
 
 ### `export_peak_statistics.py`
-- **Export to CSV:** `--from YYYY-MM-DD --to YYYY-MM-DD --output file.csv`
-- **Example:** `python export_peak_statistics.py --from 2025-12-01 --to 2025-12-16 --output backup.csv`
+- Export specific date range to CSV
+- Columns: day_of_week, hour_of_day, quarter_hour, namespace, mean_errors, stddev_errors, samples_count
 
-### `verify_distribution.py` ⭐ NEW 2026-01-08
-- **Verify data distribution in DB**
-- **Checks:**
-  - Total unique time windows (expected: 7 days × 96 windows = 672)
-  - Total unique namespaces (expected: 12)
-  - Expected total: unique_times × unique_ns
-  - Breakdown by namespace (each should have same count)
-- **Output:** Shows which NS are complete (✅) vs incomplete (⚠️)
-- **Use after:** INIT phase to verify grid completeness
-- **Example:** `python verify_distribution.py`
-
----
-
-## Analysis & Debugging
-
-### `analyze_peaks.py`
-- **Analyze detected peaks from logs**
-- Extracts peak patterns and generates analysis reports
-- **Example:** `python analyze_peaks.py`
-
-### `analyze_problem_peaks.py`
-- **Deep analysis of problematic peaks**
-- Identifies systematic patterns and recurring anomalies
-- **Example:** `python analyze_problem_peaks.py`
-
-### `peaks_timeline.py`
-- **Generate timeline view of peaks**
-- Creates chronological view of all detected peaks for pattern analysis
-- **Example:** `python peaks_timeline.py`
-
-### `show_data_for_date.py`
-- **Display DB data for specific date**
-- Quick query tool for examining data on a particular day
-- **Input:** Date parameter
-- **Example:** `python show_data_for_date.py --date 2025-12-04`
-
----
-
-## Utilities
-
-### `create_known_issues_registry.py`
-- Maintains known error patterns baseline
-
-### `analyze_period.py`
-- Full analysis orchestrator (future)
-
-### `workflow_manager.sh`
-- Batch operations wrapper
-
-### `clear_peak_statistics.py`
-- **Alternative clear script** (deprecated - use clear_peak_db.py instead)
-
-### `ingest_peak_statistics.py`
-- **Legacy ingest script** (deprecated - use ingest_from_log.py instead)
-
----
-
-## Common Workflows
-
-**Daily collection:**
 ```bash
-python collect_peak_detailed.py --from "2025-12-16T00:00:00Z" --to "2025-12-17T00:00:00Z" > /tmp/peak_fixed_2025_12_16.txt
-python ingest_from_log.py --input /tmp/peak_fixed_2025_12_16.txt
-python verify_peak_data.py
-```
-
-**Re-ingestion (all files):**
-```bash
-python clear_peak_db.py
-for file in /tmp/peak_fixed_*.txt; do python ingest_from_log.py --input "$file"; done
-python verify_peak_data.py
-```
-
-**Backup:**
-```bash
-python export_peak_statistics.py --from 2025-12-01 --to 2025-12-16 --output backup.csv
+python3 export_peak_statistics.py --from 2025-12-01 --to 2025-12-21 --output baseline.csv
 ```
 
 ---
 
----
+## 🔧 Utility Scripts
 
-## � Script Files Summary
+### `check_db_data.py`
+- Shows row count
+- Shows distinct days and namespaces
+- Shows value ranges
+- Shows zero rows (OK status)
 
-**ACTIVE SCRIPTS (používají se):**
-- ✅ `collect_peak_detailed.py` - Core data collector
-- ✅ `ingest_from_log.py` - Load to DB with peak detection
-- ✅ `fetch_unlimited.py` - ES library (internal)
-- ✅ `clear_peak_db.py` - Delete all DB data
-- ✅ `verify_peak_data.py` - Data validation
-- ✅ `verify_after_fix.py` - Post-fix verification
-- ✅ `export_peak_statistics.py` - Export to CSV
-- ✅ `analyze_peaks.py` - Peak analysis
-- ✅ `analyze_problem_peaks.py` - Problem peak analysis
-- ✅ `peaks_timeline.py` - Timeline view
-- ✅ `show_data_for_date.py` - Date-specific query
-
-**SETUP SCRIPTS (1× only):**
-- 🔧 `init_peak_statistics_db.py` - Initial DB setup
-- 🔧 `setup_peak_db.py` - Schema setup
-- 🔧 `grant_permissions.py` - Permissions setup
-
-**DEPRECATED (nepoužívat):**
-- ❌ `truncate_peak_db.py` - Vyžaduje DDL user s LDAP issue
-- ❌ `clear_peak_statistics.py` - Starý clear script
-- ❌ `ingest_peak_statistics.py` - Starý ingest script
-
-**UTILITIES:**
-- 📋 `analyze_period.py` - Full pipeline (future)
-- 📋 `workflow_manager.sh` - Batch wrapper
-- 📋 `create_known_issues_registry.py` - Known issues
-
-**BACKUPS:**
-- 💾 `ingest_from_log.py.backup_20251218_1505` - Safety backup
-- 💾 `peak_statistics_backup_20251216_105945.csv` - DB backup
-
-**Total:** 24 files (11 active, 3 setup, 3 deprecated, 3 utilities, 2 backups, 1 INDEX, 1 pycache)
-
----
-
-## �🗄️ Database Connection & Access
-
-### Environment Variables (.env file)
-```
-DB_HOST=P050TD01.DEV.KB.CZ
-DB_PORT=5432
-DB_NAME=ailog_analyzer
-DB_USER=ailog_analyzer_user_d1           # Normal user (SELECT, INSERT, UPDATE)
-DB_PASSWORD=<LDAP password>              # Required for LDAP auth
-DB_DDL_USER=ailog_analyzer_ddl_user_d1   # DDL user (CREATE, ALTER, DROP) - setup only
-DB_DDL_PASSWORD=<LDAP password>          # Required for DDL operations
-```
-
-### How to Access DB Directly
-
-**From Python Script:**
-```python
-from dotenv import load_dotenv
-import psycopg2
-import os
-
-load_dotenv()  # ⚠️ REQUIRED - load .env file
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST'),
-    'port': int(os.getenv('DB_PORT', 5432)),
-    'database': os.getenv('DB_NAME'),
-    'user': os.getenv('DB_USER'),
-    'password': os.getenv('DB_PASSWORD')
-}
-conn = psycopg2.connect(**DB_CONFIG)
-cur = conn.cursor()
-```
-
-⚠️ **IMPORTANT:** Always call `load_dotenv()` before connecting - it loads credentials from `.env` file
-
-**From Command Line (with venv):**
 ```bash
-cd /home/jvsete/git/sas/ai-log-analyzer
-source .venv/bin/activate
-python scripts/verify_peak_data.py
-```
-
-**Note:** Direct `psql` command-line access doesn't work due to LDAP authentication. Must use Python scripts.
-
-### Table Schema
-
-```sql
-CREATE TABLE ailog_peak.peak_statistics (
-    id SERIAL PRIMARY KEY,
-    day_of_week INT (0-6: Mon-Sun),
-    hour_of_day INT (0-23),
-    quarter_hour INT (0-3: 0=:00, 1=:15, 2=:30, 3=:45),
-    namespace VARCHAR,
-    mean_errors FLOAT (average errors in 15-min window),
-    stddev_errors FLOAT (standard deviation),
-    samples_count INT (how many days aggregated),
-    updated_at TIMESTAMP,
-    
-    UNIQUE KEY: (day_of_week, hour_of_day, quarter_hour, namespace)
-);
-```
-
-### Key Data Points
-
-- **Total rows:** Currently ~3,400
-- **Time range:** 2025-12-01 to 2025-12-16 (16 days)
-- **Namespaces:** 10 (pca-*, pcb-*, pcb-ch-*)
-- **Aggregation:** Welford's algorithm (multi-day UPSERT)
-
-### Common Queries
-
-**Check specific time (e.g., Fri 7:00 for pcb-ch-sit):**
-```sql
-SELECT mean_errors, samples_count
-FROM ailog_peak.peak_statistics
-WHERE day_of_week = 4 AND hour_of_day = 7 AND namespace = 'pcb-ch-sit-01-app';
-```
-
-**Find peaks (high errors):**
-```sql
-SELECT * FROM ailog_peak.peak_statistics
-WHERE mean_errors > 1000
-ORDER BY mean_errors DESC
-LIMIT 20;
-```
-
-**Count by namespace:**
-```sql
-SELECT namespace, COUNT(*) as count
-FROM ailog_peak.peak_statistics
-GROUP BY namespace
-ORDER BY count DESC;
+python3 check_db_data.py
 ```
 
 ---
 
-## ⚠️ KNOWN ISSUES & DEBUGGING
+## 📁 Script Status
 
-### UPSERT Aggregation Problem
-When re-ingesting data, ON CONFLICT clause causes aggregation with old values. This can make peaks appear lower than actual. 
-
-**Solution:** Always run `clear_peak_db.py` before batch re-ingestion to start fresh.
-
-### HOW TO PROPERLY DELETE ALL DB DATA
-
-**CRITICAL: TRUNCATE vs DELETE**
-```bash
-# ❌ WRONG: truncate_peak_db.py - Requires DDL user (DDL LDAP password issue)
-echo "yes" | python scripts/truncate_peak_db.py
-# ERROR: LDAP authentication failed for user "ailog_analyzer_ddl_user_d1"
-
-# ✅ CORRECT: clear_peak_db.py - Uses regular user (DELETE permission)
-cd /home/jvsete/git/sas/ai-log-analyzer
-source .venv/bin/activate
-python scripts/clear_peak_db.py
-# Output: 📊 Rows deleted: 3399, Rows remaining: 0
-```
-
-**Why?**
-- `TRUNCATE` requires DDL permissions (ailog_analyzer_ddl_user_d1)
-- DDL user má LDAP authentication issues v .env
-- `DELETE` funguje s běžným userem (ailog_analyzer_user_d1) ✅
-- Pro mazání dat VŽDY použij `clear_peak_db.py`
-
-**Verification:**
-```bash
-python scripts/verify_peak_data.py | head -5
-# Expected: 📊 Total rows: 0
-```
-
-### Peak Detection Not Triggering
-If peaks aren't being skipped:
-1. Check if reference data exists from previous 3 days
-2. Day #1 of a new dataset has NO references (peaks won't be detected)
-3. Verify ratio calculation: `current_mean / reference_median >= 15.0`
-
-### Missing Credentials
-Error: `fe_sendauth: no password supplied`
-- Ensure `.env` file exists and has `DB_PASSWORD=<password>`
-- Call `load_dotenv()` in Python scripts before connecting
-- LDAP requires the password to be set
+| Script | Purpose | Phase | Status |
+|--------|---------|-------|--------|
+| `collect_peak_detailed.py` | ES data collection | Both | ✅ Active |
+| `ingest_from_log_v2.py` | Load to DB (INIT + REGULAR) | Both | ✅ Active |
+| `fill_missing_windows.py` | Complete grid | INIT | ✅ Active |
+| `setup_peak_db.py` | Create schema | Setup | ✅ Setup |
+| `grant_permissions.py` | Grant DB perms | Setup | ✅ Setup |
+| `clear_peak_db.py` | Delete all data | Both | ✅ Active |
+| `backup_db.py` | Backup to CSV | Both | ✅ Active |
+| `verify_peak_data.py` | Data validation | Both | ✅ Active |
+| `export_peak_statistics.py` | Export to CSV | Both | ✅ Active |
+| `check_db_data.py` | Quick check | Both | ✅ Active |
 
 ---
 
-## Database Connection & Configuration
+## 🗄️ Database Connection & Configuration
 
 ### Connection Info
 ```
@@ -406,9 +232,20 @@ ROLE:
 - role_ailog_analyzer_ddl    → DDL role (required before DDL operations)
 ```
 
-### How to Connect (Data Operations)
+### Environment Variables (.env)
+```
+DB_HOST=P050TD01.DEV.KB.CZ
+DB_PORT=5432
+DB_NAME=ailog_analyzer
+DB_USER=ailog_analyzer_user_d1
+DB_PASSWORD=<your_ldap_password>
+DB_DDL_USER=ailog_analyzer_ddl_user_d1
+DB_DDL_PASSWORD=<your_ldap_password>
+```
 
-**Python - Data Operations (Most common):**
+### How to Connect - Data Operations
+
+**Python:**
 ```python
 from dotenv import load_dotenv
 import psycopg2
@@ -416,14 +253,13 @@ import os
 
 load_dotenv()  # ⚠️ REQUIRED! Loads .env file
 
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
-    'port': int(os.getenv('DB_PORT', 5432)),
-    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD')
-}
-conn = psycopg2.connect(**DB_CONFIG)
+conn = psycopg2.connect(
+    host=os.getenv('DB_HOST'),
+    port=int(os.getenv('DB_PORT')),
+    database=os.getenv('DB_NAME'),
+    user=os.getenv('DB_USER'),
+    password=os.getenv('DB_PASSWORD')
+)
 cursor = conn.cursor()
 
 # Normal data operations
@@ -432,7 +268,9 @@ count = cursor.fetchone()[0]
 print(f"Total rows: {count}")
 ```
 
-**Python - DDL Operations (Setup scripts):**
+### How to Connect - DDL Operations (Setup Only)
+
+**Python:**
 ```python
 from dotenv import load_dotenv
 import psycopg2
@@ -440,53 +278,174 @@ import os
 
 load_dotenv()
 
-# Use DDL user credentials
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
-    'port': int(os.getenv('DB_PORT', 5432)),
-    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-    'user': os.getenv('DB_DDL_USER', 'ailog_analyzer_ddl_user_d1'),
-    'password': os.getenv('DB_DDL_PASSWORD')
-}
-conn = psycopg2.connect(**DB_CONFIG)
+# Use DDL user
+conn = psycopg2.connect(
+    host=os.getenv('DB_HOST'),
+    port=int(os.getenv('DB_PORT')),
+    database=os.getenv('DB_NAME'),
+    user=os.getenv('DB_DDL_USER'),
+    password=os.getenv('DB_DDL_PASSWORD')
+)
 cursor = conn.cursor()
 
 # ⚠️ REQUIRED: Set DDL role before DDL operations
 cursor.execute("SET ROLE role_ailog_analyzer_ddl;")
-print("✅ DDL role set")
 
 # Now safe to do DDL
-cursor.execute("CREATE SCHEMA IF NOT EXISTS ailog_peak;")
 cursor.execute("CREATE TABLE IF NOT EXISTS ailog_peak.peak_statistics (...);")
-cursor.execute("GRANT SELECT ON ailog_peak.peak_statistics TO ailog_analyzer_user_d1;")
 conn.commit()
 ```
 
-### Always Remember
-1. ✅ Call `load_dotenv()` BEFORE `psycopg2.connect()`
+### Critical Rules
+1. ✅ Always `load_dotenv()` BEFORE connecting
 2. ✅ For DDL: Use DB_DDL_USER + `SET ROLE role_ailog_analyzer_ddl`
 3. ✅ For data: Use DB_USER (regular user)
-4. ✅ Check `.env` exists: `ls -la .env`
-5. ✅ Don't commit `.env` (it's in .gitignore)
-
-### Scripts Using DB Connection
-
-All these scripts follow the connection pattern above:
-- **Data scripts:** `ingest_from_log_v2.py`, `verify_peak_data.py`, `clear_peak_db.py`, `backup_db.py`
-- **DDL scripts:** `setup_peak_db.py`, `grant_permissions.py`, `fill_missing_windows.py`
+4. ✅ Never commit `.env` to git
 
 ---
 
-## Key Info for AI
+## 🎯 Database Schema
 
-- **Date format:** Always use `Z` suffix (e.g., `2025-12-01T00:00:00Z`)
-- **File naming:** `/tmp/peak_fixed_YYYY_MM_DD.txt` (consistent)
-- **Peak threshold:** ratio >= 15× AND value >= 100
-- **Peak detection:** Same-day only (-15, -30, -45 min windows)
-- **Peak action:** Replace with reference value (NOT skip)
-- **DB aggregation:** Weighted average (old_mean×old_samples + new_mean×new_samples) / (old_samples+new_samples)
-- **Setup scripts:** Run once only
-- **DB access:** Always use Python + `load_dotenv()` - no direct psql
-- **Test first:** Always test with 1 file before batch re-ingestion
-- **2-Phase Architecture:** INIT (3 weeks, no peak detection) → REGULAR (daily, with peak detection)
+```sql
+CREATE TABLE ailog_peak.peak_statistics (
+    day_of_week INT,           -- 0-6 (Mon-Sun, repeats weekly)
+    hour_of_day INT,           -- 0-23
+    quarter_hour INT,          -- 0-3 (:00, :15, :30, :45)
+    namespace VARCHAR,         -- e.g., pcb-dev-01-app
+    mean_errors FLOAT,         -- Average errors in this window
+    stddev_errors FLOAT,       -- Standard deviation
+    samples_count INT,         -- How many times aggregated
+    
+    PRIMARY KEY (day_of_week, hour_of_day, quarter_hour, namespace)
+);
+```
 
+---
+
+## 🔑 Key Concepts
+
+### Two-Phase Architecture
+
+**INIT Phase (3 Weeks):**
+- Collect 1-21.12 (21 days)
+- NO peak detection
+- Just baseline aggregation
+- Result: 24,192 rows
+- Purpose: Create reference baseline
+
+**REGULAR Phase (Daily):**
+- Start day 22 (22.12+)
+- WITH peak detection (ratio >= 15×)
+- Compare against 3 previous 15-min windows (same day)
+- Replace peaks with reference value
+
+### Peak Detection Algorithm
+```
+For each (day, hour, quarter, namespace):
+  1. Get 3 previous 15-min windows on SAME day: -15, -30, -45 min
+  2. Calculate reference = average(3 windows)
+  3. Calculate ratio = current_value / reference
+  4. IF ratio >= 15.0 AND current_value >= 100:
+       - Replace with reference value
+       - Log to peak_investigation table
+  5. INSERT (replaced or original) to peak_statistics
+```
+
+### Why Same-Day Only?
+- Monday traffic differs from Friday traffic
+- Same-day windows provide reliable baseline
+
+### Why 3 Weeks?
+- Each day-of-week needs 3 reference points
+- With 3 weeks: 3 data points for each day-of-week/time
+
+---
+
+## 🚀 Common Workflows
+
+### INIT Phase 3 Weeks
+```bash
+cd /home/jvsete/git/sas/ai-log-analyzer/scripts
+
+# Setup (once)
+python3 setup_peak_db.py
+python3 grant_permissions.py
+
+# Ingest all 14 files
+for file in /tmp/peak_fixed_2025_12_*.txt; do
+  python3 ingest_from_log_v2.py --init "$file"
+done
+
+# Complete the grid
+python3 fill_missing_windows.py
+
+# Verify
+python3 verify_peak_data.py
+```
+
+### REGULAR Phase Daily
+```bash
+# Every day, ingest yesterday's data
+python3 ingest_from_log_v2.py /tmp/peak_fixed_2025_12_22.txt
+python3 ingest_from_log_v2.py /tmp/peak_fixed_2025_12_23.txt
+# ... continue daily
+```
+
+### Re-Ingestion (Fresh Start)
+```bash
+# Backup first
+python3 backup_db.py
+
+# Clear all data
+python3 clear_peak_db.py
+
+# Ingest files again
+for file in /tmp/peak_fixed_*.txt; do
+  python3 ingest_from_log_v2.py --init "$file"
+done
+
+# Verify
+python3 verify_peak_data.py
+```
+
+---
+
+## 📋 Troubleshooting
+
+### "ModuleNotFoundError: No module named 'dotenv'"
+```bash
+pip install python-dotenv
+```
+
+### "psycopg2.OperationalError: could not connect"
+- Check VPN is connected
+- Verify DB_HOST = P050TD01.DEV.KB.CZ
+- Check port 5432 is accessible
+
+### "peak_statistics table does not exist"
+```bash
+python3 setup_peak_db.py
+python3 grant_permissions.py
+```
+
+### "Rows < expected after ingest"
+- Check script output for errors
+- Run one file at a time to isolate issues
+- Verify input file format
+
+### "Peak detection not triggering"
+- Ensure REGULAR phase (no --init flag)
+- Check reference data exists (need 3 previous windows)
+- Day 1 of dataset has NO references (peaks won't detect)
+
+---
+
+## �� Related Documentation
+
+- **[GETTING_STARTED.md](../GETTING_STARTED.md)** - Complete 6-step setup guide
+- **[CONTEXT_RETRIEVAL_PROTOCOL.md](../CONTEXT_RETRIEVAL_PROTOCOL.md)** - Quick reference
+- **[working_progress.md](../working_progress.md)** - Session log & progress
+
+---
+
+**Version:** 3.0 | **Updated:** 2026-01-12 | **Phase:** 5B (INIT Phase 3 Weeks)
