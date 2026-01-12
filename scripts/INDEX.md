@@ -389,13 +389,104 @@ Error: `fe_sendauth: no password supplied`
 
 ---
 
+## Database Connection & Configuration
+
+### Connection Info
+```
+Host: P050TD01.DEV.KB.CZ
+Port: 5432
+Database: ailog_analyzer
+Schema: ailog_peak
+
+USERS:
+- ailog_analyzer_user_d1     → Data operations (SELECT, INSERT, UPDATE, DELETE)
+- ailog_analyzer_ddl_user_d1 → DDL operations (CREATE, ALTER, DROP, GRANT)
+
+ROLE:
+- role_ailog_analyzer_ddl    → DDL role (required before DDL operations)
+```
+
+### How to Connect (Data Operations)
+
+**Python - Data Operations (Most common):**
+```python
+from dotenv import load_dotenv
+import psycopg2
+import os
+
+load_dotenv()  # ⚠️ REQUIRED! Loads .env file
+
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
+    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
+    'password': os.getenv('DB_PASSWORD')
+}
+conn = psycopg2.connect(**DB_CONFIG)
+cursor = conn.cursor()
+
+# Normal data operations
+cursor.execute("SELECT COUNT(*) FROM ailog_peak.peak_statistics;")
+count = cursor.fetchone()[0]
+print(f"Total rows: {count}")
+```
+
+**Python - DDL Operations (Setup scripts):**
+```python
+from dotenv import load_dotenv
+import psycopg2
+import os
+
+load_dotenv()
+
+# Use DDL user credentials
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
+    'user': os.getenv('DB_DDL_USER', 'ailog_analyzer_ddl_user_d1'),
+    'password': os.getenv('DB_DDL_PASSWORD')
+}
+conn = psycopg2.connect(**DB_CONFIG)
+cursor = conn.cursor()
+
+# ⚠️ REQUIRED: Set DDL role before DDL operations
+cursor.execute("SET ROLE role_ailog_analyzer_ddl;")
+print("✅ DDL role set")
+
+# Now safe to do DDL
+cursor.execute("CREATE SCHEMA IF NOT EXISTS ailog_peak;")
+cursor.execute("CREATE TABLE IF NOT EXISTS ailog_peak.peak_statistics (...);")
+cursor.execute("GRANT SELECT ON ailog_peak.peak_statistics TO ailog_analyzer_user_d1;")
+conn.commit()
+```
+
+### Always Remember
+1. ✅ Call `load_dotenv()` BEFORE `psycopg2.connect()`
+2. ✅ For DDL: Use DB_DDL_USER + `SET ROLE role_ailog_analyzer_ddl`
+3. ✅ For data: Use DB_USER (regular user)
+4. ✅ Check `.env` exists: `ls -la .env`
+5. ✅ Don't commit `.env` (it's in .gitignore)
+
+### Scripts Using DB Connection
+
+All these scripts follow the connection pattern above:
+- **Data scripts:** `ingest_from_log_v2.py`, `verify_peak_data.py`, `clear_peak_db.py`, `backup_db.py`
+- **DDL scripts:** `setup_peak_db.py`, `grant_permissions.py`, `fill_missing_windows.py`
+
+---
+
 ## Key Info for AI
 
 - **Date format:** Always use `Z` suffix (e.g., `2025-12-01T00:00:00Z`)
 - **File naming:** `/tmp/peak_fixed_YYYY_MM_DD.txt` (consistent)
-- **Peak threshold:** 15× (3 previous days reference)
-- **DB aggregation:** Multi-day UPSERT with Welford's algorithm
+- **Peak threshold:** ratio >= 15× AND value >= 100
+- **Peak detection:** Same-day only (-15, -30, -45 min windows)
+- **Peak action:** Replace with reference value (NOT skip)
+- **DB aggregation:** Weighted average (old_mean×old_samples + new_mean×new_samples) / (old_samples+new_samples)
 - **Setup scripts:** Run once only
 - **DB access:** Always use Python + `load_dotenv()` - no direct psql
 - **Test first:** Always test with 1 file before batch re-ingestion
+- **2-Phase Architecture:** INIT (3 weeks, no peak detection) → REGULAR (daily, with peak detection)
 
