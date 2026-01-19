@@ -1,0 +1,1057 @@
+# 🔄 Working Progress - AI Log Analyzer
+
+**Projekt:** AI Log Analyzer - Phase 5B (Production Readiness)  
+**Poslední update:** 2025-12-19 15:00 UTC  
+**Status:** ✅ Peak detection HOTOVO! | 🔄 Verifikace probíhá
+
+---
+
+## 📋 CURRENT TASKS (Priority Order)
+
+### ✅ COMPLETED TODAY (2025-12-19)
+
+**14:00-14:40 UTC - Peak Detection Implementace & Test**
+- ✅ Vytvořena `detect_and_skip_peaks()` funkce (řádky 89-153 v ingest_from_log.py)
+- ✅ Baseline normalization: reference < 5 → use 5
+- ✅ Batch ingest 9 souborů: 6,678 parsed patterns
+- ✅ Peak detection funguje: 79 peaks skipnuto z celkem
+- ✅ DB contains: 3,393 rows (po UPSERT agregaci)
+- ✅ Verifikace: Kritické peaks skipnuty (2884-2899 v pcb-ch-sit)
+
+**Výsledky (2025-12-19 14:40 UTC):**
+```
+Parsed:   6,678 patterns  
+Skipped:  79 peaks (1.2%)
+Inserted: 6,599 rows
+DB Final: 3,393 rows (UPSERT redukce duplicit)
+
+Peak Detection Ratio (Top 5):
+- Thu 07:00 pcb-ch-sit: 46.5× SKIP ✅
+- Fri 07:00 pcb-ch-sit: 46.8× SKIP ✅  
+- Sat 07:00 pcb-ch-sit: 46.7× SKIP ✅
+- Tue 07:00 pcb-ch-sit: 46.7× SKIP ✅
+- Mon 15:30 pcb-dev:    150×  SKIP ✅
+```
+
+---
+
+## 🎉 SESSION 2025-12-19 (14:00-14:40 UTC) - PEAK DETECTION IMPLEMENTOVÁNA A FUNGUJE!
+
+### ✅ VÝSLEDKY:
+- **Peak detection funguje!** 79 peaks skipnuto z 6,678 patterns
+- **DB obsahuje:** 3,393 rows (normální hodnoty po UPSERT agregaci)
+- **Všechny kritické peaks skipnuty:**
+  - Thu 07:00 pcb-ch-sit: 2884.0 (46.5×) ✅
+  - Fri 07:00 pcb-ch-sit: 2899.0 (46.8×) ✅
+  - Sat 07:00 pcb-ch-sit: 2895.0 (46.7×) ✅
+  - Tue 07:00 pcb-ch-sit: 2898.0 (46.7×) ✅
+
+### 📝 CO BYLO UDĚLÁNO:
+
+**14:00 - Analýza problému:**
+- Zjištěno: `detect_and_skip_peaks()` funkce NEEXISTOVALA v aktivním kódu
+- Původní `ingest_from_log.py` (řádek 90) měl starou verzi BEZ peak detection
+- Funkce byla jen v dokumentaci/working_progress, nikdy implementována
+
+**14:15 - Implementace:**
+1. ✅ Vytvořil `detect_and_skip_peaks()` funkci (řádek 89-153)
+   - Hledá 3 okna PŘED (same day: -15min, -30min, -45min)
+   - Hledá 3 dny zpět (same time: day-1, day-2, day-3)
+   - Používá PARSED DATA (ne DB!) - klíčové pro správnou funkci
+   - Baseline normalization: reference < 5 → use 5
+   - Threshold: 15× (normal), 50× (když reference < 10)
+
+2. ✅ Přidal volání v `insert_statistics_to_db()` (řádek 213-221)
+   ```python
+   is_peak, ratio, reference = detect_and_skip_peaks(...)
+   if is_peak:
+       # Log to /tmp/peaks_skipped.log
+       continue  # SKIP this row
+   ```
+
+**14:25 - Test & Verifikace:**
+- Single file test (04_05): 13 peaks skipnuto, 933 insertů ✅
+- Batch ingest (9 files): 79 peaks skipnuto celkem ✅
+- DB rows: 3,393 (down from 6,678 parsed patterns) ✅
+
+### 📊 BATCH INGEST STATISTICS:
+
+| Soubor | Parsed | Inserted | Skipped |
+|--------|--------|----------|---------|
+| 2025-12-01 | 186 | 182 | 4 |
+| 2025-12-02_03 | 712 | 703 | 9 |
+| 2025-12-04_05 | 946 | 933 | 13 |
+| 2025-12-06_07 | 843 | 838 | 5 |
+| 2025-12-08_09 | 968 | 960 | 8 |
+| 2025-12-10_11 | 947 | 933 | 14 |
+| 2025-12-12_13 | 930 | 919 | 11 |
+| 2025-12-14_15 | 896 | 886 | 10 |
+| 2025-12-16 | 250 | 245 | 5 |
+| **TOTAL** | **6,678** | **6,599** | **79** |
+
+**Final DB:** 3,393 rows (UPSERT aggregation reduces duplicates)
+
+### 📊 FINÁLNÍ VERIFIKACE:
+
+**Top hodnoty v DB (po peak detection):**
+- Max value: **41,635** (Mon 15:30 pcb-dev-01-app)
+- Avg value: **225.3**
+- Total rows: **3,393**
+
+**Analýza max hodnoty 41,635:**
+- ⚠️ Hodnota z **2025-12-01** (první den) - NEBYLA skipnuta
+- ❓ Důvod: První soubor nemá historical references (day-1, day-2, day-3 neexistují)
+- ✅ Stejná hodnota v dalších dnech (08-08: 8352, 12-15: 9209) **byla skipnuta** ✅
+- ✅ Kritické peaks (2884, 2885, 2895, 2898) **skipnuty** ✅
+
+**Závěr:**
+- Peak detection **FUNGUJE** když má data pro comparison
+- První den (2025-12-01) má vysoké hodnoty protože nemá references
+- **Řešení:** Nahrát data postupně od nejstarších, nebo ignorovat první den
+
+**Skipnuté peaks log:** `/tmp/peaks_skipped.log` (79 peaks)
+
+---
+
+## 🎯 NEXT STEPS (Priority Order - 2025-12-19)
+
+**14:00 UTC** - Začátek session
+- Cíl: Testovat baseline normalizaci
+- Data v .txt měly Thu 06:00 (bez offset z ES)
+- Ingest aplikoval +1h offset → DB měl Thu 07:00 ❌
+
+**14:30 UTC** - ZJIŠTĚNÍ #1: TIMEZONE OFFSET
+- Problém: .txt mají ES časy (06:00), ingest dělá +1h → DB 07:00
+- Řešení: Opravit collect aby dělal +1h PŘI SBĚRU (ne v ingest)
+- Opravit .txt soubory (+1h) a smazat offset z ingest
+
+**15:00 UTC** - ZJIŠTĚNÍ #2: DOUBLE OFFSET
+- Opravil jsem collect_peak_detailed.py: +1h CET konverze ✅
+- Opravil jsem všechny .txt soubory: +1h posun ✅ (9 souborů)
+- ALE: Ingest STÁLE měl +1h offset v kódu! ❌
+- Zjistil jsem: Windows line endings (CRLF) zabránily editaci!
+
+**15:15 UTC** - OPRAVA LINE ENDINGS + OFFSET REMOVAL
+- ✅ Konvertován CRLF → LF
+- ✅ Odstraněn +1h offset z ingest_from_log.py
+- ✅ Syntax OK
+- ✅ Obnoveny opravené .txt soubory (s +1h posounem)
+
+**15:30 UTC** - RE-INGEST TEST
+- Clear DB ✅
+- Ingest /tmp/peak_fixed_2025_12_04_05.txt
+- **VÝSLEDEK: PEAKS STÁLE V DB!** ❌
+  - Thu 07:00 pcb-ch-sit-01-app: 2884.0 (mělo by být SKIPNUTO!)
+  - Fri 07:00 pcb-ch-sit-01-app: 2885.0 (mělo by být SKIPNUTO!)
+
+- Kontrola /tmp/peaks_skipped.log: **NEEXISTUJE!** 🔴
+- To znamená: Ingest skončil s ERROR nebo peak detekce nefunguje
+
+---
+
+## 🔍 AKTUÁLNÍ STAV KÓDU
+
+### collect_peak_detailed.py (Řádka 149-155)
+```python
+win_start_cet = win_start + timedelta(hours=1)  # ✅ CET konverze
+day_of_week = win_start_cet.weekday()
+hour_of_day = win_start_cet.hour
+```
+**Status:** ✅ Správně - aplikuje +1h
+
+### ingest_from_log.py (Řádka 71-77)
+```python
+# ✅ NO TIMEZONE OFFSET - .txt already has correct times
+day_of_week = day_map.get(day_name, 0)
+
+# Calculate quarter hour (0, 15, 30, 45)
+quarter_hour = (minute // 15) % 4
+
+key = (day_of_week, hour, quarter_hour, namespace)
+```
+**Status:** ✅ Bez offsetu - bere `hour` přímo ze .txt
+
+### .txt soubory (9 souborů)
+- peak_fixed_2025_12_01.txt ✅ +1h posun
+- peak_fixed_2025_12_02_03.txt ✅ +1h posun
+- peak_fixed_2025_12_04_05.txt ✅ +1h posun (Thu 06:00 → Thu 07:00)
+- peak_fixed_2025_12_06_07.txt ✅ +1h posun
+- peak_fixed_2025_12_08_09.txt ✅ +1h posun
+- peak_fixed_2025_12_10_11.txt ✅ +1h posun
+- peak_fixed_2025_12_12_13.txt ✅ +1h posun
+- peak_fixed_2025_12_14_15.txt ✅ +1h posun
+- peak_fixed_2025_12_16.txt ✅ +1h posun
+
+**Status:** ✅ Všechny opraveny
+
+---
+
+## 🚨 NOVÝ PROBLÉM - PEAKS NEJSOU DETEKOVANÉ
+
+### DB State (po re-ingest):
+```
+Total rows: 946 (mělo by být < 946, protože peaks by měly být skipnuty)
+
+TOP peaks v DB:
+  Thu 07:00 pcb-ch-sit-01-app: 2884.0 ❌ PEAK! (mělo by být SKIPNUTO)
+  Fri 07:00 pcb-ch-sit-01-app: 2885.0 ❌ PEAK! (mělo by být SKIPNUTO)
+  
+Baseline hodnoty: 324 (OK - ty by měly být v DB)
+```
+
+### Hypotézy:
+1. ❓ Detekce peaks nefunguje (detect_and_skip_peaks vrací False)
+2. ❓ Peak detection je vypnutý nebo skipped
+3. ❓ Ingest končí s error před peak detection
+4. ❓ Logs nejsou vytvářeny - znamená crash v insert_statistics_to_db
+
+---
+
+## ✅ CO JE HOTOVO
+
+1. ✅ Opravit collect_peak_detailed.py - +1h CET conversion
+2. ✅ Opravit ingest_from_log.py - odebrat +1h offset
+3. ✅ Opravit všechny .txt soubory - +1h posun (9 souborů)
+4. ✅ Ověřit line endings (CRLF → LF)
+5. ✅ Ověřit syntax všech scriptů
+
+## ❌ CO ZBÝVÁ - PRIORITY ORDER
+
+1. [ ] **URGENT:** DEBUG print statements přidány - běží test ingest
+   - Přidány LOOP a DEBUG outputs v ingest_from_log.py
+   - Čeká se na výsledek...
+
+2. [ ] Zjistit proč peak detection nefunguje:
+   - Nejspíš důvod: Máme jen 2 dny dat (Thu-Fri)
+   - Pro Thu se nemohou získat refs_days (den-1, den-2, den-3 neexistují)
+   - Dělá se return `(False, None, None)` → nedetekuje se jako peak
+
+3. [ ] Možné řešení:
+   - Použít jen refs_windows (3 okna před) místo požadavku refs_days
+   - Nebo: Snížit threshold když chybí historical data
+   - Nebo: Nahrát všech 9 .txt souborů najednou (pak bude víc dat pro refs_days)
+
+4. [ ] FINÁLNÍ KROKY:
+   - [ ] Clear DB
+   - [ ] Nahrát všech 9 .txt souborů do DB
+   - [ ] Ověřit že peaks jsou skipnuty
+   - [ ] Kontrola top values: max < 1000
+
+---
+
+## 🎯 DALŠÍ SESSION - Priority
+
+**NEJDŮLEŽITĚJŠÍ:**
+1. Zjistit proč peak detection vrací False
+2. Opravit logiku - umožnit detekci i bez historical data
+3. Nahrát všech 9 souborů
+4. Finální test
+
+## � CRITICAL ISSUES FOUND - 2025-12-19 10:15 UTC
+
+### PROBLÉM 1: Chybějící referenční okna (1 z 3)
+
+**Situace:**
+```
+Target: Fri 08:00 pcb-ch-sit-01-app = 2.0
+
+Referenční okna PŘED (mělo by 3):
+  -15min (07:45): (4, 7, 3) = NEEXISTUJE ❌
+  -30min (07:30): (4, 7, 2) = 62.0 ✅
+  -45min (07:15): (4, 7, 1) = NEEXISTUJE ❌
+
+Výsledek: refs_windows = [62.0] - JEN 1 Z 3!
+```
+
+**Důvod:** Nejsou všechna 15-minutová okna v datech
+
+**Důsledek:**
+- Reference = 62.0 (místo průměru 3 oken)
+- Ratio = 2.0 / 62.0 = 0.032 < 15 → NEDETEKUJE SE JAKO PEAK
+- ✅ Správně (2.0 není peak), ALE za špatných důvodů
+
+**ŘEŠENÍ:**
+- Pokud máme < 2 okna ze 3, nedetekuj peak z těchto dat
+- Nebo: Aplikuj vyšší threshold (např. 50× místo 15×) pokud chybí > 1 okna
+
+---
+
+### PROBLÉM 2: Malý baseline → falešné peaks
+
+**Situace:**
+```
+Baseline = 2.0 (malá hodnota)
+Reference okno = 62.0
+
+Ratio = 62.0 / 2.0 = 31× (Peak! - vůči 15×) ❌ ŠPATNĚ!
+```
+
+**Důsledek:** Téměř jakékoli zvýšení z malého baseline se považuje za peak! ❌
+
+**Příklad z reálných dat:**
+```
+Sekvence: 2, 62, 2 (Thu 07:45, 08:00, 08:15)
+→ 62 by se mělo ignorovat jako noise, ne detekovat jako peak
+→ Reference = 2 → Ratio 62/2 = 31× → FALSE POSITIVE ❌
+```
+
+**ŘEŠENÍ - BASELINE NORMALIZATION (SCHVÁLENO):**
+
+Pokud je reference < 5, **nahraď na 5** při výpočtu ratia!
+
+```python
+# KLÍČ: Normalizace malých baseline hodnot
+avg_windows = sum(refs_windows) / len(refs_windows) if refs_windows else None
+avg_days = sum(refs_days) / len(refs_days) if refs_days else None
+
+# Vypočti reference
+if avg_windows is not None and avg_days is not None:
+    reference = (avg_windows + avg_days) / 2.0
+elif avg_windows is not None:
+    reference = avg_windows
+elif avg_days is not None:
+    reference = avg_days
+else:
+    return (False, None, None, {...})
+
+# ✅ NORMALIZACE: Pokud je reference < 5, použij 5
+# Důvod: Malé baseline = přirozená variabilita, ne anomálie
+if reference < 5:
+    reference = 5
+```
+
+**Příklady:**
+
+1. **Sekvence: 2, 62, 2 (normální variabilita)**
+   ```
+   refs_windows = [62.0]
+   avg_windows = 62 → keep 62 (≥ 5)
+   reference = 62
+   Ratio = 2 / 62 = 0.032× → NENÍ peak ✅
+   ```
+
+2. **Sekvence: 2, 2, 2, 80 (skutečný peak!)**
+   ```
+   refs_windows = [2.0] → keep, ale:
+   avg_windows = 2 → normalize na 5 (< 5)
+   reference = 5
+   Ratio = 80 / 5 = 16× → PEAK ✅ Správně!
+   ```
+
+3. **Sekvence: 1, 1, 100 (čistý peak)**
+   ```
+   refs_windows = [1.0] → avg = 1 → normalize na 5
+   reference = 5
+   Ratio = 100 / 5 = 20× → PEAK ✅
+   ```
+
+4. **Sekvence: 1, 1, 5 (normální variabilita s malým baseline)**
+   ```
+   refs_windows = [1.0] → avg = 1 → normalize na 5
+   reference = 5
+   Ratio = 5 / 5 = 1.0× → NENÍ peak ✅
+   ```
+
+**Výhody:**
+- ✅ Zbavíme se falešných peaks z malého baseline
+- ✅ Zachováme detekci skutečných anomálií (>15× i u malých baseline)
+- ✅ Dočasné řešení - funguje dokud nemáme kompletní 6 vzorků
+- ✅ Elegantní - jen jeden řádek kódu!
+- ✅ Bezpečné - neměníme threshold, jen normalizujeme vstup
+
+---
+
+## 🔧 IMPLEMENTACE - 2025-12-19 10:25 UTC
+
+### ✅ DOKONČENO:
+
+1. ✅ **Baseline Normalization Loop implementován** v `detect_and_skip_peaks()`
+   - Pokud `reference < 5`, nahraď na `5`
+   - Přidán komentář s příklady
+   - Zjednodušena Peak decision logika (odstraněny stare insufficient_windows podmínky)
+
+2. ✅ **Syntax verifikován** - `python3 -m py_compile` OK
+
+3. ✅ **Dokumentace aktualizována** s příklady
+
+### 📝 KÓD:
+
+```python
+# ✅ BASELINE NORMALIZATION: If reference < 5, use 5
+if reference < 5:
+    reference = 5
+```
+
+**Efekt v Peak detection:**
+- Staré: `Ratio = 62 / 2 = 31×` → FALSE PEAK ❌
+- Nové: `Ratio = 62 / 5 = 12.4×` → NOT A PEAK ✅
+
+---
+
+## 🧪 NEXT: TEST INGESTION
+
+**Příští kroky:**
+1. Smazat DB: `python scripts/clear_peak_db.py`
+2. Ingestionovat test data: `python scripts/ingest_from_log.py --input /tmp/peak_fixed_2025_12_04_05.txt`
+3. Ověřit: `python scripts/check_db_data.py`
+4. Kontrolovat že:
+   - ✅ Fri 08:00 pcb-ch-sit: **2.0** nebo **max 10** (baseline + normalization)
+   - ❌ NE 2885 (mělo by být skipnuto!)
+   - ✅ Fri 07:30 pcb-ch-sit: 62.0 (normal pattern)
+
+---
+
+## 📌 DOKUMENTACE
+
+---
+
+## �📝 SESSION SUMMARY - 2025-12-18 16:20 UTC - ROOT CAUSE FOUND!
+
+### 🔴 ROOT CAUSE NALEZEN!
+
+**DETAILNÍ ANALÝZA CODE:**
+
+Problém se nachází v `detect_and_skip_peaks()` - funkce hledá referenční okna v **DB**, ale data nejsou v DB když se provádí ingestion!
+
+**CIRCULAR DEPENDENCY:**
+
+```
+Ingestion proces:
+1. Parsujeme data ze souboru (946 řádků Thu+Fri)
+   └─ statistics_dict = {(day, hour, qtr, ns): {mean, stddev, samples}}
+
+2. Pro KAŽDÝ řádek detekujeme peaks:
+   ├─ detect_and_skip_peaks(cur, day, hour, qtr, ns, mean)
+   │
+   └─ detect_and_skip_peaks() queřuje v DB:
+      ├─ SELECT FROM peak_statistics WHERE day_of_week IN (day-1, day-2, day-3)
+      │  ← Hledá историческа data z minulých dní
+      │
+      └─ PROBLÉM: DB je PRÁZDNÁ!
+         ├─ Při prvním ingestionu Thu+Fri: DB nemá data z Wed, Tue, Mon
+         ├─ refs_days = [] (prázdné!)
+         ├─ reference = None nebo jen avg_windows
+         ├─ ratio se nepočítá správně
+         └─ ❌ PEAKS SE NEDETEKUJÍ!
+```
+
+**DŮSLEDEK: Všech 28 peaks jde do DB bez detekce!**
+
+---
+
+### ✅ OBJASNĚNÉ CHOVÁNÍ - Proč logika selhává:
+
+| Část | Co se děje | Status |
+|------|-----------|--------|
+| **parse_peak_statistics_from_log()** | ✅ Data se čtou správně | ✅ OK |
+| **detect_and_skip_peaks(cur, ...)** | 🔴 Hledá v **PRÁZDNÉ DB** | ❌ FAIL |
+| **Peak detection algorithm** | 🔴 reference = None | ❌ SKIP NEPROVÁDÍ |
+| **Insertion to DB** | ✅ Všechna data se vloží | ✅ (ŠPATNĚ!) |
+| **Result** | 🔴 28 peaks v DB | ❌ NESPRÁVNÉ |
+
+---
+
+### 🎯 ŘEŠENÍ: Peak Detection musí hledat v PARSOVANÝCH DATECH!
+
+**Aktuální špatná logika:**
+```python
+def detect_and_skip_peaks(cur, day_of_week, hour_of_day, quarter_hour, namespace, mean_val):
+    # ... Query DB pro references ...
+    cur.execute(sql_days, (namespace, hour_of_day, quarter_hour, day_minus_1, day_minus_2, day_minus_3))
+    refs_days = [row[0] for row in cur.fetchall()]  # ← DB je PRÁZDNÁ!
+```
+
+**Správná logika:**
+```python
+def detect_and_skip_peaks_from_parsed_data(
+    day_of_week, hour_of_day, quarter_hour, namespace, mean_val,
+    all_parsed_stats  # ← Use PARSED DATA, not DB!
+):
+    # STEP 1: Hledej 3 okna PŘED v parsed data
+    refs_windows = []
+    for i in range(1, 4):
+        prev_data = all_parsed_stats.get((day_of_week, hour-i*15, qtr, namespace))
+        if prev_data:
+            refs_windows.append(prev_data['mean'])
+    
+    # STEP 2: Hledej 3 dny zpět v PARSED DATA
+    refs_days = []
+    for d in [-1, -2, -3]:
+        prev_day = (day_of_week + d) % 7
+        prev_data = all_parsed_stats.get((prev_day, hour_of_day, quarter_hour, namespace))
+        if prev_data:
+            refs_days.append(prev_data['mean'])
+    
+    # STEP 3: Normální algoritmus pro výpočet reference a detekci
+    # ...
+```
+
+**VÝHODA:** Hledá v parsovaných datech, která EXISTUJÍ!
+
+---
+
+## ✅ NEXT STEPS (PRIORITY):
+
+1. ✅ **ROOT CAUSE IDENTIFIED** - Peak detection hledá v neexistujících DB datech
+2. 🔧 **FIX KODU** - Implementovat `detect_and_skip_peaks_from_parsed_data()` nebo:
+   - Upravit existující `detect_and_skip_peaks()` aby hledal v parsed stats
+   - Předat všechny parsed stats do insert funkce
+3. 🧪 **TEST** - Re-run ingest s opravou
+4. ✅ **VERIFY** - Ověřit že peaks NEJSOU v DB
+
+---
+
+### 📌 DETAILED CODE ANALYSIS - Uloženo v:
+- `CODE_ANALYSIS_20251218.md` - Kompletní rozbor s řádkovými čísly a příklady
+4. ❌ Problematické peaks (07:00 ~2890) jsou V DB - MĚLY být skipnuty!
+
+**SPRÁVNÉ ŘEŠENÍ (SCHVÁLENO UŽIVATELEM):**
+- ✅ Kombinovaná logika JE SPRÁVNÁ (2 SELECTy jsou OK, rychlost nevadí)
+- ✅ Peak detection: avg_windows (3 okna před) + avg_days (3 dny) / 2
+- ✅ Threshold: 15× → SKIP
+- ✅ Tato logika správně detekuje REKURENTNÍ peaks (07:00 každý den)
+
+**IMPLEMENTACE DOKONČENA (15:10 UTC):**
+1. ✅ Zálohován ingest_from_log.py → .backup_20251218_1505
+2. ✅ Přepsána funkce detect_and_skip_peaks() - čistá logika:
+   - Kombinované reference (3 okna + 3 dny)
+   - Speciální handling pro hodnoty < 10 (threshold 50×)
+   - NIKDY neskipovat hodnoty < 10 (baseline)
+3. ✅ Přepsán insert blok - používá nový tuple return
+4. ✅ DEBUG výstupy pro pcb-ch-sit 05:00-09:00
+
+**TEST VÝSLEDKY:**
+- TEST #1 (15:10 UTC): ❌ 946 rows, 0 skipnutých - DEBUG nefungoval (syntax error)
+- TEST #2 (15:12 UTC): ✅ 946 rows inserted - DOKONČENO
+- Log: /tmp/final_test.log (finished 15:12 UTC)
+
+### 🎯 DB FIX V PROCESU
+
+**Dokončeno:**
+1. ✅ Načten kontext + stav z předchozí session (13:05 UTC)
+2. ✅ FIX peak detection implementován - kombinovaná logika:
+   - Reference = (avg 3 oken před + avg 3 dny stejný čas) / 2
+   - Správně detekuje peaks v čase I peaks opakující se každý den
+3. ✅ DELETE všech dat z DB: `clear_peak_db.py` → 0 rows (13:10 UTC)
+4. ⏳ Batch re-ingest 9 souborů s OPRAVENOU logikou:
+   - ✅ File 1/9: 2025-12-01 → kompletní
+   - ✅ File 2/9: 2025-12-02_03 → kompletní
+   - ✅ File 3/9: 2025-12-04_05 → kompletní
+   - ✅ File 5/9: 2025-12-08_09 → kompletní (pořadí změněno - batch issue)
+   - ✅ File 6/9: 2025-12-10_11 → kompletní
+   - ⏳ File 4/9: 2025-12-06_07 → PRÁVĚ PROBÍHÁ (14:10 UTC)
+   - ⏳ File 7/9: 2025-12-12_13 → čeká
+   - ⏳ File 8/9: 2025-12-14_15 → čeká
+   - ⏳ File 9/9: 2025-12-16 → čeká
+   
+   **Current DB State:** 2530 rows (5 souborů z 9)
+
+**⚠️  PROBLÉM NALEZEN - 14:10 UTC:**
+- Kombinovaná peak logika (2 SELECTy v loopu) je PŘÍLIŠ POMALÁ
+- Každý insert dělá 2× DB SELECT → timeout/freeze
+- Soubor 06_07 se zasekává na ~843 insertech
+  
+**🔧 ŘEŠENÍ - 14:20 UTC:**
+- ✅ Git revert k původní jednoduché logice (jen previous days)
+- ✅ DELETE DB → 2530 rows deleted → 0 remaining  
+- ⏳ Batch re-ingest se starou logikou - 14:25 UTC
+
+**Status 14:30 UTC:**
+- ✅ Git revert způsobil ztrátu `load_dotenv()` - FIX přidán pomocí sed
+- ✅ Batch V2 spuštěn s opraveným kódem (14:28 UTC)
+- ⏳ Probíhá ingest všech 9 souborů se STAROU jednoduchou logikou
+- Expected: ~3300-3400 rows, některé peaks nebudou skipnuty (opakující se denně)
+
+**DB State (před fixem):**
+- 3399 rows (CONTAMINATED - mix starých smoothed + nových skipped values)
+- 10 namespaces (pca-*, pcb-*, pcb-ch-*)
+- Last update: 2025-12-17 15:41:14 UTC
+
+**Problem potvrzený (před fixem):**
+- 5.12 Sat 20:00 pcb-dev: 998.0 (mělo být skipnuto z 1573) ❌ BROKEN
+- Některé peaks jsou částečně redukovány ale NEJSOU správně skipnuty
+
+**Nyní probíhá:** Clean re-ingest všech 9 souborů - bez UPSERT agregace
+
+### 📋 TODO LIST - PRIORITY ORDER
+
+```
+PHASE: DB FIX (DELETE + RE-INGEST)
+
+[1] ✅ DELETE all peak_statistics data - 2025-12-18 11:35 UTC
+    Command: python scripts/clear_peak_db.py
+    Result: 3399 rows deleted → 0 rows remaining
+    Note: TRUNCATE selhalo (DDL LDAP issue), DELETE funguje ✅
+    
+[2] ✅ RE-INGEST všech 9 batchů - DOKONČENO - 2025-12-18 11:40-12:35 UTC
+    Status: ✅ 9/9 souborů zpracováno
+      ✅ File 1/9: 2025-12-01 → 186 rows, 0 peaks (baseline)
+      ✅ File 2/9: 2025-12-02_03 → 712 rows, 0 peaks
+      ✅ File 3/9: 2025-12-04_05 → 933 rows, 13 peaks SKIPNUTO (5 EXTREME >100×) ✅
+      ✅ File 4/9: 2025-12-06_07 → 842 rows, 1 peak skipnut
+      ✅ File 5/9: 2025-12-08_09 → 938 rows, 30 peaks SKIPNUTO (6 EXTREME, 2 SEVERE) ✅
+      ✅ Files 6-9: Dokončeno
+    Result: 3343 řádků v DB
+    Command:
+      for f in /tmp/peak_fixed_2025_12_*.txt; do 
+        python scripts/ingest_from_log.py --input "$f"
+      done > /tmp/batch_ingest.log 2>&1 &
+    
+    ✅ Peak detection FUNGUJE správně!
+    Commands: 
+      cd /home/jvsete/git/sas/ai-log-analyzer
+      source .venv/bin/activate
+      for file in /tmp/peak_fixed_*.txt; do 
+        echo "Processing: $file"
+        python scripts/ingest_from_log.py --input "$file"
+      done
+    Expected: ~3300 rows (bez peaks >15×)
+    
+[3] ❌ VERIFY - ZJIŠTĚNA CHYBA V PEAK DETECTION - 2025-12-18 12:35-13:05 UTC
+    Results z DB:
+      ❌ 4.12 Fri 07:00 pcb-ch-sit: 2892.0 (mělo být skipnuto!)
+      ✅ 4.12 Fri 20:30 pcb-ch-sit: 62.0 (skip OK)
+      ✅ 5.12 Sat 14:30 pcb-dev: 25.0 (skip OK)
+      ✅ 5.12 Sat 20:00 pcb-dev: 998.0 (skip OK)
+      ✅ 4.12 Fri 22:30 pcb-ch-sit: 595.0 (skip OK)
+      ❌ 5.12 Sat 07:00 pcb-ch-sit: 2892.5 (mělo být skipnuto!)
+    
+    🔴 PROBLÉM:
+    - Ranní peak ~2890 v 07:00 (50× vyšší než baseline 12-62)
+    - Současná logika porovnává 07:00 jen s 07:00 z jiných dnů
+    - VŠECHNY dny mají peak v 07:00 → ratio 1.0× → nevyhodnotí se!
+    
+    🔧 ROOT CAUSE - detect_and_skip_peaks():
+    - Používá POUZE "3 předchozí dny, stejný čas"
+    - CHYBÍ "3 předchozí okna, stejný den"
+    
+    ✅ FIX IMPLEMENTOVÁN - 2025-12-18 13:05 UTC:
+    - Nová logika kombinuje OBĚ metody:
+      1. avg_windows = průměr 3 oken před (06:45, 06:30, 06:15)
+      2. avg_days = průměr stejný čas, 3 předchozí dny
+      3. reference = (avg_windows + avg_days) / 2
+      4. ratio = current / reference ≥ 15× → SKIP
+    
+    
+[4] ⏳ RE-INGEST s opravenou logikou - 2025-12-18 13:05-13:10 UTC
+    Kroky:
+      ✅ 1. DELETE všech dat: python scripts/clear_peak_db.py → 0 rows
+      ⏳ 2. Batch re-ingest 9 souborů (PID 26541) - PROBÍHÁ
+           Log: /tmp/batch_ingest_fixed.log
+      ⏳ 3. Verify že 07:00 peaks jsou nyní skipnuty
+    
+    Expected: Peaks v 07:00 pcb-ch-sit (~2890) budou skipnuty
+              Reference = (avg 3 oken před + avg 3 dny) / 2
+                        = (~30 + ~2890) / 2 = ~1460
+              Ratio = 2890 / 1460 = ~2.0× → pod thresholdem 15× → NESKIPNE!
+              
+    ⚠️  POZNÁMKA: Peak 07:00 se možná NESKIPNE pokud je pravidelný každý den!
+                 Musíme analyzovat zda je to opravdu peak nebo běžný provoz.
+    
+    🎯 ZJIŠTĚNÍ:
+    - Fri/Sat 07:00: 2884-2902 JSOU peaks (50× vyšší než baseline 12-62)
+    - Ale: Porovnává 07:00 Fri s 07:00 Thu/Wed/Tue → všechny mají peak!
+    - Ratio 1.00× protože porovnává peak s peakem z jiných dnů
+    
+    🔴 ROOT CAUSE: ŠPATNÁ LOGIKA
+    - Current: Porovnává stejné časové okno napříč dny (07:00 vs 07:00)
+    - Správně: Mělo by porovnávat s okolními okny V TÉN SAMÝ DEN (06:30, 07:30)
+    - Nebo: Porovnávat s denním průměrem/medianem pro daný namespace
+    
+    💡 REKURENTNÍ PEAK každý den 07:00 = batch job/deploy event
+    - Mon-Sun 07:00: všechny dny 2884-2902 (50× baseline)
+    - Mon 09:00-09:15: 15k-17k (další peak)
+    - Tyto peaks se NESKIPNOU protože se opakují každý den!
+      
+[4] ⏳ Final verification
+    Command: python scripts/verify_peak_data.py
+    Expected: ~3300 rows, všechny namespaces, rozumné hodnoty
+    
+[5] ⏳ Analýza skipnutých peaks
+    Command: cat /tmp/peaks_skipped.log | grep "EXTREME" | wc -l
+    Expected: Seznam všech >100× peaks k analýze
+    
+[6] ⏳ Update dokumentace
+    - Commit: "Phase 5B: Fix UPSERT aggregation - clean re-ingest"
+    - Archive: SESSION_CONTEXT_2025_12_18.md
+```
+
+---
+
+## 📊 PREVIOUS SESSION - 2025-12-17 14:30-16:45 UTC
+
+### 🎯 IMPLEMENTACE SMOOTHING & PEAK SKIP
+
+**Kroky:**
+1. ✅ Změna `ingest_from_log.py`: peaks nyní se SKIPUJÍ (ne nahrazují)
+2. ✅ Vyčištění DB: `clear_peak_db.py` → 0 rows
+3. ✅ Batch ingest všech 9 souborů s novou logikou
+   - 2025-12-01: 186 patterns, 0 peaks (den #1, bez reference)
+   - 2025-12-02/03: 2x patterns, 13 peaks skipnut
+   - ... atd ...
+4. ✅ Ověření: `verify_peak_data.py` → 3399 rows v DB
+
+### 🔴 PROBLÉM NALEZEN - UPSERT AGREGACE
+
+**Co se stalo:**
+- Batch 1 (staré): Vložilo se 3399 řádků s "smoothed" peaks
+- Batch 2 (nové s SKIP): Skiplo 74 peaks, ale ostatní řádky se **agregovaly** přes UPSERT s Batch 1!
+- **Výsledek:** Některé peaks mají nyní nižší hodnoty ale NEJSOU správně skipnuty
+
+**Zjištění - Konkrétní časy:**
+```
+4.12 Fri 07:00 pcb-ch-sit:    289.0 (mělo být 2884) ✅ skipnuto
+4.12 Fri 20:30 pcb-ch-sit:     62.0 (mělo být 673)  ✅ skipnuto
+5.12 Sat 14:30 pcb-dev:      max 25.0 (mělo být 43k) ✅ skipnuto
+5.12 Sat 20:00 pcb-dev:      998.0 (mělo být 1573) ❌ NE!
+```
+
+**Root Cause:** UPSERT agreguje staré "smoothed" hodnoty s novými - data se mísí!
+
+### ✅ ŘEŠENÍ - IMPLEMENTOVÁNO
+
+**Opravy:**
+1. ✅ `verify_peak_data.py`: Přidán `load_dotenv()` → nyní pracuje s .env
+2. ✅ Zjištěno: `DB_USER=ailog_analyzer_user_d1` (běžný) vs `DB_DDL_USER=ailog_analyzer_ddl_user_d1` (DDL)
+3. ✅ `scripts/INDEX.md`: Přidána nová sekce **🗄️ Database Connection & Access** s:
+   - Vysvětlením .env proměnných
+   - Jak se připojit z Python scriptu
+   - Table schema
+   - Common queries
+   - Known issues & debugging
+4. 🔧 TODO: Zásadní změna - **buď**:
+   - Deletovat řádky s peaks PŘED insertem (detekovat z logu), NEBO
+   - Změnit UPSERT aby se NEagregovaly staré agregované hodnoty
+
+---
+
+## 📋 NEXT STEPS (PRIORITY ORDER)
+
+### Phase 5B-2 (UPSERT FIX - IN PROGRESS)
+
+**PROBLÉM:** UPSERT agreguje staré data - peaks se správně skipují ale jejich hodnoty se mísí s předchozími dny
+
+**Řešení:** TRUNCATE DB a znovu ingestovat VŠECHNA data čistě
+
+**Konkrétní kroky:**
+```
+[1] TRUNCATE peak_statistics tabulku
+    → echo "yes" | python truncate_peak_db.py
+    
+[2] Re-ingest všech 9 batchů ČISTĚ - bez agregace
+    → for file in /tmp/peak_fixed_*.txt; do python ingest_from_log.py --input "$file"; done
+    
+[3] VERIFIKACE - Porovnat user-reported peaks s DB
+    → python verify_after_fix.py
+    
+    Musí projít VŠECHNY tyto testy:
+    ✅ 4.12 Fri 07:00 pcb-ch-sit: 2884 → skipnuto (bude ~10-50 v DB)
+    ✅ 4.12 Fri 20:30 pcb-ch-sit: 673 → skipnuto
+    ✅ 5.12 Sat 14:30 pcb-dev: 43000 → skipnuto
+    ✅ 5.12 Sat 20:00 pcb-dev: 1573 → skipnuto (TEĎKA 998.0 - BROKEN)
+    ✅ 4.12 Fri 22:30 pcb-ch-sit: 687 → skipnuto
+    ✅ 5.12 Sat 07:00 pcb-ch-sit: 2885 → skipnuto
+    ✅ 4.12 Fri 09:45: normal traffic (bude <100)
+    ✅ 4.12 Fri 13:15: normal traffic (bude <100)
+    ✅ 4.12 Fri 23:15: normal traffic (bude <100)
+```
+
+**Soubory připraveny:**
+- ✅ `truncate_peak_db.py` - TRUNCATE DB
+- ✅ `verify_after_fix.py` - Ověří všechny výše zmíněné časy
+- ✅ `PEAK_VERIFICATION_CHECKLIST.md` - Reference checklist
+
+### Phase 5B-3 (ANALÝZA PEAKS)
+```
+[ ] 5. Analýzovat /tmp/peaks_skipped.log - všechny >100× peaks
+[ ] 6. Zjistit co se stalo v těchto časech (deploy? error cascade?)
+[ ] 7. Dokumentovat do nového PEAK_ANALYSIS.md
+```
+
+### Phase 5C (FINALIZACE)
+```
+[ ] 8. Commit změny: "Phase 5B: Fix UPSERT aggregation + peak verification"
+[ ] 9. Prepare pro Phase 6 (Kubernetes deployment)
+[ ] 10. Archive: working_progress.md → SESSION_CONTEXT_2025_12_17.md
+```
+
+
+---
+
+---
+
+## 🔑 KLÍČOVÉ INFORMACE PRO DALŠÍ SESSIONY
+
+### Timestamps s session info:
+```
+SESSION 2025-12-17 14:30-17:00 UTC:
+  ✅ Implementoval SMOOTHING & SKIP logiku
+  ✅ Batch ingest hotov - 3399 rows v DB
+  🔴 PROBLÉM NALEZEN: UPSERT agreguje staré data
+  ✅ ŘEŠENÍ PŘIPRAVENO: truncate_peak_db.py + verify_after_fix.py
+  ⏭️  TODO: SPUSTIT FIX - truncate a re-ingest
+```
+
+### Soubory připraveny na spuštění:
+```
+1. truncate_peak_db.py        - Vymaž všechna data
+2. ingest_from_log.py         - znovu ingestuj všech 9 batchů
+3. verify_after_fix.py        - ověř že všechny user-reported peaks jsou správně skipnuty
+```
+
+### Jak by měl vypadat výsledek po fixu:
+```
+4.12 Fri 07:00 pcb-ch-sit:    ~289 (peak 2884 skipnut ✅)
+4.12 Fri 20:30 pcb-ch-sit:    ~62  (peak 673 skipnut ✅)
+5.12 Sat 14:30 pcb-dev:       ~25  (peak 43k skipnut ✅)
+5.12 Sat 20:00 pcb-dev:       ~700 (peak 1573 skipnut ✅) - TEĎKA 998! ❌
+```
+
+### Pokud by session byla přerušena:
+1. Zkontroluj: `python scripts/verify_peak_data.py` - jaký je stav DB
+2. Jestli je stále 3399 rows → musíš ještě spustit truncate
+3. Jestli je 0 rows → truncate je hotov, začni s ingestem
+4. Po ingestování: spusť `python verify_after_fix.py` a porovnej s výše uvedenými časy
+
+### Důležité novinky:
+- ✅ Created: `truncate_peak_db.py` - bezpečné smazání s confirmací
+- ✅ Created: `verify_after_fix.py` - automatická verifikace všech 9 user-reported peaks
+- ✅ Created: `PEAK_VERIFICATION_CHECKLIST.md` - reference checklist
+- ✅ Updated: `scripts/INDEX.md` - přidána DB sekce
+- ✅ Updated: `working_progress.md` - vysvětlení UPSERT problému a řešení
+
+
+
+### 🎯 TODAY'S GOALS (Phase 5B Optimization)
+1. **Change threshold:** 10× → 15× (user preference over 20×)
+2. **Implement ratio categories:**
+   - Skip >100× (extreme anomalies)
+   - Analyze 15-50× (moderate peaks for investigation)
+   - Keep <15× (normal patterns)
+3. **Re-run batch ingestion** with new logic
+4. **Investigate systematic peaks:**
+   - Thursday 8am (40K errors)
+   - Monday 3:30pm (6-10K errors)
+   - Saturday midnight (10-34K errors)
+
+---
+
+## 📊 PREVIOUS STATUS (Phase 5A - COMPLETED)
+
+### ✅ COMPLETED TODAY
+
+| Task | Status | Details |
+|------|--------|---------|
+| Smazat testovací data z DB | ✅ | 186 rows deleted |
+| Vytvořit `ingest_from_log.py` | ✅ | Script created & tested |
+| Aktualizovat `scripts/INDEX.md` | ✅ | Full workflow documented |
+| Spustit sbírání 2025-12-01 (v1) | ✅ | Jen 5 patterns - BUG FOUND |
+| **BUG: Sbírání jen 5 patterns** | 🐛 FOUND | `print_detailed_report()` limited output |
+| **FIX: Oprava collect_peak_detailed.py** | ✅ | Removed `[:5]` limit - ALL patterns |
+| **Ingest 2025-12-01 (v1)** | ✅ | 186 rows loaded BUT timezone offset -1h! |
+| **TIMEZONE BUG FOUND** | 🐛 FOUND | Data in DB shifted -1 hour vs reality |
+| **ROOT CAUSE:** | 🔍 | Using `win_end.hour` instead of `win_start.hour` |
+| **FIX: Timezone correction** | ✅ | Changed to `win_start.weekday()`, `win_start.hour` |
+| **Re-collecting 2025-12-01** | ✅ | PID 30444 - RUNNING with fix |
+
+## 🔧 SMOOTHING ALGORITHM (TO IMPLEMENT)
+
+**Goal:** Detect real peaks by smoothing outliers using 3-window + cross-day aggregation
+
+**Algorithm:**
+```
+For each time bucket (day_of_week, hour, quarter, namespace):
+
+1. HORIZONTAL SMOOTHING (same day):
+   - Take current + adjacent time windows (±2 = 5 windows total)
+   - Calculate average: smooth_h = mean(win[i-2:i+3])
+   
+2. VERTICAL SMOOTHING (same time, different days):
+   - For SAME time bucket from 3+ previous days
+   - Calculate average: smooth_v = mean(day1, day2, day3)
+   
+3. COMBINE:
+   - final_mean = (smooth_h + smooth_v) / 2
+   - If only 1 day available: use only smooth_h
+   - If no adjacent windows: use smooth_h with available neighbors
+```
+
+**Example (as user specified):**
+```
+Day 1 (2025-12-01):
+  13:30 = 25, 13:45 = 4, 14:00 = 51, 14:15 = 9, 14:30 = 13433, 14:45 = 41303
+  After smoothing:
+    14:30 = (25+4+51+9+13433)/5=2704 (horizontal) 
+           + later cross-day data (vertical)
+
+Day 2-3: Will add vertical smoothing when available
+```
+
+**Current Status:** Pending - need 3+ days of data first
+
+**Problem:**
+- ES shows peak at **14:00:00 UTC (81,171 errors)** for pcb-dev-01-app on 2025-12-01
+- DB stores same peak as **hour=13 (41,303 mean_errors)**
+- **ALL data stored with -1 hour offset**
+
+**Root Cause Investigation:**
+1. Changed `collect_peak_detailed.py` from `win_end` to `win_start` for hour calculation
+2. **BUT:** Data collected after change show SAME offset (-1 hour)
+3. **CONCLUSION:** Either:
+   - Python cache still running old code, OR
+   - Bug is in `group_into_windows()` or timestamp parsing from ES
+
+**Workaround Solution (IMMEDIATE):**
+- FIX: Add +1 hour offset in `ingest_from_log.py` when parsing
+- This corrects all data being inserted to DB
+- Will apply to parser: `hour_of_day = (hour_of_day + 1) % 24`
+
+**Root Cause Fix (LATER):**
+- Debug `collect_peak_detailed.py` with print statements
+- Verify windows are generated correctly
+- Check ES timestamp parsing
+- May need to re-run collection AFTER confirming fix works
+
+### 🔄 CURRENTLY RUNNING
+
+```
+Terminal (Background):
+  PID:     30444 (was 30443)
+  Command: collect_peak_detailed.py --from "2025-12-01T00:00:00Z" --to "2025-12-02T00:00:00Z"
+  Output:  /tmp/peak_fixed_2025_12_01.txt (BUILDING)
+  Status:  ⏳ COLLECTING (WITH TIMEZONE FIX)
+  
+NEXT STEPS:
+  1. ✅ Check if PID still running: ps aux | grep 30444
+  2. ✅ When done: grep -c "^   Pattern " /tmp/peak_fixed_2025_12_01.txt
+  3. ✅ Ingest: python ingest_from_log.py --input /tmp/peak_fixed_2025_12_01.txt
+  4. ✅ Verify: SELECT * FROM peak_statistics WHERE hour_of_day IN (14,15) LIMIT 5
+```
+
+### 📋 TODO NEXT - 2025-12-17 (PRIORITY ORDER)
+
+```
+PHASE 5B-1 (PEAK DETECTION OPTIMIZATION - IN PROGRESS):
+  [✅] 1. Review ingest_from_log.py peak detection logic
+  [✅] 2. Change threshold: 10× → 15×
+  [✅] 3. Implement ratio categories:
+          - Skip >100× → 🔴 EXTREME PEAK (logged)
+          - Skip 50-100× → 🟠 SEVERE PEAK (logged)
+          - Skip 15-50× → 🟡 MODERATE PEAK (logged)
+          - Keep <15× → ✅ NORMAL (insert to DB)
+  [✅] 4. Create clear_peak_db.py utility script
+  [✅] 5. Refactor scripts/INDEX.md → clean AI reference (removed statuses, dates)
+  [✅] 6. Fix hardcoded passwords → moved to .env (DB_PASSWORD, DB_DDL_PASSWORD)
+  [✅] 7. Add dotenv loading to ingest_from_log.py
+  [✅] 8. Test with 2025-12-01 data (186 patterns, 0 peaks skipped)
+  [⏳] 9. Re-run full batch ingestion (all 9 files) - RUNNING (PID 8618)
+  [ ] 10. Compare results: old (93 skipped) vs new
+  [ ] 11. Verify category logic works correctly
+
+CHANGES MADE (2025-12-17 09:15-14:10 UTC):
+  ✅ detect_and_skip_peaks(): Changed from boolean to ratio return
+  ✅ Threshold: 10× → 15× 
+  ✅ Ratio categories implemented:
+     - ratio > 100: 🔴 EXTREME PEAK SKIPPED
+     - ratio 50-100: 🟠 SEVERE PEAK SKIPPED  
+     - ratio 15-50: 🟡 MODERATE PEAK FOR ANALYSIS
+     - ratio < 15: ✅ INSERT NORMALLY
+  ✅ Created clear_peak_db.py utility
+  ✅ Refactored scripts/INDEX.md → clean AI handbook
+  ✅ Security: Removed hardcoded passwords from scripts
+     - grant_permissions.py → uses DB_DDL_PASSWORD
+     - setup_peak_db.py → uses DB_DDL_PASSWORD
+     - Added all credentials to .env
+  ✅ Added dotenv loading to ingest_from_log.py
+  ✅ Tested with 2025-12-01: 186 patterns, 0 peaks skipped
+  ✅ Batch ingestion COMPLETE: 9 files (14:09-14:2X)
+     - Final DB rows: 3,343 (vs 3,392 original = 49 rows difference)
+     - 74 peaks detected with 15× threshold:
+       * 🔴 EXTREME (>100×): 25 peaks
+       * 🟠 SEVERE (50-100×): 5 peaks
+       * 🟡 MODERATE (15-50×): 44 peaks
+     - Spread across 49 different time slots
+     - ✅ Categorization working perfectly!
+
+📊 KEY FINDINGS:
+  ✅ Threshold change: 10× → 15× resulted in:
+     - Old: 93 peaks skipped
+     - New: 74 peaks skipped
+     - Result: 19 fewer peaks = MORE recurring patterns kept ✅
+  
+  🔍 Systematic Peak Patterns Identified:
+     1. Friday 08:15 pcb-dev-01-app: 40,856 errors (5107×!) 🔴 EXTREME
+     2. Sunday 00:30 pcb-sit-01-app: 34,276 errors (3428×) 🔴 EXTREME
+     3. Thursday 13:15 ALL namespaces: 12K errors (950-2958×) 🔴 EXTREME
+     4. Monday 15:30 ALL namespaces: 6-10K errors (150-858×) 🔴 EXTREME
+     5. Tuesday 15:30 multi-namespace: 1.6-2.2K errors (67-178×) 🔴 EXTREME
+
+  📄 Reports Generated:
+     - /tmp/peaks_timeline.txt - Timeline view (grouped by time)
+     - /tmp/peaks_analysis.txt - Detailed analysis with ±30min context
+
+PHASE 5B-2 (SYSTEMATIC PEAKS INVESTIGATION):
+  [ ] 9. Extract all peaks >100× from logs
+  [ ] 10. Analyze Thursday 8:00-8:30 pattern (pcb-dev-01-app)
+  [ ] 11. Analyze Monday 15:30 pattern (multi-namespace)
+  [ ] 12. Analyze Saturday 0:00-1:00 pattern (pcb-sit-01-app)
+  [ ] 13. Correlate with CI/CD deployment logs
+  [ ] 14. Document findings in PEAK_DETECTION_PROGRESS
+
+PHASE 5B-3 (FINALIZATION):
+  [ ] 15. Update CONTEXT_RETRIEVAL_PROTOCOL.md
+  [ ] 16. Commit changes with detailed message
+  [ ] 17. Prepare for Phase 6 (K8s deployment)
+```
+
+---
+
+## 💾 DATA FILES
+
+| File | Status | Notes |
+|------|--------|-------|
+| `/tmp/peak_full_2025_12_01.txt` | ❌ DELETED | v1 - had 186 patterns BUT with -1h offset |
+| `/tmp/peak_fixed_2025_12_01.txt` | ⏳ COLLECTING | v2 - WITH TIMEZONE FIX (PID 30444) |
+| `/tmp/peak_full_2025_12_02_03.txt` | 📋 TODO | |
+
+---
+
+## 🔧 COMMITS
+
+```
+Current Branch: main
+Recent commits:
+  - (pending) Timezone fix: Use win_start instead of win_end
+  - e9b0280    Phase 5: Session complete - 2025-12-01 data loaded (186 patterns)
+  - 0e83956    Status update
+  - 5996374    Phase 5: Fix collect_peak_detailed.py to output ALL patterns
+```
+
+## 🚨 PRAVIDLA
+
+⚠️ **NE RUŠIT BĚŽÍCÍ PROCES** - Sbírání trvá 2-3 minuty!  
+⚠️ **PRACUJ V JINÉM TERMINÁLU** - Nech PID 30070 být!  
+⚠️ **VŽDYCKY EXPLICIT DATES** - `--from "2025-12-XXT00:00:00Z" --to "2025-12-YYT00:00:00Z"`  
+⚠️ **Z SUFFIX** - Elasticsearch potřebuje Z, ne +00:00  
+
+---
+
+## 🔑 KEY INFO
+
+**DB:**
+- Host: P050TD01.DEV.KB.CZ:5432
+- DB: ailog_analyzer
+- Table: ailog_peak.peak_statistics
+- Current rows: 5 (stará data - bude se přepsat)
+- Expected after 2025-12-01 load: 384 rows
+
+**Scripts Updated:**
+- `collect_peak_detailed.py` - ✅ FIXED (output ALL patterns)
+- `ingest_from_log.py` - ✅ WORKS
+- `scripts/INDEX.md` - ✅ UPDATED
+
+**Git Commit:**
+- SHA: 5996374
+- Msg: "Phase 5: Fix collect_peak_detailed.py to output ALL patterns"
+
+**Archiv starších logů:** `_archive_md/COMPLETED_LOG_2025_12_16.md`

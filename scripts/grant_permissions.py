@@ -7,11 +7,25 @@ import os
 import psycopg2
 import sys
 
-DB_HOST = os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ')
-DB_PORT = int(os.getenv('DB_PORT', 5432))
-DB_NAME = os.getenv('DB_NAME', 'ailog_analyzer')
-DB_USER = os.getenv('DB_DDL_USER', 'ailog_analyzer_ddl_user_d1')
-DB_PASSWORD = os.getenv('DB_DDL_PASSWORD')  # Required: Set in .env file
+# Load .env file manually
+def load_env():
+    env = {}
+    try:
+        with open('.env', 'r') as f:
+            for line in f:
+                if line and not line.startswith('#') and '=' in line:
+                    key, val = line.split('=', 1)
+                    env[key.strip()] = val.strip()
+    except FileNotFoundError:
+        pass
+    return env
+
+env = load_env()
+DB_HOST = env.get('DB_HOST', os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'))
+DB_PORT = int(env.get('DB_PORT', os.getenv('DB_PORT', 5432)))
+DB_NAME = env.get('DB_NAME', os.getenv('DB_NAME', 'ailog_analyzer'))
+DB_USER = env.get('DB_DDL_USER', os.getenv('DB_DDL_USER', 'ailog_analyzer_ddl_user_d1'))
+DB_PASSWORD = env.get('DB_DDL_PASSWORD', os.getenv('DB_DDL_PASSWORD'))  # Required: Set in .env file
 
 print("🔐 Granting permissions on ailog_peak schema...")
 

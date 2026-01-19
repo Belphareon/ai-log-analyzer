@@ -1,3 +1,0 @@
-day_of_week,day_name,hour_of_day,quarter_hour,quarter_time,namespace,mean_errors,stddev_errors,samples_count,collection_date
-0,Monday,8,0,00,pcb-sit-01-app,203.45,45.67,3,2025-12-16T09:59:45.933627Z
-0,Monday,8,1,15,pcb-sit-01-app,195.32,42.15,3,2025-12-16T09:59:45.933627Z

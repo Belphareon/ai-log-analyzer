@@ -188,7 +188,7 @@ def calculate_statistics_by_time_pattern(window_counts, windows):
 
 
 def print_detailed_report(statistics, windows):
-    """Print detailed analysis report"""
+    """Print detailed analysis report WITH MACHINE-READABLE DATA"""
     
     print()
     print("="*80)
@@ -220,21 +220,38 @@ def print_detailed_report(statistics, windows):
     
     print()
     
-    # Smoothing effectiveness check - PRINT ALL PATTERNS (not just sample!)
-    print("🔬 All Patterns (for Database Ingestion):")
+    # MACHINE-READABLE DATA for ingestion (with TIMESTAMP!)
+    print("🔬 MACHINE-READABLE DATA (for Database Ingestion):")
+    print()
+    print("   Format: TIMESTAMP|day_of_week|hour_of_day|quarter_hour|namespace|mean_errors|stddev_errors|samples_count")
     print()
     
-    # Show ALL patterns (not just first 5)
-    for i, (key, stats) in enumerate(sorted(statistics.items()), 1):
-        day, hour, qtr, ns = key
-        day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        
-        print(f"   Pattern {i}: {day_names[day]} {hour:02d}:{qtr*15:02d} - {ns}")
-        print(f"      Raw counts:      {stats['raw_counts']}")
-        print(f"      Smoothed counts: {[f'{x:.1f}' for x in stats['smoothed_counts']]}")
-        print(f"      Mean: {stats['mean']:.2f}, StdDev: {stats['stddev']:.2f}, Samples: {stats['samples']}")
-        print()
+    # Map windows to patterns
+    # We need to find the actual window timestamp for each pattern
+    window_map = {}
+    for win_start, win_end in windows:
+        win_start_cet = win_start + timedelta(hours=1)  # UTC → CET
+        day = win_start_cet.weekday()
+        hour = win_start_cet.hour
+        quarter = (win_start_cet.minute // 15) % 4
+        window_map[(day, hour, quarter)] = win_start_cet
     
+    # Print all patterns with timestamp
+    for key, stats in sorted(statistics.items()):
+        day, hour, qtr, ns = key
+        
+        # Get timestamp for this window
+        timestamp = window_map.get((day, hour, qtr))
+        if timestamp:
+            ts_str = timestamp.strftime("%Y-%m-%dT%H:%M:%S")
+        else:
+            # Fallback if window not found (shouldn't happen)
+            ts_str = f"UNKNOWN-{day}-{hour:02d}-{qtr*15:02d}"
+        
+        # Print machine-readable line
+        print(f"DATA|{ts_str}|{day}|{hour}|{qtr}|{ns}|{stats['mean']:.2f}|{stats['stddev']:.2f}|{stats['samples']}")
+    
+    print()
     print("="*80)
 
 
