@@ -1,0 +1,62 @@
+# ============================================================================
+# AI Log Analyzer - Namespace Configuration
+# ============================================================================
+
+# Seznam namespace k monitoringu
+# Tyto namespaces budou sledovány pro peak detection
+
+namespaces:
+  # Development
+  - pcb-dev-01-app
+  - pcb-dev-02-app
+  
+  # SIT (System Integration Testing)
+  - pcb-sit-01-app
+  - pcb-sit-02-app
+  
+  # UAT (User Acceptance Testing)
+  - pcb-uat-01-app
+  
+  # Production
+  - pcb-prd-01-app
+  - pcb-prd-02-app
+
+# Namespace groups pro reporting
+groups:
+  development:
+    - pcb-dev-01-app
+    - pcb-dev-02-app
+  testing:
+    - pcb-sit-01-app
+    - pcb-sit-02-app
+    - pcb-uat-01-app
+  production:
+    - pcb-prd-01-app
+    - pcb-prd-02-app
+
+# Namespace priority (pro alerting)
+# higher = more important
+priority:
+  pcb-prd-01-app: 100
+  pcb-prd-02-app: 100
+  pcb-uat-01-app: 80
+  pcb-sit-01-app: 60
+  pcb-sit-02-app: 60
+  pcb-dev-01-app: 40
+  pcb-dev-02-app: 40
+
+# Alert rules per namespace
+# critical_threshold: alert when score >= threshold
+alert_rules:
+  pcb-prd-01-app:
+    critical_threshold: 60
+    alert_channels: ["teams", "email"]
+  pcb-prd-02-app:
+    critical_threshold: 60
+    alert_channels: ["teams", "email"]
+  pcb-uat-01-app:
+    critical_threshold: 70
+    alert_channels: ["teams"]
+  default:
+    critical_threshold: 80
+    alert_channels: ["teams"]

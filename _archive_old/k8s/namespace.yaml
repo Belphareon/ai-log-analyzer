@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ai-log-analyzer
-  labels:
-    name: ai-log-analyzer
-    environment: production

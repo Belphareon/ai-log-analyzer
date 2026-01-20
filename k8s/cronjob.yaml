@@ -1,0 +1,221 @@
+---
+# ============================================================================
+# AI Log Analyzer - Kubernetes CronJob Configuration
+# ============================================================================
+# Spouští pipeline každých 15 minut
+#
+# Deploy:
+#   kubectl apply -f cronjob.yaml
+#
+# Check status:
+#   kubectl get cronjobs -n ailog
+#   kubectl get jobs -n ailog
+#   kubectl logs -n ailog job/ailog-pipeline-xxxxx
+# ============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ailog
+  labels:
+    app: ai-log-analyzer
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ailog-config
+  namespace: ailog
+data:
+  SPIKE_THRESHOLD: "3.0"
+  EWMA_ALPHA: "0.3"
+  WINDOW_MINUTES: "15"
+  LOG_LEVEL: "INFO"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ailog-secrets
+  namespace: ailog
+type: Opaque
+stringData:
+  # Elasticsearch
+  ES_HOST: "https://elasticsearch-test.kb.cz:9500"
+  ES_USER: "XX_PCBS_ES_READ"
+  ES_PASSWORD: "your_password_here"  # ZMĚNIT!
+  ES_INDEX: "cluster-app_pcb-*,cluster-app_pca-*"
+  
+  # PostgreSQL
+  DB_HOST: "P050TD01.DEV.KB.CZ"
+  DB_PORT: "5432"
+  DB_NAME: "ailog_analyzer"
+  DB_USER: "ailog_analyzer_user_d1"
+  DB_PASSWORD: "your_password_here"  # ZMĚNIT!
+  
+  # Notifications (optional)
+  TEAMS_WEBHOOK_URL: ""
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ailog-data
+  namespace: ailog
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ailog-pipeline
+  namespace: ailog
+  labels:
+    app: ai-log-analyzer
+spec:
+  # Každých 15 minut
+  schedule: "*/15 * * * *"
+  
+  # Timezone (Kubernetes 1.27+)
+  # timeZone: "Europe/Prague"
+  
+  concurrencyPolicy: Forbid  # Nepouštět paralelně
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600  # Max 10 minut
+      
+      template:
+        metadata:
+          labels:
+            app: ai-log-analyzer
+        spec:
+          restartPolicy: Never
+          
+          containers:
+            - name: pipeline
+              image: harbor.kb.cz/ailog/ai-log-analyzer:latest
+              imagePullPolicy: Always
+              
+              command:
+                - python
+                - scripts/regular_phase.py
+                - --output
+                - /data/reports
+                - --quiet
+              
+              envFrom:
+                - configMapRef:
+                    name: ailog-config
+                - secretRef:
+                    name: ailog-secrets
+              
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "250m"
+                limits:
+                  memory: "2Gi"
+                  cpu: "1000m"
+          
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: ailog-data
+
+---
+# Job pro INIT fázi (jednorázový)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ailog-init
+  namespace: ailog
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 86400  # Max 24 hodin
+  
+  template:
+    spec:
+      restartPolicy: Never
+      
+      containers:
+        - name: init
+          image: harbor.kb.cz/ailog/ai-log-analyzer:latest
+          
+          command:
+            - python
+            - scripts/init_phase.py
+            - --days
+            - "21"
+          
+          envFrom:
+            - secretRef:
+                name: ailog-secrets
+          
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+
+---
+# Job pro BACKFILL (jednorázový)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ailog-backfill
+  namespace: ailog
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 43200  # Max 12 hodin
+  
+  template:
+    spec:
+      restartPolicy: Never
+      
+      containers:
+        - name: backfill
+          image: harbor.kb.cz/ailog/ai-log-analyzer:latest
+          
+          command:
+            - python
+            - scripts/backfill.py
+            - --days
+            - "14"
+            - --output
+            - /data/reports
+          
+          envFrom:
+            - secretRef:
+                name: ailog-secrets
+          
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+      
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ailog-data

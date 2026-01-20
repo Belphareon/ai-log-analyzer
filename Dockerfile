@@ -1,36 +1,49 @@
+# ============================================================================
+# AI Log Analyzer - Docker Image
+# ============================================================================
+# Build:
+#   docker build -t ai-log-analyzer:latest .
+#
+# Run:
+#   docker run --env-file .env ai-log-analyzer:latest python scripts/regular_phase.py
+# ============================================================================
+
 FROM python:3.11-slim
+
+# Labels
+LABEL maintainer="your-team@company.com"
+LABEL version="4.0"
+LABEL description="AI Log Analyzer - Incident Detection Pipeline"
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
     gcc \
-    postgresql-client \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt ./
+# Copy requirements first (for caching)
+COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY ./app ./app
-COPY ./alembic ./alembic
-COPY alembic.ini ./
+COPY scripts/ scripts/
+COPY config/ config/
+COPY run_*.sh ./
 
-# Create non-root user
-RUN useradd -m -u 1000 ailog && chown -R ailog:ailog /app
-USER ailog
+# Make scripts executable
+RUN chmod +x run_*.sh
 
-# Expose port
-EXPOSE 8000
+# Create data directories
+RUN mkdir -p data/batches data/reports data/snapshots
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+# Set environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/scripts
 
-# Run application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command
+CMD ["python", "scripts/regular_phase.py", "--quiet"]
