@@ -184,8 +184,9 @@ def step4_ingest_and_detect(input_file, dry_run=False):
     
     args = ["--input", str(input_file)]
     # Note: NO --init flag = REGULAR phase with peak detection
+    # Use fixed version that doesn't break on peak_investigation constraint issues
     
-    success = run_script("ingest_from_log_v2.py", args)
+    success = run_script("ingest_from_log_v2_regular_fixed.py", args)
     
     if success:
         print("   ✅ Ingestion complete")

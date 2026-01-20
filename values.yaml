@@ -3,23 +3,26 @@
 # Lze upravovat bez restartování, hodnoty se načítají za běhu
 
 peak_detection:
-  # RATIO THRESHOLD
-  # Dynamický práh poměru (Value / Reference)
-  # Výpočet: is_peak = (ratio >= baseline_mean * min_ratio_multiplier) AND (ratio <= baseline_mean * max_ratio_multiplier)
-  # Příklad: Pokud baseline_mean = 100, a min_multiplier = 3, pak ratio_threshold = 300 (musí být vyšší než 300)
+  # DETECTION LOGIC
+  # is_peak = (ratio >= 3.0) OR (value >= aggregation_data.mean * 4.0)
   
-  min_ratio_multiplier: 3.0      # Minimální násobek baseline_mean (nižší = více peaků)
-  max_ratio_multiplier: 5.0      # Maximální násobek baseline_mean (vyšší = méně false positives)
+  # PODMÍNKA 1: RATIO THRESHOLD (volatilita během dne)
+  # ratio = original_value / reference
+  # reference = průměr posledních 3 non-peak hodnot (stejný den, -15, -30, -45 min)
+  ratio_multiplier: 3.0          # is_peak pokud: ratio >= 3.0
   
-  # DYNAMIC MINIMUM (24h trend)
-  # Alternativní pravidlo: pokud absolute value není vyšší než 24h average * multiplier, není to peak
-  dynamic_min_multiplier: 2.5    # Value musí být vyšší než 24h_avg * multiplier
+  # PODMÍNKA 2: ABSOLUTE THRESHOLD (7-denní baseline)
+  # value = original_value
+  # aggregation_data.mean = 7-denní průměr pro (den_týdne, hodina, čtvrt, namespace)
+  absolute_threshold_multiplier: 4.0    # is_peak pokud: value >= aggregation_mean * 4.0
   
   # REFERENCE CALCULATION
   # Jak se počítá reference pro peak detection
   same_day_window_count: 3       # Počet okna zpět ve stejný den (-15, -30, -45 min)
-  use_aggregation_baseline: true # Fallback na aggregation_data baseline
-  use_24h_trend: true            # Brát v úvahu 24h trend
+  
+  # REPLACEMENT VALUE
+  # Pokud je detekován peak, replacement = aggregation_data.mean (NOT reference!)
+  # aggregation_data.mean je stabilní 7-denní baseline
   
   # LOGGING
   log_path: "/tmp/peaks_replaced_v2.log"

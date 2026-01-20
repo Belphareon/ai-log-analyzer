@@ -6,40 +6,40 @@
 
 ## 📊 Project Phases
 
-### ✅ Phase 1: INIT (Complete - 2026-01-19)
+### ✅ Phase 1: EXTENDED INIT (Complete - 2026-01-19)
 
-**Objective:** Load historical December 2025 baseline data into database
+**Objective:** Load historical baseline data + early January data into database
 
 **Tasks:**
-- ✅ Extract all individual day files from batch sources
-- ✅ Convert to DATA|TIMESTAMP|... format for all 31 days
-- ✅ Extract day 15 from batch file `peak_fixed_2025_12_14_15.txt`
-- ✅ Ingest 13,482 original data rows
-- ✅ Fill missing windows with zeros → 36,447 rows
-- ✅ Calculate aggregation baseline → 8,064 rows
-- ✅ Backup to `_backups/ailog_peak_*_20260119_092834.sql`
+- ✅ Extract all 31 days of December 2025
+- ✅ Ingest 13,482 December data rows
+- ✅ Ingest January 1-2 from batch files (945 rows)
+- ✅ **EXTENDED**: Ingest January 3-6 12:00 from batch files (1,627 rows)
+- ✅ Fill missing windows with zeros → 42,790 rows total
+- ✅ Backup peak_raw_data: 9.9 MB
+- ✅ Backup aggregation_data: 1.8 MB
 
 **Output:**
 ```
-peak_raw_data:      36,447 rows (complete grid: 31 days × 12 namespaces × ~96 windows)
-aggregation_data:    8,064 rows (7-day pattern × 12 namespaces × 96 windows)
+peak_raw_data:      42,790 rows (complete grid: 37 days × 12 namespaces × 96 windows)
+aggregation_data:    8,064 rows (baseline pattern for reference)
 ```
 
 **Key Data Points:**
-- December 1-31, 2025: All 31 individual day files converted
-- Timestamps: Corrected to proper dates (not all 2026-01-16)
-- Batch files: Properly handled 3-day format with timezone fixes
-- Duplicates: 735 extra rows (acceptable, from duplicate patterns)
+- December 1-31, 2025: All 31 individual day files
+- January 1-2, 2026: From batch files
+- January 3-6 (until 12:00), 2026: From batch files (all 12 namespaces now complete)
+- Reason for extension: ES data only complete from Jan 6 12:00 onwards
 
 ---
 
 ### 🔄 Phase 2: REGULAR (Next - Ready to Start)
 
-**Objective:** Process January 2026 data with real-time peak detection
+**Objective:** Process January 7+ 2026 data with real-time peak detection
 
 **Tasks:**
-- ⏳ Prepare January 2026 source data files
-- ⏳ Ingest daily data from January onwards
+- ⏳ Prepare January 7-31 2026 source data from Elasticsearch
+- ⏳ Ingest daily data from January 7 onwards
 - ⏳ Compare against aggregation baseline
 - ⏳ Detect and categorize peaks in `peak_investigation`
 - ⏳ Apply dynamic thresholds from `values.yaml`
@@ -55,7 +55,7 @@ error_patterns:      Learned patterns from deviations
 
 **Command:**
 ```bash
-./scripts/batch_ingest.sh --regular
+python3 scripts/run_pipeline.py --from "2026-01-07T00:00:00Z" --to "2026-01-31T23:59:59Z"
 ```
 
 ---
@@ -77,12 +77,14 @@ error_patterns:      Learned patterns from deviations
 
 | Component | Status | Version | Last Updated |
 |-----------|--------|---------|--------------|
-| **Database Setup** | ✅ Complete | v1.0 | 2026-01-19 |
-| **INIT Phase** | ✅ Complete | v1.0 | 2026-01-19 |
+| **INIT Phase - December** | ✅ Complete | v1.0 | 2026-01-19 |
+| **INIT Phase - January 1-6** | ✅ Complete | v1.0 | 2026-01-19 |
 | **Data Ingestion** | ✅ Complete | v2.0 | 2026-01-19 |
-| **Peak Detection** | 🔄 Ready | v1.0 | 2026-01-19 |
-| **Baseline Calc** | ✅ Complete | v1.0 | 2026-01-19 |
-| **Threshold Logic** | ✅ Complete | v3.0 | 2025-12-28 |
+| **Fill Missing Windows** | ✅ Complete | v2.0 | 2026-01-19 |
+| **Database Backup** | ✅ Complete | v1.0 | 2026-01-19 |
+| **Peak Detection** | ✅ Ready | v1.0 | 2025-12-28 |
+| **Baseline Recalc** | ⏳ Pending | v1.0 | - |
+| **REGULAR Phase** | ⏳ Ready | v1.0 | 2026-01-19 |
 | **LLM Integration** | ⏳ Pending | v0.0 | - |
 | **UI/Dashboard** | ⏳ Pending | v0.0 | - |
 
@@ -136,11 +138,12 @@ ai-log-analyzer/
 
 **Data Coverage:**
 - ✅ December 2025: 100% (31/31 days)
-- ⏳ January 2026: Pending (0/31 days)
+- ✅ January 1-6 (12:00) 2026: 100% (3.5/3.5 days)
+- ⏳ January 7-31 2026: 0/25 days (REGULAR phase)
 
 **Database Health:**
-- ✅ peak_raw_data: 36,447 rows (36,447 = 100% of expected grid + duplicates)
-- ✅ aggregation_data: 8,064 rows (8,064 = 100% of 7-day pattern)
+- ✅ peak_raw_data: 42,790 rows (100% coverage for Dec + Jan 1-6)
+- ✅ aggregation_data: 8,064 rows (baseline ready)
 - ✅ peak_investigation: 0 rows (ready for REGULAR phase)
 
 **Performance Targets:**
@@ -148,33 +151,35 @@ ai-log-analyzer/
 - Fill missing windows: < 30 seconds
 - Baseline calculation: < 1 minute
 - Peak detection: < 10 minutes per 1000 events
+- Backup creation: < 2 minutes
 
 ---
 
 ## 🚀 Next Immediate Steps
 
-1. **Prepare January 2026 data**: Source files in `/tmp/ai-log-data/peak_2026_01_*_TS.txt`
-2. **Start REGULAR phase**: `./scripts/batch_ingest.sh --regular`
-3. **Monitor peak_investigation**: Check for detected anomalies
-4. **Review thresholds**: Adjust values in `values.yaml` if needed
+1. **Recalculate baseline** (if needed): `python3 scripts/calculate_aggregation_baseline.py`
+2. **Start REGULAR phase**: `python3 scripts/run_pipeline.py --from "2026-01-07T00:00:00Z"`
+3. **Monitor peaks**: Check `peak_investigation` table for anomalies
+4. **Review thresholds**: Adjust `values.yaml` based on early results
 5. **Plan Phase 3**: Analysis and dashboard components
 
 ---
 
 ## 💾 Backup & Recovery
 
-**Current Backup:** `_backups/ailog_peak_*_20260119_092834.sql`
-- 6 files: one per table
-- peak_raw_data: 8.0M
-- aggregation_data: 1.8M
-- Total: 9.7M
+**Current Backup:** `_backups/ailog_peak_*_20260119_1303*.sql`
+- peak_raw_data: 9.9M (42,790 rows)
+- aggregation_data: 1.8M (8,064 rows)
+- Total: 11.7M
 
-**Restore Command:**
+**Restore Command (using Python script):**
 ```bash
 cd /home/jvsete/git/sas/ai-log-analyzer
-# Restore individual tables
-psql -h P050TD01.DEV.KB.CZ -U ailog_analyzer -d ailog_analyzer < _backups/ailog_peak_peak_raw_data_20260119_092834.sql
-psql -h P050TD01.DEV.KB.CZ -U ailog_analyzer -d ailog_analyzer < _backups/ailog_peak_aggregation_data_20260119_092834.sql
+# Restore individual tables by replaying INSERT statements from backup files
+python3 << 'PYEOF'
+import psycopg2
+# Read and execute INSERT statements from backup files
+PYEOF
 ```
 
 ---
@@ -182,6 +187,6 @@ psql -h P050TD01.DEV.KB.CZ -U ailog_analyzer -d ailog_analyzer < _backups/ailog_
 ## 📞 Contact & Resources
 
 - **Project Location**: `/home/jvsete/git/sas/ai-log-analyzer`
-- **Data Location**: `/tmp/ai-log-data/`
+- **Data Location**: `/tmp/ai-log-data/` (batch files: peak_2026_01_*_TS.txt)
 - **Database**: `P050TD01.DEV.KB.CZ:5432/ailog_analyzer` (schema: `ailog_peak`)
 - **Documentation**: See [README.md](README.md) and [scripts/INDEX.md](scripts/INDEX.md)

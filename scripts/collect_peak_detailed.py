@@ -86,7 +86,10 @@ def fetch_errors_search_after(date_from, date_to, batch_size=5000):
     # Extract just timestamp + namespace from raw data
     all_errors = []
     ns_set = set()
-    for error in all_errors_raw:
+    print(f"   📝 Processing {len(all_errors_raw):,} raw errors...")
+    for idx, error in enumerate(all_errors_raw):
+        if (idx + 1) % 50000 == 0:
+            print(f"      ✅ Processed {idx + 1:,} errors...")
         ns = error.get('namespace', 'unknown')
         ns_set.add(ns)
         all_errors.append({
@@ -112,7 +115,10 @@ def group_into_windows(errors, windows):
     window_counts = defaultdict(int)
     ns_set_2 = set()
     
-    for err in errors:
+    for idx, err in enumerate(errors):
+        if (idx + 1) % 50000 == 0:
+            print(f"   ✅ Grouped {idx + 1:,} / {len(errors):,} errors...")
+        
         ts_str = err['timestamp']
         ns = err['namespace']
         ns_set_2.add(ns)
@@ -121,9 +127,9 @@ def group_into_windows(errors, windows):
         ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
         
         # Find which window this belongs to
-        for idx, (win_start, win_end) in enumerate(windows):
+        for win_idx, (win_start, win_end) in enumerate(windows):
             if win_start <= ts < win_end:
-                key = (idx, ns)
+                key = (win_idx, ns)
                 window_counts[key] += 1
                 break
     

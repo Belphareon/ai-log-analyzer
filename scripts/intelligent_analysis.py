@@ -54,9 +54,13 @@ class TraceExtractor:
     
     def _group_by_trace_id(self):
         """Group all errors by trace_id"""
-        for error in self.errors:
+        print(f"   🔄 Grouping {len(self.errors):,} errors by trace_id...")
+        for idx, error in enumerate(self.errors):
+            if (idx + 1) % 50000 == 0:
+                print(f"      ✅ Grouped {idx + 1:,} / {len(self.errors):,} errors...")
             trace_id = error.get('trace_id', 'NO_TRACE')
             self.trace_groups[trace_id].append(error)
+        print(f"   ✅ Created {len(self.trace_groups):,} trace groups")
     
     def get_trace_chain(self, trace_id):
         """Get full error chain for given trace_id, sorted by timestamp"""
@@ -74,7 +78,12 @@ class TraceExtractor:
         """Find root cause for each unique trace_id"""
         root_causes_dict = {}  # key: normalized message, value: list of root causes
         
-        for trace_id in self.trace_groups.keys():
+        print(f"   🔄 Analyzing {len(self.trace_groups):,} traces for root causes...")
+        
+        for idx, trace_id in enumerate(self.trace_groups.keys()):
+            if (idx + 1) % 10000 == 0:
+                print(f"      ✅ Analyzed {idx + 1:,} / {len(self.trace_groups):,} traces...")
+            
             root_error = self.find_root_cause_in_trace(trace_id)
             if root_error:
                 app = get_app(root_error)
@@ -126,6 +135,7 @@ class TraceExtractor:
             reverse=True
         )
         
+        print(f"   ✅ Found {len(root_causes_dict)} unique root causes")
         return sorted_causes
     
     def get_stats(self):

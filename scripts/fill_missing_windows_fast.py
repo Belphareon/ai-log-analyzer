@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
 Fill missing 15-minute windows - FAST BULK VERSION
-Jen pro INIT Phase (1-21.12.2025)
+INIT Phase: 1-31.12.2025 + 1-6.1.2026 (do 12:00)
 """
 
 import os
+import sys
+import argparse
 import psycopg2
 from datetime import datetime, timedelta
 
@@ -23,11 +25,18 @@ DB_CONFIG = {
     'password': env_vars.get('DB_PASSWORD')
 }
 
-def fill_missing_windows():
-    """Fill missing windows - FAST BULK VERSION"""
+def fill_missing_windows(start_date='2025-12-01', end_date='2025-12-31', end_hour=24):
+    """Fill missing windows - FAST BULK VERSION
+    
+    Args:
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)  
+        end_hour: End hour on end_date (0-24, e.g. 12 means until 12:00)
+    """
     
     print("=" * 80)
-    print("🔧 Filling Missing Windows - FAST BULK (INIT Phase: 1-31.12)")
+    print(f"🔧 Filling Missing Windows - FAST BULK")
+    print(f"   Period: {start_date} to {end_date} (hour: {end_hour})")
     print("=" * 80)
     
     try:
@@ -49,49 +58,37 @@ def fill_missing_windows():
             'pcb-dev-01-app', 'pcb-fat-01-app', 'pcb-sit-01-app', 'pcb-uat-01-app'
         ]
         
-        # BULK SQL: Vytvoř všechny kombinace (21 dní × 96 oken × 12 NS = 24,192 řádků)
+        # BULK SQL: Vytvoř všechny kombinace pro daté období
         # a INSERT ... ON CONFLICT doplní jen chybějící
         
         print("🔄 Performing bulk insert with ON CONFLICT resolution...")
         
-        sql = """
+        # Calculate end quarters for last day (e.g., end_hour=12 means quarters 0-47)
+        end_quarter_max = end_hour * 4 - 1 if end_hour < 24 else 95
+        
+        sql = f"""
         WITH date_range AS (
             SELECT d::DATE as day
-            FROM generate_series('2025-12-01'::DATE, '2025-12-31'::DATE, '1 day'::INTERVAL) d
-        ),
-        time_windows AS (
-            SELECT 
-                dr.day,
-                h.hour,
-                q.quarter,
-                (h.hour * 4 + q.quarter) as minute_offset,
-                EXTRACT(ISODOW FROM dr.day)::INT - 1 as day_of_week
-            FROM date_range dr
-            CROSS JOIN (SELECT 0 AS hour UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 
-                       UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 
-                       UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 
-                       UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 
-                       UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 
-                       UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23) h
-            CROSS JOIN (SELECT 0 AS quarter UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3) q
+            FROM generate_series('{start_date}'::DATE, '{end_date}'::DATE, '1 day'::INTERVAL) d
         ),
         grid AS (
             SELECT 
-                day + (h.hour || ' hours')::INTERVAL + (q.quarter * 15 || ' minutes')::INTERVAL as timestamp,
-                EXTRACT(ISODOW FROM day)::INT - 1 as day_of_week,
+                dr.day + (h.hour || ' hours')::INTERVAL + (q.quarter * 15 || ' minutes')::INTERVAL as timestamp,
+                CASE WHEN EXTRACT(DOW FROM dr.day) = 0 THEN 6 ELSE EXTRACT(DOW FROM dr.day)::INT - 1 END as day_of_week,
                 h.hour as hour_of_day,
                 q.quarter as quarter_hour,
                 ns.namespace,
                 0.0 as error_count
             FROM date_range dr
-            CROSS JOIN (SELECT 0 AS hour UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 
-                       UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 
-                       UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 
-                       UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 
-                       UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19 
-                       UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23) h
-            CROSS JOIN (SELECT 0 AS quarter UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3) q
+            CROSS JOIN (SELECT generate_series(0, 23) AS hour) h
+            CROSS JOIN (SELECT generate_series(0, 3) AS quarter) q
             CROSS JOIN (VALUES %s) ns(namespace)
+            WHERE 
+                -- For all days except end_date, include all windows
+                (dr.day < '{end_date}'::DATE)
+                OR
+                -- For end_date, only include up to end_hour
+                (dr.day = '{end_date}'::DATE AND (h.hour * 4 + q.quarter) <= {end_quarter_max})
         )
         INSERT INTO ailog_peak.peak_raw_data 
         (timestamp, day_of_week, hour_of_day, quarter_hour, namespace, error_count)
@@ -110,28 +107,28 @@ def fill_missing_windows():
         
         # STEP 2: Verify
         print("\n✅ Verifying result...")
-        cur.execute("""
+        cur.execute(f"""
             SELECT 
                 COUNT(*) as total,
                 COUNT(DISTINCT DATE(timestamp)) as days,
                 COUNT(DISTINCT namespace) as namespaces,
-                COUNT(DISTINCT day_of_week) as dow_count
+                MIN(timestamp) as min_ts,
+                MAX(timestamp) as max_ts
             FROM ailog_peak.peak_raw_data
-            WHERE DATE(timestamp) >= '2025-12-01' AND DATE(timestamp) <= '2025-12-31';
+            WHERE timestamp >= '{start_date}'::TIMESTAMP 
+              AND timestamp <= '{end_date}'::DATE + '{end_hour} hours'::INTERVAL;
         """)
-        total, days, namespaces, dow_count = cur.fetchone()
+        total, days, namespaces, min_ts, max_ts = cur.fetchone()
         
-        expected = days * 96 * 12
-        print(f"   ✅ Total rows (1-21.12): {total:,}")
+        print(f"   ✅ Total rows: {total:,}")
         print(f"   ✅ Calendar days: {days}")
         print(f"   ✅ Namespaces: {namespaces}")
-        print(f"   ✅ Day_of_week values: {dow_count}")
-        print(f"   Expected: {expected:,} ({days} × 96 × 12)")
+        print(f"   ✅ Time range: {min_ts} to {max_ts}")
         
-        if total == expected and namespaces == 12:
-            print(f"\n   ✅✅✅ PERFECT! INIT Phase je kompletní!")
-        else:
-            print(f"\n   ⚠️  Rozdíl: {total - expected} řádků")
+        # Check overall count
+        cur.execute("SELECT COUNT(*) FROM ailog_peak.peak_raw_data")
+        overall = cur.fetchone()[0]
+        print(f"   ✅ Overall peak_raw_data: {overall:,} rows")
         
         conn.close()
         return True
@@ -142,5 +139,16 @@ def fill_missing_windows():
         traceback.print_exc()
         return False
 
+
+def main():
+    parser = argparse.ArgumentParser(description='Fill missing 15-minute windows')
+    parser.add_argument('--start', default='2025-12-01', help='Start date (YYYY-MM-DD)')
+    parser.add_argument('--end', default='2025-12-31', help='End date (YYYY-MM-DD)')
+    parser.add_argument('--end-hour', type=int, default=24, help='End hour on end date (0-24)')
+    args = parser.parse_args()
+    
+    fill_missing_windows(args.start, args.end, args.end_hour)
+
+
 if __name__ == '__main__':
-    fill_missing_windows()
+    main()

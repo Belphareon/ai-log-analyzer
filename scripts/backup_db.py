@@ -1,93 +1,75 @@
 #!/usr/bin/env python3
 """
-Backup peak_statistics table to CSV
+Backup ailog_peak schema tables
 """
 
-import sys
 import os
 import psycopg2
-import csv
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
-# Database configuration
-DB_CONFIG = {
-    'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
-    'port': int(os.getenv('DB_PORT', 5432)),
-    'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD')
-}
+DB_HOST = os.getenv('DB_HOST')
+DB_PORT = int(os.getenv('DB_PORT', 5432))
+DB_NAME = os.getenv('DB_NAME')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
 
+BACKUP_DIR = '/tmp'
+TIMESTAMP = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-def backup_db():
-    """Backup peak_statistics to CSV"""
+print("="*70)
+print("💾 Backup ailog_peak schema")
+print("="*70)
+
+try:
+    conn = psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD
+    )
+    cur = conn.cursor()
     
-    print("=" * 80)
-    print("💾 Backing up peak_statistics table...")
-    print("=" * 80)
-    print()
+    # Backup each table
+    tables = {
+        'peak_raw_data': f'{BACKUP_DIR}/backup_peak_raw_data_{TIMESTAMP}.sql',
+        'aggregation_data': f'{BACKUP_DIR}/backup_aggregation_data_{TIMESTAMP}.sql',
+        'peak_investigation': f'{BACKUP_DIR}/backup_peak_investigation_{TIMESTAMP}.sql'
+    }
     
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
-        print(f"✅ Connected to {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
-    except Exception as e:
-        print(f"❌ Failed to connect: {e}")
-        return None
+    print(f"\nHost: {DB_HOST}")
+    print(f"Database: {DB_NAME}")
+    print(f"Schema: ailog_peak")
+    print(f"Timestamp: {TIMESTAMP}\n")
     
-    try:
-        # Get all data
-        cur.execute("""
-            SELECT day_of_week, hour_of_day, quarter_hour, namespace, 
-                   mean_errors, stddev_errors, samples_count, last_updated
-            FROM ailog_peak.peak_statistics 
-            ORDER BY day_of_week, hour_of_day, quarter_hour, namespace
-        """)
-        
-        rows = cur.fetchall()
-        total = len(rows)
-        print(f"📊 Fetched {total} rows from database")
-        
-        # Create backup file
-        backup_file = f"/tmp/backup_peak_statistics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        
-        with open(backup_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['day_of_week', 'hour_of_day', 'quarter_hour', 'namespace', 
-                           'mean_errors', 'stddev_errors', 'samples_count', 'last_updated'])
-            writer.writerows(rows)
-        
-        print(f"✅ Backup saved to: {backup_file}")
-        
-        cur.close()
-        conn.close()
-        return backup_file
-        
-    except Exception as e:
-        print(f"❌ Backup failed: {e}")
-        cur.close()
-        conn.close()
-        return None
-
-
-def main():
-    backup_file = backup_db()
+    # Get row counts
+    print("📊 Table info:")
+    for table in tables.keys():
+        cur.execute(f"SELECT COUNT(*) FROM ailog_peak.{table}")
+        count = cur.fetchone()[0]
+        print(f"   {table}: {count:,} rows")
     
-    if backup_file:
-        print()
-        print("=" * 80)
-        print(f"✅ Backup complete: {backup_file}")
-        print("=" * 80)
-        return 0
-    else:
-        print()
-        print("❌ Backup failed")
-        return 1
-
-
-if __name__ == '__main__':
-    sys.exit(main())
+    # Backup using pg_dump
+    for table, filepath in tables.items():
+        print(f"\n💾 Backing up {table}...")
+        cmd = f"pg_dump -h {DB_HOST} -U {DB_USER} -d {DB_NAME} -t ailog_peak.{table} --no-privileges --no-owner > {filepath} 2>/dev/null"
+        result = os.system(f"PGPASSWORD='{DB_PASSWORD}' {cmd}")
+        
+        if result == 0:
+            size = os.path.getsize(filepath) / 1024
+            print(f"   ✅ Saved ({size:.1f} KB)")
+        else:
+            print(f"   ❌ Failed to backup {table}")
+    
+    print("\n" + "="*70)
+    print("✅ Backup complete!")
+    print(f"   Files: /tmp/backup_*_{TIMESTAMP}.sql")
+    print("="*70)
+    
+    conn.close()
+    
+except Exception as e:
+    print(f"❌ Error: {e}")
