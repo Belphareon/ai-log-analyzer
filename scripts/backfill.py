@@ -43,13 +43,13 @@ load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
 
 def get_db_connection():
-    """Get database connection"""
+    """Get database connection (uses DDL user for INSERT operations)"""
     return psycopg2.connect(
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD')
+        user=os.getenv('DB_DDL_USER', os.getenv('DB_USER')),
+        password=os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD'))
     )
 
 
@@ -65,35 +65,32 @@ def save_incidents_to_db(collection, conn) -> int:
             cursor.execute("""
                 INSERT INTO ailog_peak.peak_investigation
                 (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-                 actual_value, severity, score, 
+                 original_value, reference_value, 
                  is_new, is_spike, is_burst, is_cross_namespace,
-                 error_type, error_message, detection_method, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
-                ON CONFLICT (timestamp, namespace) DO UPDATE SET
-                    actual_value = EXCLUDED.actual_value,
-                    severity = EXCLUDED.severity,
-                    score = EXCLUDED.score,
-                    updated_at = NOW()
+                 error_type, error_message, detection_method, score, severity)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 ts,
                 ts.weekday(),
                 ts.hour,
                 ts.minute // 15,
                 incident.namespaces[0] if incident.namespaces else 'unknown',
-                incident.stats.current_count,
-                incident.severity.value,
-                incident.score,
+                incident.stats.current_count,  # original_value
+                incident.stats.baseline_mean or incident.stats.current_count,  # reference_value
                 incident.flags.is_new,
                 incident.flags.is_spike,
                 incident.flags.is_burst,
                 incident.flags.is_cross_namespace,
                 incident.error_type,
                 incident.normalized_message[:500],
-                'v4_backfill'
+                'v4_backfill',
+                incident.score,
+                incident.severity.value
             ))
             saved += 1
         except Exception as e:
-            pass
+            print(f"   ⚠️  Insert error: {e}")
+            continue
     
     conn.commit()
     return saved
