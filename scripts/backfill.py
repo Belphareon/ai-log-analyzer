@@ -76,13 +76,13 @@ def save_incidents_to_db(collection, conn) -> int:
                 ts.minute // 15,
                 incident.namespaces[0] if incident.namespaces else 'unknown',
                 incident.stats.current_count,  # original_value
-                incident.stats.baseline_mean or incident.stats.current_count,  # reference_value
+                int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else incident.stats.current_count,  # reference_value
                 incident.flags.is_new,
                 incident.flags.is_spike,
                 incident.flags.is_burst,
                 incident.flags.is_cross_namespace,
                 incident.error_type,
-                incident.normalized_message[:500],
+                incident.normalized_message[:500] if incident.normalized_message else '',
                 'v4_backfill',
                 incident.score,
                 incident.severity.value
