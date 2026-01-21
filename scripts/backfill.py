@@ -87,12 +87,13 @@ def save_incidents_to_db(collection, conn) -> int:
                 incident.score,
                 incident.severity.value
             ))
+            conn.commit()
             saved += 1
         except Exception as e:
+            conn.rollback()
             print(f"   ⚠️  Insert error: {e}")
             continue
     
-    conn.commit()
     return saved
 
 
