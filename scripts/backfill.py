@@ -132,15 +132,10 @@ def process_day(
     
     print(f"   📥 {len(errors):,} errors", end='')
     
-    # Run V4 pipeline (suppress output)
-    import io
-    from contextlib import redirect_stdout
-    
+    # Run V4 pipeline
     run_id = f"backfill-{date.strftime('%Y%m%d')}"
     
-    f = io.StringIO()
-    with redirect_stdout(f):
-        collection = pipeline.run(errors, run_id=run_id)
+    collection = pipeline.run(errors, run_id=run_id)
     
     print(f" → {collection.total_incidents} incidents", end='')
     
