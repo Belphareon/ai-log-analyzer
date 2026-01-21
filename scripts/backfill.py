@@ -239,9 +239,18 @@ def run_backfill(
         
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(process_day_wrapper, d): d for d in dates}
-            for future in as_completed(futures):
-                result = future.result()
-                results.append(result)
+            for future in as_completed(futures, timeout=600):  # 10 minute timeout per day
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    date = futures[future]
+                    print(f"\n❌ Worker error for {date.strftime('%Y-%m-%d')}: {e}")
+                    results.append({
+                        'status': 'error',
+                        'date': date.strftime('%Y-%m-%d'),
+                        'error': str(e)
+                    })
     else:
         # Sequential processing
         pipeline = PipelineV4(
