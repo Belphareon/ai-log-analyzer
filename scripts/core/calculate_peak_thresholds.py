@@ -39,13 +39,13 @@ try:
 except ImportError:
     pass
 
-# Database configuration
+# Database configuration (uses DDL user for INSERT/DELETE operations)
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
     'port': int(os.getenv('DB_PORT', 5432)),
     'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD')
+    'user': os.getenv('DB_DDL_USER', os.getenv('DB_USER', 'ailog_analyzer_user_d1')),
+    'password': os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD'))
 }
 
 # Day names for display
