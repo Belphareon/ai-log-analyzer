@@ -385,10 +385,61 @@ EOF
 
 Requires completed INIT phase with data in `peak_raw_data`.
 
+**What it does:**
+- Calculates P93 (93rd percentile) for each namespace + day-of-week combination
+- Creates baseline thresholds from INIT data (peak_raw_data)
+- Computes CAP values (ceiling anomaly percentile) per namespace
+- Stores 62+ threshold rows and ~10 CAP values in database
+
+**Important:** Script uses `DB_DDL_USER` credentials (not regular app user) for INSERT/DELETE operations.
+
 ```bash
 cd /home/jvsete/git/sas/ai-log-analyzer
 
+# Standard execution (uses .env DB_DDL_USER)
 python3 scripts/core/calculate_peak_thresholds.py
+
+# Or with explicit DDL credentials
+DB_DDL_USER=ailog_analyzer_ddl_user_d1 DB_DDL_PASSWORD=WWvkHhyjje8YSgvU \
+  python3 scripts/core/calculate_peak_thresholds.py
+
+# Dry run (calculate but don't insert)
+python3 scripts/core/calculate_peak_thresholds.py --dry-run
+
+# Different percentile (default: 0.93)
+python3 scripts/core/calculate_peak_thresholds.py --percentile 0.95
+
+# Use only last 4 weeks of data
+python3 scripts/core/calculate_peak_thresholds.py --weeks 4
+
+# Verbose output
+python3 scripts/core/calculate_peak_thresholds.py --verbose
+```
+
+**Expected output:**
+```
+✅ Connected to P050TD01.DEV.KB.CZ:5432/ailog_analyzer
+📊 Fetching data from peak_raw_data...
+   Found 5,794 rows
+   Unique (namespace, dow) combinations: 62
+   Date range: 2026-01-09 to 2026-01-20
+
+📈 Calculating P93 thresholds...
+📊 Calculating CAP values...
+
+[P93 Thresholds table showing all namespaces × days]
+[CAP VALUES table showing aggregated thresholds]
+
+🗑️  Clearing existing thresholds...
+📥 Inserting 62 percentile thresholds...
+   ✅ Inserted 62 percentile threshold rows
+
+📥 Inserting 10 CAP values...
+   ✅ Inserted 10 CAP value rows
+
+================================================================================
+✅ Peak thresholds calculation complete!
+================================================================================
 ```
 
 ### 8.2 Verify Thresholds Stored
@@ -406,16 +457,57 @@ FROM ailog_peak.peak_thresholds
 ORDER BY namespace, day_of_week 
 LIMIT 20;
 
--- Show CAP values
-SELECT namespace, cap_value, median_percentile, avg_percentile
+-- Show CAP values (Ceiling Anomaly Percentile per namespace)
+SELECT namespace, cap_value, median_percentile, avg_percentile, min_percentile, max_percentile
 FROM ailog_peak.peak_threshold_caps
-ORDER BY namespace;
+ORDER BY cap_value DESC;
 EOF
 ```
 
 **Expected results:**
-- threshold_rows: ~62-84 (12 namespaces × 7 days of week, not all combinations may exist)
-- cap_rows: ~10-12 (one per namespace with data)
+- threshold_rows: 62 (12 namespaces with 5-7 days of data each)
+- cap_rows: 10 (one aggregated CAP value per namespace)
+- percentile_level: 0.9300 (P93)
+- percentile_value: ranges from 4.0 (pca-sit) to 606.0 (pcb-sit)
+
+**Sample output:**
+```
+ total_rows | namespaces | min_p93 | max_p93 | avg_p93
+------------+------------+---------+---------+---------
+         62 |         10 |    4.00 |  606.00 |  119.27
+
+       namespace      | cap_value
+ ─────────────────────────────────
+ pcb-sit-01-app       |    375.93
+ pcb-dev-01-app       |    181.29
+ pcb-ch-dev-01-app    |     84.43
+ pcb-ch-sit-01-app    |     99.57
+ pcb-fat-01-app       |     70.00
+ pcb-uat-01-app       |     76.86
+ pca-dev-01-app       |     63.86
+ pca-fat-01-app       |     24.00
+ pca-sit-01-app       |     17.50
+ pca-uat-01-app       |     17.83
+```
+
+### 8.3 Understanding Thresholds
+
+**peak_thresholds table:**
+- `namespace` - e.g., "pca-dev-01-app"
+- `day_of_week` - 0=Mon, 1=Tue, ..., 6=Sun
+- `percentile_value` - P93 threshold (errors above this = anomaly)
+- `percentile_level` - 0.93 (93rd percentile)
+- `sample_count` - How many data points used in calculation
+- `median_value`, `mean_value`, `max_value` - Baseline statistics
+
+**peak_threshold_caps table:**
+- `namespace` - Unique per namespace
+- `cap_value` - Aggregated ceiling value (median of P93 across all days)
+- `median_percentile`, `avg_percentile`, `min_percentile`, `max_percentile` - Statistical bounds
+
+**Usage:**
+- REGULAR phase uses thresholds to detect: `actual_value > percentile_value`
+- CAP values used for normalization and relative scoring
 
 ---
 
@@ -624,6 +716,8 @@ echo "✅ Setup verification complete!"
 
 **Error:** `psycopg2.errors.InsufficientPrivilege: permission denied for sequence peak_thresholds_id_seq`
 
+**Cause:** calculate_peak_thresholds.py is using regular app user (ailog_analyzer_user_d1) which lacks INSERT privileges
+
 **Solution:**
 ```bash
 export PGPASSWORD="WWvkHhyjje8YSgvU"
@@ -631,6 +725,44 @@ psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyz
 SET ROLE role_ailog_analyzer_ddl;
 GRANT USAGE ON SEQUENCE ailog_peak.peak_thresholds_id_seq TO ailog_analyzer_user_d1;
 GRANT USAGE ON SEQUENCE ailog_peak.peak_threshold_caps_id_seq TO ailog_analyzer_user_d1;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.peak_thresholds TO ailog_analyzer_user_d1;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.peak_threshold_caps TO ailog_analyzer_user_d1;
+EOF
+```
+
+**Prevention:** Ensure .env has correct `DB_DDL_USER` and `DB_DDL_PASSWORD` values, or pass via environment:
+```bash
+DB_DDL_USER=ailog_analyzer_ddl_user_d1 DB_DDL_PASSWORD=WWvkHhyjje8YSgvU \
+  python3 scripts/core/calculate_peak_thresholds.py
+```
+
+### Problem: Cannot Connect to Database
+
+**Error:** `psycopg2.OperationalError: could not connect to server: Connection refused`
+
+**Cause:** Database host, port, or credentials incorrect
+
+**Solution:**
+1. Verify .env DB_HOST and DB_PORT
+2. Test connectivity: `telnet P050TD01.DEV.KB.CZ 5432`
+3. Test credentials: 
+   ```bash
+   PGPASSWORD="WWvkHhyjje8YSgvU" psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_user_d1 -d ailog_analyzer -c "SELECT 1"
+   ```
+
+### Problem: Permission Denied for Schema
+
+**Error:** `permission denied for schema ailog_peak`
+
+**Cause:** User doesn't have USAGE permission on schema
+
+**Solution:**
+```bash
+export PGPASSWORD="WWvkHhyjje8YSgvU"
+psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyzer << 'EOF'
+SET ROLE role_ailog_analyzer_ddl;
+GRANT USAGE ON SCHEMA ailog_peak TO ailog_analyzer_user_d1;
+GRANT USAGE ON SCHEMA ailog_peak TO role_ailog_analyzer_app;
 EOF
 ```
 
@@ -657,9 +789,29 @@ EOF
 **Error:** `No data in peak_raw_data`
 
 **Solution:**
-- Run INIT phase first
+- Run INIT phase first: `python3 scripts/init_phase.py --days 12`
 - Verify data was inserted: `SELECT COUNT(*) FROM ailog_peak.peak_raw_data;`
-- Ensure at least 7 days of data for statistical significance
+- Ensure at least 7 days of data for statistical significance (P93 needs good sample size)
+
+### Problem: Script Uses Wrong Database User
+
+**Error:** Intermittent permission errors during calculate_peak_thresholds.py
+
+**Cause:** Script reading DB_USER instead of DB_DDL_USER from .env
+
+**Solution:** 
+- Ensure .env has both configured:
+  ```
+  DB_USER=ailog_analyzer_user_d1
+  DB_PASSWORD=<app_password>
+  DB_DDL_USER=ailog_analyzer_ddl_user_d1
+  DB_DDL_PASSWORD=WWvkHhyjje8YSgvU
+  ```
+- Or pass explicitly:
+  ```bash
+  DB_DDL_USER=ailog_analyzer_ddl_user_d1 DB_DDL_PASSWORD=WWvkHhyjje8YSgvU \
+    python3 scripts/core/calculate_peak_thresholds.py
+  ```
 
 ---
 
