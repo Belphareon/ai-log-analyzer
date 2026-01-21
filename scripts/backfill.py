@@ -54,51 +54,57 @@ def get_db_connection():
 
 
 def save_incidents_to_db(collection, conn) -> int:
-    """Save incidents to database"""
+    """Save incidents to database - BATCH INSERT"""
     cursor = conn.cursor()
     
     # Set role for DDL operations
     cursor.execute("SET ROLE role_ailog_analyzer_ddl")
     
-    saved = 0
+    if not collection.incidents:
+        return 0
     
+    # Prepare data for batch insert
+    data = []
     for incident in collection.incidents:
-        try:
-            ts = incident.time.first_seen or datetime.now(timezone.utc)
-            
-            cursor.execute("""
-                INSERT INTO ailog_peak.peak_investigation
-                (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-                 original_value, reference_value, 
-                 is_new, is_spike, is_burst, is_cross_namespace,
-                 error_type, error_message, detection_method, score, severity)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                ts,
-                ts.weekday(),
-                ts.hour,
-                ts.minute // 15,
-                incident.namespaces[0] if incident.namespaces else 'unknown',
-                incident.stats.current_count,  # original_value
-                int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else incident.stats.current_count,  # reference_value
-                incident.flags.is_new,
-                incident.flags.is_spike,
-                incident.flags.is_burst,
-                incident.flags.is_cross_namespace,
-                incident.error_type,
-                incident.normalized_message[:500] if incident.normalized_message else '',
-                'v4_backfill',
-                incident.score,
-                incident.severity.value
-            ))
-            conn.commit()
-            saved += 1
-        except Exception as e:
-            conn.rollback()
-            print(f"   ⚠️  Insert error: {e}")
-            continue
+        ts = incident.time.first_seen or datetime.now(timezone.utc)
+        data.append((
+            ts,
+            ts.weekday(),
+            ts.hour,
+            ts.minute // 15,
+            incident.namespaces[0] if incident.namespaces else 'unknown',
+            incident.stats.current_count,  # original_value
+            int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else incident.stats.current_count,  # reference_value
+            incident.flags.is_new,
+            incident.flags.is_spike,
+            incident.flags.is_burst,
+            incident.flags.is_cross_namespace,
+            incident.error_type or '',
+            (incident.normalized_message or '')[:500],
+            'v4_backfill',
+            incident.score,
+            incident.severity.value
+        ))
     
-    return saved
+    # Batch insert using execute_values (much faster)
+    try:
+        from psycopg2.extras import execute_values
+        
+        execute_values(cursor, """
+            INSERT INTO ailog_peak.peak_investigation
+            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
+             original_value, reference_value, 
+             is_new, is_spike, is_burst, is_cross_namespace,
+             error_type, error_message, detection_method, score, severity)
+            VALUES %s
+        """, data, page_size=1000)
+        
+        conn.commit()
+        return len(data)
+    except Exception as e:
+        print(f" ⚠️  Batch insert error: {e}")
+        conn.rollback()
+        return 0
 
 
 def process_day(
@@ -170,7 +176,8 @@ def run_backfill(
     date_from: str = None,
     date_to: str = None,
     output_dir: str = None,
-    dry_run: bool = False
+    dry_run: bool = False,
+    workers: int = 1
 ) -> dict:
     """
     Spustí backfill za N dní.
@@ -203,24 +210,48 @@ def run_backfill(
     
     print(f"\n📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
     print(f"   Total days: {(end_date - start_date).days + 1}")
+    print(f"   Workers: {workers}")
     
     if dry_run:
         print("   Mode: DRY RUN")
     
-    # Create pipeline
-    pipeline = PipelineV4(
-        spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
-        ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
-    )
-    
-    # Process each day
-    results = []
+    # Generate list of dates
+    dates = []
     current_date = start_date
-    
     while current_date <= end_date:
-        result = process_day(current_date, pipeline, dry_run)
-        results.append(result)
+        dates.append(current_date)
         current_date += timedelta(days=1)
+    
+    # Process days
+    results = []
+    
+    if workers > 1:
+        # Parallel processing
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        def process_day_wrapper(date):
+            # Each thread gets its own pipeline
+            pipeline = PipelineV4(
+                spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
+                ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
+            )
+            return process_day(date, pipeline, dry_run)
+        
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(process_day_wrapper, d): d for d in dates}
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+    else:
+        # Sequential processing
+        pipeline = PipelineV4(
+            spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
+            ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
+        )
+        
+        for date in dates:
+            result = process_day(date, pipeline, dry_run)
+            results.append(result)
     
     # Summary
     print("\n" + "=" * 70)
@@ -281,8 +312,7 @@ def main():
     parser.add_argument('--from', dest='date_from', help='Start date')
     parser.add_argument('--to', dest='date_to', help='End date')
     parser.add_argument('--output', type=str, help='Output directory for summary')
-    parser.add_argument('--dry-run', action='store_true', help='Dry run - no DB writes')
-    
+    parser.add_argument('--dry-run', action='store_true', help='Dry run - no DB writes')    parser.add_argument('--workers', type=int, default=1, help='Parallel workers (default: 1, try 4-8)')    
     args = parser.parse_args()
     
     result = run_backfill(
@@ -290,7 +320,8 @@ def main():
         date_from=args.date_from,
         date_to=args.date_to,
         output_dir=args.output,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        workers=args.workers
     )
     
     return 0 if result['error_count'] == 0 else 1
