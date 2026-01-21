@@ -44,65 +44,68 @@ load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
 
 def get_db_connection():
-    """Get database connection"""
+    """Get database connection (uses DDL user for INSERT operations)"""
     return psycopg2.connect(
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD')
+        user=os.getenv('DB_DDL_USER', os.getenv('DB_USER')),
+        password=os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD'))
     )
 
 
 def save_incidents_to_db(collection, conn) -> int:
-    """Save incidents to database"""
+    """Save incidents to database - BATCH INSERT"""
     cursor = conn.cursor()
-    saved = 0
     
+    # Set role for DDL operations
+    cursor.execute("SET ROLE role_ailog_analyzer_ddl")
+    
+    if not collection.incidents:
+        return 0
+    
+    # Prepare data for batch insert
+    data = []
     for incident in collection.incidents:
-        try:
-            # Get first timestamp
-            ts = incident.time.first_seen or datetime.now(timezone.utc)
-            
-            cursor.execute("""
-                INSERT INTO ailog_peak.peak_investigation
-                (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-                 actual_value, severity, score, 
-                 is_new, is_spike, is_burst, is_cross_namespace, is_regression,
-                 error_type, error_message, app_name,
-                 detection_method, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
-                ON CONFLICT (timestamp, namespace) DO UPDATE SET
-                    actual_value = EXCLUDED.actual_value,
-                    severity = EXCLUDED.severity,
-                    score = EXCLUDED.score,
-                    is_spike = EXCLUDED.is_spike,
-                    updated_at = NOW()
-            """, (
-                ts,
-                ts.weekday(),
-                ts.hour,
-                ts.minute // 15,
-                incident.namespaces[0] if incident.namespaces else 'unknown',
-                incident.stats.current_count,
-                incident.severity.value,
-                incident.score,
-                incident.flags.is_new,
-                incident.flags.is_spike,
-                incident.flags.is_burst,
-                incident.flags.is_cross_namespace,
-                incident.flags.is_regression,
-                incident.error_type,
-                incident.normalized_message[:500],
-                incident.apps[0] if incident.apps else None,
-                'v4_pipeline'
-            ))
-            saved += 1
-        except Exception as e:
-            pass  # Ignore duplicates
+        ts = incident.time.first_seen or datetime.now(timezone.utc)
+        data.append((
+            ts,
+            ts.weekday(),
+            ts.hour,
+            ts.minute // 15,
+            incident.namespaces[0] if incident.namespaces else 'unknown',
+            incident.stats.current_count,  # original_value
+            int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else incident.stats.current_count,  # reference_value
+            incident.flags.is_new,
+            incident.flags.is_spike,
+            incident.flags.is_burst,
+            incident.flags.is_cross_namespace,
+            incident.error_type or '',
+            (incident.normalized_message or '')[:500],
+            'v4_pipeline',
+            incident.score,
+            incident.severity.value
+        ))
     
-    conn.commit()
-    return saved
+    # Batch insert using execute_values (much faster)
+    try:
+        from psycopg2.extras import execute_values
+        
+        execute_values(cursor, """
+            INSERT INTO ailog_peak.peak_investigation
+            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
+             original_value, reference_value, 
+             is_new, is_spike, is_burst, is_cross_namespace,
+             error_type, error_message, detection_method, score, severity)
+            VALUES %s
+        """, data, page_size=1000)
+        
+        conn.commit()
+        return len(data)
+    except Exception as e:
+        print(f" ⚠️  Batch insert error: {e}")
+        conn.rollback()
+        return 0
 
 
 def update_error_patterns(collection, conn) -> int:
