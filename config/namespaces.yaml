@@ -2,60 +2,100 @@
 # AI Log Analyzer - Namespace Configuration
 # ============================================================================
 
-# Seznam namespace k monitoringu
+# Seznam namespace k monitoringu (12 celkem)
 # Tyto namespaces budou sledovány pro peak detection
 
 namespaces:
-  # Development
+  # PCA - Prefix A
+  - pca-dev-01-app
+  - pca-fat-01-app
+  - pca-sit-01-app
+  - pca-uat-01-app
+
+  # PCB - Prefix B
   - pcb-dev-01-app
-  - pcb-dev-02-app
-  
-  # SIT (System Integration Testing)
+  - pcb-fat-01-app
   - pcb-sit-01-app
-  - pcb-sit-02-app
-  
-  # UAT (User Acceptance Testing)
   - pcb-uat-01-app
-  
-  # Production
-  - pcb-prd-01-app
-  - pcb-prd-02-app
+
+  # PCB-CH - Prefix B China
+  - pcb-ch-dev-01-app
+  - pcb-ch-fat-01-app
+  - pcb-ch-sit-01-app
+  - pcb-ch-uat-01-app
 
 # Namespace groups pro reporting
 groups:
-  development:
+  pca:
+    - pca-dev-01-app
+    - pca-fat-01-app
+    - pca-sit-01-app
+    - pca-uat-01-app
+  pcb:
     - pcb-dev-01-app
-    - pcb-dev-02-app
-  testing:
+    - pcb-fat-01-app
     - pcb-sit-01-app
-    - pcb-sit-02-app
     - pcb-uat-01-app
-  production:
-    - pcb-prd-01-app
-    - pcb-prd-02-app
+  pcb_ch:
+    - pcb-ch-dev-01-app
+    - pcb-ch-fat-01-app
+    - pcb-ch-sit-01-app
+    - pcb-ch-uat-01-app
+  development:
+    - pca-dev-01-app
+    - pcb-dev-01-app
+    - pcb-ch-dev-01-app
+  fat:
+    - pca-fat-01-app
+    - pcb-fat-01-app
+    - pcb-ch-fat-01-app
+  sit:
+    - pca-sit-01-app
+    - pcb-sit-01-app
+    - pcb-ch-sit-01-app
+  uat:
+    - pca-uat-01-app
+    - pcb-uat-01-app
+    - pcb-ch-uat-01-app
 
 # Namespace priority (pro alerting)
 # higher = more important
 priority:
-  pcb-prd-01-app: 100
-  pcb-prd-02-app: 100
+  # PCA
+  pca-uat-01-app: 60
+  pca-sit-01-app: 60
+  pca-fat-01-app: 40
+  pca-dev-01-app: 60
+
+  # PCB
   pcb-uat-01-app: 80
-  pcb-sit-01-app: 60
-  pcb-sit-02-app: 60
-  pcb-dev-01-app: 40
-  pcb-dev-02-app: 40
+  pcb-sit-01-app: 80
+  pcb-fat-01-app: 60
+  pcb-dev-01-app: 80
+
+  # PCB-CH
+  pcb-ch-uat-01-app: 70
+  pcb-ch-sit-01-app: 70
+  pcb-ch-fat-01-app: 60
+  pcb-ch-dev-01-app: 70
 
 # Alert rules per namespace
 # critical_threshold: alert when score >= threshold
 alert_rules:
-  pcb-prd-01-app:
-    critical_threshold: 60
-    alert_channels: ["teams", "email"]
-  pcb-prd-02-app:
-    critical_threshold: 60
-    alert_channels: ["teams", "email"]
-  pcb-uat-01-app:
+  pca-uat-01-app:
     critical_threshold: 70
+    alert_channels: ["teams"]
+  pca-sit-01-app:
+    critical_threshold: 75
+    alert_channels: ["teams"]
+  pcb-uat-01-app:
+    critical_threshold: 60
+    alert_channels: ["teams", "email"]
+  pcb-sit-01-app:
+    critical_threshold: 70
+    alert_channels: ["teams"]
+  pcb-ch-uat-01-app:
+    critical_threshold: 65
     alert_channels: ["teams"]
   default:
     critical_threshold: 80
