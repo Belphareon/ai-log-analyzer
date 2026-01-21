@@ -312,7 +312,9 @@ def main():
     parser.add_argument('--from', dest='date_from', help='Start date')
     parser.add_argument('--to', dest='date_to', help='End date')
     parser.add_argument('--output', type=str, help='Output directory for summary')
-    parser.add_argument('--dry-run', action='store_true', help='Dry run - no DB writes')    parser.add_argument('--workers', type=int, default=1, help='Parallel workers (default: 1, try 4-8)')    
+    parser.add_argument('--dry-run', action='store_true', help='Dry run - no DB writes')
+    parser.add_argument('--workers', type=int, default=1, help='Parallel workers (default: 1, try 4-8)')
+    
     args = parser.parse_args()
     
     result = run_backfill(
