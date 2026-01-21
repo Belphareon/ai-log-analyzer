@@ -118,7 +118,7 @@ class PhaseD_Score:
         breakdown.new_bonus = int(detection.flags.is_new) * self.weights.new_weight
         breakdown.regression_bonus = int(detection.flags.is_regression) * self.weights.regression_weight
         breakdown.cascade_bonus = int(detection.flags.is_cascade) * self.weights.cascade_weight
-        breakdown.cross_ns_bonus = int(detection.flags.is_cross_namespace) * self.weights.cross_ns_bonus
+        breakdown.cross_ns_bonus = int(detection.flags.is_cross_namespace) * self.weights.cross_ns_weight
         
         # Scaling bonuses (based on magnitude)
         # Trend ratio bonus: extra points for extreme spikes
