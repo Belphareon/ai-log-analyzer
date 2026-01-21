@@ -56,6 +56,10 @@ def get_db_connection():
 def save_incidents_to_db(collection, conn) -> int:
     """Save incidents to database"""
     cursor = conn.cursor()
+    
+    # Set role for DDL operations
+    cursor.execute("SET ROLE role_ailog_analyzer_ddl")
+    
     saved = 0
     
     for incident in collection.incidents:
