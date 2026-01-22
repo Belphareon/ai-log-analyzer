@@ -239,9 +239,9 @@ def run_backfill(
         
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(process_day_wrapper, d): d for d in dates}
-            for future in as_completed(futures, timeout=600):  # 10 minute timeout per day
+            for future in as_completed(futures):
                 try:
-                    result = future.result()
+                    result = future.result(timeout=600)  # 10 min timeout per future
                     results.append(result)
                 except Exception as e:
                     date = futures[future]
