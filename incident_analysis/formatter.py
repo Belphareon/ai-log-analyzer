@@ -186,9 +186,10 @@ class IncidentReportFormatter:
         # Metrics
         lines.append(f"  • Errors: {incident.total_errors:,} | Peak: {incident.peak_error_rate:.1f}x baseline")
         
-        # Propagation info (v5.3)
-        if scope.propagated:
-            prop_time = scope.propagation_time_sec or 0
+        # Propagation info (v5.3) - z incident.propagation, ne scope!
+        propagation = incident.propagation
+        if propagation.propagated:
+            prop_time = propagation.propagation_time_sec or 0
             if prop_time < 60:
                 lines.append(f"  • ⚡ PROPAGATED in {prop_time}s across {scope.blast_radius} apps")
             else:

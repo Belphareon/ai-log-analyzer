@@ -1,0 +1,25 @@
+# Known Peaks Registry
+# ====================
+#
+# Tento soubor je automaticky aktualizován při každém běhu pipeline.
+# NIKDY se nic nemaže - pouze se přidávají nové záznamy nebo aktualizují existující.
+#
+# Struktura:
+# - id: KP-XXXXXX
+#   fingerprint: hash peaku
+#   peak_type: TRAFFIC_SPIKE | ERROR_BURST | ANOMALY
+#   first_seen: kdy byl poprvé detekován
+#   last_seen: kdy byl naposledy detekován
+#   occurrences: kolikrát se objevil
+#   affected_apps: seznam aplikací
+#   baseline_rate: baseline hodnota
+#   peak_rate: špičková hodnota
+#   duration_max_sec: maximální délka trvání
+#   status: OPEN | MONITORING | RESOLVED
+#   jira: odkaz na Jira ticket (vyplňuje člověk)
+#   notes: poznámky (vyplňuje člověk)
+#
+# Řazení: od nejnovějšího (last_seen DESC)
+#
+
+[]

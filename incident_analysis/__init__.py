@@ -27,6 +27,7 @@ from .models import (
     TimelineEvent,
     IncidentTrigger,
     IncidentScope,
+    IncidentPropagation,  # v5.3: odděleno od Scope
     CausalLink,
     CausalChain,
     RecommendedAction,
@@ -97,6 +98,7 @@ __all__ = [
     'TimelineEvent',
     'IncidentTrigger',
     'IncidentScope',
+    'IncidentPropagation',  # v5.3
     'CausalLink',
     'CausalChain',
     'RecommendedAction',

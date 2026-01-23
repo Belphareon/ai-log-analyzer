@@ -15,6 +15,7 @@ import os
 import sys
 import argparse
 import json
+import yaml
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,6 +24,7 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR / 'v4'))
+sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 
@@ -42,34 +44,56 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
-# Incident Analysis v5.2
+# Incident Analysis v5.3
 try:
     from incident_analysis import (
         IncidentAnalysisEngine,
         IncidentReportFormatter,
+        IncidentAnalysisResult,
     )
     from incident_analysis.knowledge_base import KnowledgeBase
     from incident_analysis.knowledge_matcher import KnowledgeMatcher
     from incident_analysis.models import calculate_priority
     HAS_INCIDENT_ANALYSIS = True
-except ImportError:
+except ImportError as e:
     HAS_INCIDENT_ANALYSIS = False
+    print(f"⚠️ Incident Analysis import failed: {e}")
 
 
-def run_incident_analysis(collection, window_start, window_end, quiet=False):
+def run_incident_analysis(collection, window_start, window_end, output_dir=None, quiet=False):
     """
     Spustí Incident Analysis na výsledcích pipeline.
     
+    OPRAVA v5.3: Report se generuje VŽDY, i když nejsou incidenty.
+    
+    Args:
+        collection: IncidentCollection z pipeline
+        window_start: Začátek okna
+        window_end: Konec okna
+        output_dir: Adresář pro uložení reportu (pokud None, neukládá se)
+        quiet: Tichý režim
+    
     Returns:
-        str: Formátovaný report nebo None při chybě
+        str: Formátovaný report (nikdy None!)
     """
     if not HAS_INCIDENT_ANALYSIS:
         if not quiet:
             print("   ⚠️  Incident Analysis not available (missing module)")
-        return None
+        return "⚠️ Incident Analysis module not available"
     
+    formatter = IncidentReportFormatter()
+    
+    # Pokud nejsou incidenty, generuj prázdný report
     if not collection.incidents:
-        return None
+        result = IncidentAnalysisResult(
+            incidents=[],
+            total_incidents=0,
+            analysis_start=window_start,
+            analysis_end=window_end,
+        )
+        report = formatter.format_15min(result)
+        _save_report(report, output_dir, "15min", quiet)
+        return report
     
     try:
         # 1. Analyzuj incidenty
@@ -79,9 +103,6 @@ def run_incident_analysis(collection, window_start, window_end, quiet=False):
             analysis_start=window_start,
             analysis_end=window_end,
         )
-        
-        if result.total_incidents == 0:
-            return None
         
         # 2. Knowledge matching
         kb_path = SCRIPT_DIR.parent / 'config' / 'known_issues'
@@ -99,20 +120,180 @@ def run_incident_analysis(collection, window_start, window_end, quiet=False):
                     severity=incident.severity,
                     blast_radius=incident.scope.blast_radius,
                     namespace_count=len(incident.scope.namespaces),
-                    propagated=incident.scope.propagated,
-                    propagation_time_sec=incident.scope.propagation_time_sec,
+                    propagated=incident.propagation.propagated,
+                    propagation_time_sec=incident.propagation.propagation_time_sec,
                 )
         
         # 3. Formátuj report
-        formatter = IncidentReportFormatter()
         report = formatter.format_15min(result)
+        
+        # 4. Ulož report do souboru
+        _save_report(report, output_dir, "15min", quiet)
+        
+        # 5. Aktualizuj registry (append-only)
+        _update_registry(result, SCRIPT_DIR.parent / 'registry', quiet)
         
         return report
         
     except Exception as e:
         if not quiet:
             print(f"   ⚠️  Incident Analysis error: {e}")
-        return None
+            import traceback
+            traceback.print_exc()
+        # I při chybě vrať nějaký report
+        return f"⚠️ Incident Analysis error: {e}"
+
+
+def _save_report(report: str, output_dir, mode: str, quiet: bool):
+    """Uloží report do souboru."""
+    if not output_dir:
+        return
+    
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"incident_analysis_{mode}_{timestamp}.txt"
+    filepath = output_path / filename
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(report)
+    
+    if not quiet:
+        print(f"   📄 Report saved: {filepath}")
+
+
+def _update_registry(result: 'IncidentAnalysisResult', registry_dir: Path, quiet: bool):
+    """
+    Aktualizuje append-only registry known errors/peaks.
+    
+    Pravidla:
+    - Nový fingerprint → nový záznam
+    - Existující fingerprint → aktualizuj last_seen, occurrences++
+    - Nikdy se nic nemaže
+    - Řazení od nejnovějšího (last_seen DESC)
+    """
+    if not result.incidents:
+        return
+    
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    
+    errors_yaml = registry_dir / 'known_errors.yaml'
+    errors_md = registry_dir / 'known_errors.md'
+    
+    # Načti existující registry
+    existing = {}
+    if errors_yaml.exists():
+        try:
+            with open(errors_yaml, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or []
+                for item in data:
+                    if 'fingerprint' in item:
+                        existing[item['fingerprint']] = item
+        except Exception as e:
+            if not quiet:
+                print(f"   ⚠️  Registry load error: {e}")
+    
+    now = datetime.now().isoformat()
+    updated = False
+    
+    # Zpracuj každý incident
+    for incident in result.incidents:
+        for fp in incident.scope.fingerprints:
+            if fp in existing:
+                # Aktualizuj existující
+                entry = existing[fp]
+                entry['last_seen'] = now
+                entry['occurrences'] = entry.get('occurrences', 1) + 1
+                
+                # Přidej nové apps/namespaces/versions
+                for app in incident.scope.apps:
+                    if app not in entry.get('affected_apps', []):
+                        entry.setdefault('affected_apps', []).append(app)
+                for ns in incident.scope.namespaces:
+                    if ns not in entry.get('affected_namespaces', []):
+                        entry.setdefault('affected_namespaces', []).append(ns)
+                for app, versions in incident.scope.app_versions.items():
+                    for v in versions:
+                        if v not in entry.get('versions_seen', []):
+                            entry.setdefault('versions_seen', []).append(v)
+                
+                updated = True
+            else:
+                # Nový záznam
+                entry_id = f"KE-{len(existing) + 1:06d}"
+                existing[fp] = {
+                    'id': entry_id,
+                    'fingerprint': fp,
+                    'category': incident.causal_chain.root_cause_type if incident.causal_chain else 'unknown',
+                    'first_seen': now,
+                    'last_seen': now,
+                    'occurrences': 1,
+                    'affected_apps': list(incident.scope.apps),
+                    'affected_namespaces': list(incident.scope.namespaces),
+                    'versions_seen': [v for versions in incident.scope.app_versions.values() for v in versions],
+                    'status': 'OPEN',
+                    'jira': None,
+                    'notes': None,
+                }
+                updated = True
+    
+    if not updated:
+        return
+    
+    # Seřaď od nejnovějšího (last_seen DESC)
+    sorted_entries = sorted(existing.values(), key=lambda x: x.get('last_seen', ''), reverse=True)
+    
+    # Ulož YAML
+    with open(errors_yaml, 'w', encoding='utf-8') as f:
+        yaml.dump(sorted_entries, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    
+    # Ulož MD (human-readable)
+    _write_registry_md(sorted_entries, errors_md)
+    
+    if not quiet:
+        print(f"   📝 Registry updated: {len(sorted_entries)} entries")
+
+
+def _write_registry_md(entries: list, filepath: Path):
+    """Zapíše human-readable MD verzi registry."""
+    lines = [
+        "# Known Errors Registry",
+        "",
+        f"_Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_",
+        f"_Total entries: {len(entries)}_",
+        "",
+        "---",
+        "",
+    ]
+    
+    for entry in entries:
+        lines.extend([
+            f"## {entry.get('id', 'N/A')} – {entry.get('category', 'Unknown')}",
+            "",
+            f"**Fingerprint:** `{entry.get('fingerprint', 'N/A')}`",
+            f"**First seen:** {entry.get('first_seen', 'N/A')}",
+            f"**Last seen:** {entry.get('last_seen', 'N/A')}",
+            f"**Occurrences:** {entry.get('occurrences', 0)}",
+            f"**Status:** {entry.get('status', 'OPEN')}",
+            "",
+            "### Affected",
+            f"- Apps: {', '.join(entry.get('affected_apps', []))}",
+            f"- Namespaces: {', '.join(entry.get('affected_namespaces', []))}",
+            f"- Versions: {', '.join(entry.get('versions_seen', []))}",
+            "",
+            "### Jira",
+            f"{entry.get('jira') or '_(not created yet)_'}",
+            "",
+            "### Notes",
+            f"{entry.get('notes') or '_(none)_'}",
+            "",
+            "---",
+            "",
+        ])
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
 
 
 def get_db_connection():
@@ -361,15 +542,20 @@ def run_regular_pipeline(
     if collection.by_severity.get('critical', 0) > 0 or collection.by_severity.get('high', 0) > 0:
         send_alerts(collection, webhook_url)
     
-    # === INCIDENT ANALYSIS v5.2 ===
-    if HAS_INCIDENT_ANALYSIS and collection.total_incidents > 0 and not skip_analysis:
+    # === INCIDENT ANALYSIS v5.3 ===
+    # OPRAVA: Report se generuje VŽDY, bez podmínek!
+    if HAS_INCIDENT_ANALYSIS and not skip_analysis:
         if not quiet:
             print(f"\n🔍 Running Incident Analysis...")
+        
+        # Defaultní output_dir = scripts/reports/
+        reports_dir = output_dir or (SCRIPT_DIR / 'reports')
         
         analysis_report = run_incident_analysis(
             collection, 
             window_start, 
             window_end, 
+            output_dir=str(reports_dir),
             quiet=quiet
         )
         

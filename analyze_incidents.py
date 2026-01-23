@@ -506,8 +506,8 @@ def main():
                 blast_radius=incident.scope.blast_radius,
                 is_worsening=False,  # TODO: porovnat s předchozím během
                 namespace_count=len(incident.scope.namespaces),
-                propagated=incident.scope.propagated,
-                propagation_time_sec=incident.scope.propagation_time_sec,
+                propagated=incident.propagation.propagated,
+                propagation_time_sec=incident.propagation.propagation_time_sec,
             )
         
         stats = matcher.get_stats(result)

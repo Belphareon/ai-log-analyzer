@@ -16,6 +16,7 @@ import os
 import sys
 import argparse
 import json
+import yaml
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import threading
@@ -26,6 +27,7 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR / 'v4'))
+sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from v4.pipeline_v4 import PipelineV4
@@ -43,35 +45,50 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
-# Incident Analysis v5.2
+# Incident Analysis v5.3
 try:
     from incident_analysis import (
         IncidentAnalysisEngine,
         IncidentReportFormatter,
+        IncidentAnalysisResult,
     )
     from incident_analysis.knowledge_base import KnowledgeBase
     from incident_analysis.knowledge_matcher import KnowledgeMatcher
     from incident_analysis.models import calculate_priority
     HAS_INCIDENT_ANALYSIS = True
-except ImportError:
+except ImportError as e:
     HAS_INCIDENT_ANALYSIS = False
+    print(f"⚠️ Incident Analysis import failed: {e}")
 
 
-def run_incident_analysis_daily(all_incidents, start_date, end_date):
+def run_incident_analysis_daily(all_incidents, start_date, end_date, output_dir=None, quiet=False):
     """
     Spustí Incident Analysis na agregovaných datech z backfillu.
     
     Pro backfill používáme daily mode - agregace přes celé období.
     
+    OPRAVA v5.3: Report se generuje VŽDY, i při prázdných datech.
+    
     Returns:
-        str: Formátovaný report nebo None
+        str: Formátovaný report (nikdy None!)
     """
     if not HAS_INCIDENT_ANALYSIS:
         safe_print("   ⚠️  Incident Analysis not available")
-        return None
+        return "⚠️ Incident Analysis module not available"
     
+    formatter = IncidentReportFormatter()
+    
+    # Pokud nejsou incidenty, generuj prázdný report
     if not all_incidents.incidents:
-        return None
+        result = IncidentAnalysisResult(
+            incidents=[],
+            total_incidents=0,
+            analysis_start=start_date,
+            analysis_end=end_date,
+        )
+        report = formatter.format_daily(result)
+        _save_report_daily(report, output_dir, start_date, end_date, quiet)
+        return report
     
     try:
         # 1. Analyzuj incidenty
@@ -81,9 +98,6 @@ def run_incident_analysis_daily(all_incidents, start_date, end_date):
             analysis_start=start_date,
             analysis_end=end_date,
         )
-        
-        if result.total_incidents == 0:
-            return None
         
         # 2. Knowledge matching
         kb_path = SCRIPT_DIR.parent / 'config' / 'known_issues'
@@ -101,19 +115,150 @@ def run_incident_analysis_daily(all_incidents, start_date, end_date):
                     severity=incident.severity,
                     blast_radius=incident.scope.blast_radius,
                     namespace_count=len(incident.scope.namespaces),
-                    propagated=incident.scope.propagated,
-                    propagation_time_sec=incident.scope.propagation_time_sec,
+                    propagated=incident.propagation.propagated,
+                    propagation_time_sec=incident.propagation.propagation_time_sec,
                 )
         
         # 3. Formátuj jako daily report (ne 15min)
-        formatter = IncidentReportFormatter()
         report = formatter.format_daily(result)
+        
+        # 4. Ulož report
+        _save_report_daily(report, output_dir, start_date, end_date, quiet)
+        
+        # 5. Aktualizuj registry
+        _update_registry_backfill(result, SCRIPT_DIR.parent / 'registry', quiet)
         
         return report
         
     except Exception as e:
         safe_print(f"   ⚠️  Incident Analysis error: {e}")
-        return None
+        import traceback
+        traceback.print_exc()
+        return f"⚠️ Incident Analysis error: {e}"
+
+
+def _save_report_daily(report: str, output_dir, start_date, end_date, quiet: bool):
+    """Uloží daily report do souboru."""
+    if not output_dir:
+        output_dir = SCRIPT_DIR / 'reports'
+    
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Format dates
+    start_str = start_date.strftime('%Y%m%d') if hasattr(start_date, 'strftime') else str(start_date)[:10].replace('-', '')
+    end_str = end_date.strftime('%Y%m%d') if hasattr(end_date, 'strftime') else str(end_date)[:10].replace('-', '')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    filename = f"incident_analysis_daily_{start_str}_{end_str}_{timestamp}.txt"
+    filepath = output_path / filename
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(report)
+    
+    if not quiet:
+        safe_print(f"   📄 Report saved: {filepath}")
+
+
+def _update_registry_backfill(result, registry_dir: Path, quiet: bool):
+    """Aktualizuje append-only registry z backfillu."""
+    if not result.incidents:
+        return
+    
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    
+    errors_yaml = registry_dir / 'known_errors.yaml'
+    errors_md = registry_dir / 'known_errors.md'
+    
+    # Načti existující
+    existing = {}
+    if errors_yaml.exists():
+        try:
+            with open(errors_yaml, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or []
+                for item in data:
+                    if 'fingerprint' in item:
+                        existing[item['fingerprint']] = item
+        except Exception as e:
+            if not quiet:
+                safe_print(f"   ⚠️  Registry load error: {e}")
+    
+    now = datetime.now().isoformat()
+    updated = False
+    
+    for incident in result.incidents:
+        for fp in incident.scope.fingerprints:
+            if fp in existing:
+                entry = existing[fp]
+                entry['last_seen'] = now
+                entry['occurrences'] = entry.get('occurrences', 1) + 1
+                for app in incident.scope.apps:
+                    if app not in entry.get('affected_apps', []):
+                        entry.setdefault('affected_apps', []).append(app)
+                updated = True
+            else:
+                entry_id = f"KE-{len(existing) + 1:06d}"
+                existing[fp] = {
+                    'id': entry_id,
+                    'fingerprint': fp,
+                    'category': incident.causal_chain.root_cause_type if incident.causal_chain else 'unknown',
+                    'first_seen': now,
+                    'last_seen': now,
+                    'occurrences': 1,
+                    'affected_apps': list(incident.scope.apps),
+                    'affected_namespaces': list(incident.scope.namespaces),
+                    'versions_seen': [v for vs in incident.scope.app_versions.values() for v in vs],
+                    'status': 'OPEN',
+                    'jira': None,
+                    'notes': None,
+                }
+                updated = True
+    
+    if not updated:
+        return
+    
+    sorted_entries = sorted(existing.values(), key=lambda x: x.get('last_seen', ''), reverse=True)
+    
+    with open(errors_yaml, 'w', encoding='utf-8') as f:
+        yaml.dump(sorted_entries, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    
+    _write_registry_md_backfill(sorted_entries, errors_md)
+    
+    if not quiet:
+        safe_print(f"   📝 Registry updated: {len(sorted_entries)} entries")
+
+
+def _write_registry_md_backfill(entries: list, filepath: Path):
+    """Zapíše MD verzi registry."""
+    lines = [
+        "# Known Errors Registry",
+        "",
+        f"_Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_",
+        f"_Total entries: {len(entries)}_",
+        "",
+        "---",
+        "",
+    ]
+    
+    for entry in entries:
+        lines.extend([
+            f"## {entry.get('id', 'N/A')} – {entry.get('category', 'Unknown')}",
+            "",
+            f"**Fingerprint:** `{entry.get('fingerprint', 'N/A')}`",
+            f"**First seen:** {entry.get('first_seen', 'N/A')}",
+            f"**Last seen:** {entry.get('last_seen', 'N/A')}",
+            f"**Occurrences:** {entry.get('occurrences', 0)}",
+            f"**Status:** {entry.get('status', 'OPEN')}",
+            "",
+            f"- Apps: {', '.join(entry.get('affected_apps', []))}",
+            f"- Namespaces: {', '.join(entry.get('affected_namespaces', []))}",
+            "",
+            "---",
+            "",
+        ])
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
 
 
 # Thread-safe print
@@ -477,17 +622,23 @@ def run_backfill(
             safe_print(f" Summary: {report_files.get('summary')}")
     
     # =========================================================
-    # INCIDENT ANALYSIS v5.2 (daily mode)
+    # INCIDENT ANALYSIS v5.3 (daily mode)
     # =========================================================
-    if HAS_INCIDENT_ANALYSIS and all_incidents.total_incidents > 0 and not skip_analysis:
+    # OPRAVA: Report se generuje VŽDY, bez podmínek!
+    if HAS_INCIDENT_ANALYSIS and not skip_analysis:
         safe_print("\n" + "=" * 70)
-        safe_print("🔍 INCIDENT ANALYSIS v5.2 (Daily Mode)")
+        safe_print("🔍 INCIDENT ANALYSIS v5.3 (Daily Mode)")
         safe_print("=" * 70)
+        
+        # Defaultní output_dir = scripts/reports/
+        reports_dir = output_dir or (SCRIPT_DIR / 'reports')
         
         analysis_report = run_incident_analysis_daily(
             all_incidents,
             start_date,
-            end_date
+            end_date,
+            output_dir=str(reports_dir),
+            quiet=False
         )
         
         if analysis_report:

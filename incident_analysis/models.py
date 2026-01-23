@@ -216,6 +216,8 @@ class IncidentScope:
     - root_apps: příčina incidentu
     - downstream_apps: ovlivněny root aplikací
     - collateral_apps: vedlejší poškození (nepřímé)
+    
+    POZOR: Propagation je v samostatném IncidentPropagation!
     """
     
     # Affected apps (všechny)
@@ -237,11 +239,6 @@ class IncidentScope:
     # Metrics
     total_errors: int = 0
     affected_pods: int = 0
-    
-    # === PROPAGATION (v5.3) ===
-    propagated: bool = False                    # Incident se rozšířil?
-    propagation_time_sec: Optional[int] = None  # Jak rychle?
-    propagation_path: List[str] = field(default_factory=list)  # app1 → app2 → app3
     
     # Version change detection (v5.2)
     version_change_detected: bool = False
@@ -316,24 +313,29 @@ class IncidentScope:
         
         return sorted(versions, key=version_key)
     
-    def classify_app_roles(self, first_app: str, app_timestamps: Dict[str, 'datetime']):
+    def classify_app_roles(self, first_app: str, app_timestamps: Dict[str, 'datetime']) -> 'IncidentPropagation':
         """
         Klasifikuje role aplikací podle časové osy.
         
         Args:
             first_app: Aplikace která měla první chybu
             app_timestamps: Dict app -> timestamp první chyby
+            
+        Returns:
+            IncidentPropagation objekt s informacemi o šíření
         """
+        propagation = IncidentPropagation()
+        
         if not self.apps:
-            return
+            return propagation
         
         # Root = první app s chybou
         self.root_apps = [first_app] if first_app else []
         
         if len(self.apps) == 1:
             # Lokální incident
-            self.propagated = False
-            return
+            propagation.propagated = False
+            return propagation
         
         # Seřadit apps podle času
         sorted_apps = sorted(
@@ -355,10 +357,28 @@ class IncidentScope:
             
             # Propagation
             if self.downstream_apps or self.collateral_apps:
-                self.propagated = True
+                propagation.propagated = True
                 last_ts = sorted_apps[-1][1] if sorted_apps else first_ts
-                self.propagation_time_sec = int((last_ts - first_ts).total_seconds())
-                self.propagation_path = [first_app] + [app for app, _ in sorted_apps]
+                propagation.propagation_time_sec = int((last_ts - first_ts).total_seconds())
+                propagation.propagation_path = [first_app] + [app for app, _ in sorted_apps]
+        
+        return propagation
+
+
+# =============================================================================
+# INCIDENT PROPAGATION (v5.3 - odděleno od Scope)
+# =============================================================================
+
+@dataclass
+class IncidentPropagation:
+    """
+    Jak se incident šířil (propagace).
+    
+    Odděleno od IncidentScope (kde) - toto je JAK.
+    """
+    propagated: bool = False                    # Incident se rozšířil?
+    propagation_time_sec: Optional[int] = None  # Jak rychle?
+    propagation_path: List[str] = field(default_factory=list)  # app1 → app2 → app3
 
 
 # =============================================================================
@@ -479,6 +499,9 @@ class IncidentAnalysis:
     
     # ===== SCOPE (kde) =====
     scope: IncidentScope = field(default_factory=IncidentScope)
+    
+    # ===== PROPAGATION (jak se šířilo) =====
+    propagation: IncidentPropagation = field(default_factory=IncidentPropagation)
     
     # ===== TIMELINE (FACTS - detekované události) =====
     timeline: List[TimelineEvent] = field(default_factory=list)

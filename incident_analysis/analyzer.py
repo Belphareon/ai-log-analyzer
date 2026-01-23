@@ -272,8 +272,8 @@ class IncidentAnalysisEngine:
         # 2. Postavit timeline
         timeline = self.timeline_builder.build_timeline(events, trigger)
         
-        # 3. Určit scope
-        scope = self._build_scope(events)
+        # 3. Určit scope a propagation
+        scope, propagation = self._build_scope(events)
         
         # 4. Určit kategorii
         category = self._determine_category(events)
@@ -308,6 +308,7 @@ class IncidentAnalysisEngine:
             severity=severity,
             trigger=trigger,
             scope=scope,
+            propagation=propagation,  # v5.3: odděleno od scope
             timeline=timeline,
             causal_chain=causal_chain,
             recommended_actions=actions,
@@ -341,8 +342,8 @@ class IncidentAnalysisEngine:
             blast_radius=scope.blast_radius,
             is_worsening=False,  # TODO: porovnat s předchozím během
             namespace_count=len(scope.namespaces),
-            propagated=scope.propagated,
-            propagation_time_sec=scope.propagation_time_sec,
+            propagated=propagation.propagated,
+            propagation_time_sec=propagation.propagation_time_sec,
         )
         
         # Immediate actions (1-3 kroky pro SRE ve 3 ráno)
@@ -368,11 +369,12 @@ class IncidentAnalysisEngine:
         is_new = incident.knowledge_status == "NEW"
         is_known = incident.knowledge_status == "KNOWN"
         scope = incident.scope
+        propagation = incident.propagation  # v5.3: odděleno od scope
         affected_apps_count = scope.blast_radius
         is_widespread = affected_apps_count >= 3
         
-        # v5.3: Propagation context
-        is_fast_propagation = scope.propagated and scope.propagation_time_sec and scope.propagation_time_sec < 30
+        # v5.3: Propagation context (z incident.propagation, ne scope!)
+        is_fast_propagation = propagation.propagated and propagation.propagation_time_sec and propagation.propagation_time_sec < 30
         is_localized = scope.is_localized
         root_app = scope.root_apps[0] if scope.root_apps else None
         
@@ -401,7 +403,7 @@ class IncidentAnalysisEngine:
         
         # 0. v5.3: Fast propagation = nejvyšší priorita
         if is_fast_propagation and is_new:
-            actions.append(f"URGENT: Fast propagation detected ({scope.propagation_time_sec}s) - check {root_app or 'root service'}")
+            actions.append(f"URGENT: Fast propagation detected ({propagation.propagation_time_sec}s) - check {root_app or 'root service'}")
         
         # 1. Version change detected - highest priority signal!
         if has_version_change and is_new:
@@ -477,13 +479,20 @@ class IncidentAnalysisEngine:
         
         return unique_actions[:3]
     
-    def _build_scope(self, events: List[Dict]) -> IncidentScope:
+    def _build_scope(self, events: List[Dict]) -> Tuple[IncidentScope, 'IncidentPropagation']:
         """
         Staví scope incidentu.
         
         v5.3: Klasifikuje role aplikací (root, downstream, collateral)
+              a vrací také IncidentPropagation
+              
+        Returns:
+            Tuple[IncidentScope, IncidentPropagation]
         """
+        from .models import IncidentPropagation
+        
         scope = IncidentScope()
+        propagation = IncidentPropagation()
         
         apps = set()
         namespaces = set()
@@ -545,9 +554,10 @@ class IncidentAnalysisEngine:
                 if len(candidates) > 1:
                     first_app = max(candidates, key=lambda a: app_error_counts.get(a, 0))
             
-            scope.classify_app_roles(first_app, app_timestamps)
+            # classify_app_roles nastaví root/downstream/collateral a vrátí propagation
+            propagation = scope.classify_app_roles(first_app, app_timestamps)
         
-        return scope
+        return scope, propagation
     
     def _determine_category(self, events: List[Dict]) -> str:
         """Určí hlavní kategorii"""

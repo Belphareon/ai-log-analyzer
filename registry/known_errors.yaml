@@ -1,0 +1,24 @@
+# Known Errors Registry
+# =====================
+# 
+# Tento soubor je automaticky aktualizován při každém běhu pipeline.
+# NIKDY se nic nemaže - pouze se přidávají nové záznamy nebo aktualizují existující.
+#
+# Struktura:
+# - id: KE-XXXXXX
+#   fingerprint: hash chyby
+#   category: typ chyby
+#   first_seen: kdy byla poprvé detekována
+#   last_seen: kdy byla naposledy detekována
+#   occurrences: kolikrát se objevila
+#   affected_apps: seznam aplikací
+#   affected_namespaces: seznam namespaců
+#   versions_seen: seznam verzí kde se objevila
+#   status: OPEN | MONITORING | RESOLVED
+#   jira: odkaz na Jira ticket (vyplňuje člověk)
+#   notes: poznámky (vyplňuje člověk)
+#
+# Řazení: od nejnovějšího (last_seen DESC)
+#
+
+[]
