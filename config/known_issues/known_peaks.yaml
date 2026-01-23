@@ -1,0 +1,19 @@
+# Known Peaks Registry
+# ====================
+#
+# Format:
+#   fingerprint:
+#     description: Human-readable description
+#     first_seen: YYYY-MM-DD
+#     typical_cause: What usually causes this peak
+#     mitigation: How to mitigate
+#
+# Example:
+#
+# xyz789abc012:
+#   description: "Daily batch job causes timeout spikes"
+#   first_seen: 2026-01-05
+#   typical_cause: "Nightly ETL job at 02:00 UTC"
+#   mitigation: "Expected behavior, no action needed"
+
+# Add your known peaks below:

@@ -148,7 +148,7 @@ python3 -c "import elasticsearch; print(f'Elasticsearch: OK')"
 
 **File:** `config/namespaces.yaml`
 
-Must contain all 12 monitored namespaces:
+Must contain all monitored namespaces(for example):
 
 ```yaml
 namespaces:
@@ -832,8 +832,3 @@ EOF
 ---
 
 **End of Installation Guide**
-
-For additional help, see:
-- [README.md](README.md) - Project overview
-- [STATUS.md](STATUS.md) - Current status
-- [CONTEXT.md](CONTEXT.md) - Technical context

@@ -1,0 +1,21 @@
+# Known Errors Registry
+# =====================
+# 
+# Format:
+#   fingerprint:
+#     description: Human-readable description
+#     first_seen: YYYY-MM-DD
+#     workaround: Optional workaround
+#     fix_status: open | in_progress | fixed | wont_fix
+#     jira_ticket: Optional JIRA ticket ID
+#
+# Example:
+#
+# abc123def456:
+#   description: "Connection pool exhausted in payment service"
+#   first_seen: 2026-01-10
+#   workaround: "Restart payment-service pod"
+#   fix_status: in_progress
+#   jira_ticket: "PCBS-1234"
+
+# Add your known errors below:

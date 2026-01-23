@@ -1,0 +1,23 @@
+# Known Issues Registry
+# =====================
+#
+# Format:
+#   errors:
+#     fingerprint:
+#       description: ...
+#       first_seen: YYYY-MM-DD
+#       category: database/timeout/network/...
+#       status: open | investigating | workaround | fixed
+#       workaround: optional
+#       jira_ticket: optional
+#
+#   peaks:
+#     fingerprint:
+#       description: ...
+#       first_seen: YYYY-MM-DD
+#       category: ...
+#       status: ...
+
+errors: {}
+
+peaks: {}
