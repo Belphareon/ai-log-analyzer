@@ -1,382 +1,218 @@
-# Pipeline V4 - Incident Detection Architecture
+# Pipeline Architecture v5.3.1
 
-**Verze:** 4.0  
-**Datum:** 2026-01-20
+## Přehled
 
----
+Systém se skládá ze dvou hlavních částí:
 
-## 🎯 Filozofie
+1. **Detection Pipeline (v4)** - statistická detekce anomálií
+2. **Incident Analysis (v5.3.1)** - kauzální analýza a reporting
 
-Pipeline V4 je **deterministický incident detektor**, ne log parser.
-
-### Klíčové principy:
-
-1. **Incident Object** = pevné jádro
-   - Každý krok pouze přidává pole
-   - Nikdy nic nemaže, nepřepisuje
-
-2. **Striktně oddělené fáze**
-   - A: Parse (žádná logika)
-   - B: Measure (jen čísla)
-   - C: Detect (boolean flags)
-   - D: Score (váhová funkce)
-   - E: Classify (taxonomy)
-   - F: Report (jen render)
-
-3. **Evidence log**
-   - Každý flag má důvod
-   - Report jen renderuje evidence
-
-4. **Replay & regression**
-   - Uložení mezi-výstupů
-   - Porovnání s předchozím během
-
----
-
-## 📁 Struktura
+## Celková architektura
 
 ```
-scripts/v4/
-├── __init__.py           # Module exports
-├── incident.py           # Incident Object (canonical model)
-├── phase_a_parse.py      # Parse & Normalize
-├── phase_b_measure.py    # Measure (EWMA, MAD)
-├── phase_c_detect.py     # Detect (boolean flags)
-├── phase_d_score.py      # Score (váhová funkce)
-├── phase_e_classify.py   # Classify (taxonomy)
-├── phase_f_report.py     # Report (render)
-└── pipeline_v4.py        # Main orchestrator
+┌─────────────────────────────────────────────────────────────────┐
+│                    ELASTICSEARCH                                │
+│                    (aplikační logy)                            │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                DETECTION PIPELINE (v4)                          │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐           │
+│  │ Phase A │→ │ Phase B │→ │ Phase C │→ │ Phase D │           │
+│  │ Parse   │  │ Measure │  │ Detect  │  │ Score   │           │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────┘           │
+│       ↓            ↓            ↓            ↓                  │
+│  ┌─────────┐  ┌─────────┐                                      │
+│  │ Phase E │→ │ Phase F │                                      │
+│  │Classify │  │ Report  │                                      │
+│  └─────────┘  └─────────┘                                      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    IncidentCollection
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              INCIDENT ANALYSIS (v5.3.1)                         │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
+│  │ TimelineBuilder│→ │  ScopeBuilder  │→ │ CausalInference│   │
+│  │                │  │ + Propagation  │  │                │   │
+│  └────────────────┘  └────────────────┘  └────────────────┘   │
+│           ↓                   ↓                   ↓            │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
+│  │ FixRecommender │→ │KnowledgeMatcher│→ │    Formatter   │   │
+│  └────────────────┘  └────────────────┘  └────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    OUTPUT (v5.3.1)                              │
+│  ┌────────────────┐  ┌────────────────┐                        │
+│  │ scripts/reports│  │   registry/    │                        │
+│  │   (reporty)   │  │ (append-only)  │                        │
+│  └────────────────┘  └────────────────┘                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
----
+## Detection Pipeline (v4)
 
-## 🔄 Pipeline Flow
+### Phase A: Parse
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              PIPELINE V4                                     │
-└─────────────────────────────────────────────────────────────────────────────┘
+- Vstup: Raw logy z ES
+- Výstup: Normalizované záznamy
+- Činnost: Fingerprinting, kategorizace
 
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   INPUT     │     │  PHASE A    │     │  PHASE B    │
-│  raw errors │────▶│   PARSE     │────▶│  MEASURE    │
-│    JSON     │     │  normalize  │     │  EWMA/MAD   │
-└─────────────┘     └─────────────┘     └─────────────┘
-                           │                   │
-                    ┌──────┴──────┐     ┌──────┴──────┐
-                    │ fingerprint │     │ baseline    │
-                    │ normalized  │     │ current     │
-                    │ error_type  │     │ trend       │
-                    └─────────────┘     └─────────────┘
-                                               │
-                                               ▼
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  PHASE F    │     │  PHASE E    │     │  PHASE C    │
-│   REPORT    │◀────│  CLASSIFY   │◀────│   DETECT    │
-│   render    │     │  taxonomy   │     │   flags     │
-└─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-┌──────┴──────┐     ┌──────┴──────┐     ┌──────┴──────┐
-│ JSON (prim) │     │ category    │     │ is_spike    │
-│ MD (sec)    │     │ subcategory │     │ is_new      │
-│ console     │     │             │     │ is_burst    │
-└─────────────┘     └─────────────┘     │ evidence[]  │
-                                        └─────────────┘
-                                               │
-                                               ▼
-                                        ┌─────────────┐
-                                        │  PHASE D    │
-                                        │   SCORE     │
-                                        │  weights    │
-                                        └─────────────┘
-                                               │
-                                        ┌──────┴──────┐
-                                        │ score 0-100 │
-                                        │ breakdown   │
-                                        │ severity    │
-                                        └─────────────┘
-```
+### Phase B: Measure
 
----
+- Vstup: Normalizované záznamy
+- Výstup: Statistiky (EWMA baseline, MAD)
+- Činnost: Výpočet baseline pro každý fingerprint
 
-## 📋 Fáze detail
+### Phase C: Detect
 
-### FÁZE A: Parse & Normalize
+- Vstup: Statistiky + aktuální data
+- Výstup: Detekované anomálie
+- Činnost: Porovnání s baseline, detekce spiků/burstů
 
-**Vstup:** raw error dict  
-**Výstup:** NormalizedRecord
+### Phase D: Score
+
+- Vstup: Detekované anomálie
+- Výstup: Scorované anomálie
+- Činnost: Výpočet závažnosti
+
+### Phase E: Classify
+
+- Vstup: Scorované anomálie
+- Výstup: Klasifikované incidenty
+- Činnost: Seskupení do incidentů
+
+### Phase F: Report
+
+- Vstup: Klasifikované incidenty
+- Výstup: IncidentCollection
+- Činnost: Příprava pro analýzu
+
+## Incident Analysis (v5.3.1)
+
+### Datový model
 
 ```python
-❌ Žádná logika
-❌ Žádné prahy
-
-✅ Extrakce polí (timestamp, namespace, app, trace_id)
-✅ Normalizace message (odstranění UUIDs, IDs, timestamps)
-✅ Extrakce error_type (NullPointerException, TimeoutError, ...)
-✅ Generování fingerprint (MD5 hash)
+class IncidentAnalysis:
+    incident_id: str
+    
+    # KDE se to projevilo
+    scope: IncidentScope
+        apps: List[str]
+        root_apps: List[str]
+        downstream_apps: List[str]
+        collateral_apps: List[str]
+    
+    # JAK se to šířilo (v5.3.1 - odděleno od scope)
+    propagation: IncidentPropagation
+        propagated: bool
+        propagation_time_sec: int
+        propagation_path: List[str]
+    
+    # Časová osa (FACTS)
+    timeline: List[TimelineEvent]
+    
+    # Root cause (HYPOTHESIS)
+    causal_chain: CausalChain
+    
+    # Priorita
+    priority: IncidentPriority  # P1-P4
+    priority_reasons: List[str]
+    
+    # Akce
+    immediate_actions: List[str]
+    recommended_actions: List[RecommendedAction]
 ```
 
-**Normalizace:**
+### Komponenty
+
+| Komponenta | Vstup | Výstup |
+|------------|-------|--------|
+| TimelineBuilder | Events | Timeline (FACTS) |
+| ScopeBuilder | Events | IncidentScope + IncidentPropagation |
+| CausalInferenceEngine | Timeline, Trigger | CausalChain (HYPOTHESIS) |
+| FixRecommender | CausalChain | RecommendedActions |
+| KnowledgeMatcher | Incident, KB | KNOWN/NEW status |
+| Formatter | IncidentAnalysis | Report string |
+
+### Registry Update (v5.3.1)
+
 ```
-Input:  "Connection to 192.168.1.100:5432 refused for user 1234567890"
-Output: "Connection to <IP>:<PORT> refused for user <ID>"
+Každý běh:
+  Pro každý incident:
+    Pro každý fingerprint:
+      IF fingerprint NOT IN registry:
+        CREATE new entry
+      ELSE:
+        UPDATE last_seen, occurrences++
+        
+  WRITE registry/known_errors.yaml
+  WRITE registry/known_errors.md
 ```
 
----
+## Orchestrace
 
-### FÁZE B: Measure
-
-**Vstup:** NormalizedRecord[]  
-**Výstup:** MeasurementResult
+### regular_phase_v5.3.py (15min)
 
 ```python
-❌ Žádné závěry
-❌ Žádné flags
-
-✅ EWMA baseline (exponential weighted moving average)
-✅ MAD (median absolute deviation) - robustnější než stddev
-✅ Current rate
-✅ Trend ratio a direction
+def run_regular_pipeline():
+    # 1. Fetch z ES
+    errors = fetch_unlimited(...)
+    
+    # 2. Detection pipeline
+    pipeline = PipelineV4()
+    collection = pipeline.process(errors)
+    
+    # 3. Save to DB
+    save_incidents_to_db(collection)
+    
+    # 4. Incident Analysis (VŽDY - v5.3.1)
+    report = run_incident_analysis(
+        collection,
+        output_dir="scripts/reports/"  # ← v5.3.1: explicitní path
+    )
+    # → report se uloží
+    # → registry se aktualizuje
+    
+    # 5. Output
+    print(report)
 ```
 
-**EWMA formula:**
-```
-EWMA_t = α × value_t + (1 - α) × EWMA_{t-1}
-
-α = 0.3 (default)
-→ 30% váha nové hodnoty, 70% váha historie
-```
-
-**MAD formula:**
-```
-MAD = median(|X_i - median(X)|)
-
-Výhoda: Jeden outlier nezmění MAD (na rozdíl od stddev)
-```
-
----
-
-### FÁZE C: Detect
-
-**Vstup:** MeasurementResult  
-**Výstup:** DetectionResult (flags + evidence)
+### backfill_v5.3.py (daily)
 
 ```python
-❌ Žádná interpretace
-❌ Žádné skóre
-
-✅ Boolean flags
-✅ Evidence pro KAŽDÝ flag
+def run_backfill():
+    # Pro každý den:
+    #   1. Fetch
+    #   2. Pipeline
+    #   3. DB save
+    #   4. Aggregate
+    
+    # Na konci:
+    #   Daily report + registry update
 ```
 
-**Flags:**
-| Flag | Pravidlo | Evidence |
-|------|----------|----------|
-| is_spike | current > ewma × 3.0 | `{rule: "spike_ewma", baseline: 10, current: 50, threshold: 3.0}` |
-| is_new | fingerprint not in known_set | `{rule: "new_fingerprint"}` |
-| is_burst | rate_change > 5.0 in 60s | `{rule: "burst", window_sec: 60}` |
-| is_cross_namespace | namespace_count >= 2 | `{rule: "cross_namespace", count: 3}` |
-| is_regression | fixed_version <= current_version | `{rule: "regression", fixed: "v2.2", current: "v2.3"}` |
+## Výstupní soubory
 
----
+```
+scripts/reports/
+├── incident_analysis_15min_20260123_091500.txt
+├── incident_analysis_15min_20260123_093000.txt
+├── incident_analysis_daily_20260122_*.txt
+└── ...
 
-### FÁZE D: Score
-
-**Vstup:** DetectionResult + MeasurementResult  
-**Výstup:** ScoreResult
-
-```python
-❌ Žádné if/else v hlavní logice
-
-✅ Deterministická váhová funkce
-✅ Transparentní breakdown
+registry/
+├── known_errors.yaml   # Strojový formát
+├── known_errors.md     # Human-readable
+├── known_peaks.yaml
+└── known_peaks.md
 ```
 
-**Score formula:**
-```
-score = base + spike_bonus + burst_bonus + new_bonus + ...
+## Klíčové principy v5.3.1
 
-base = min(30, count / 10)
-spike_bonus = is_spike × 25
-burst_bonus = is_burst × 20
-new_bonus = is_new × 15
-regression_bonus = is_regression × 35
-cross_ns_bonus = is_cross_namespace × 15
-```
-
-**Severity mapping:**
-| Score | Severity |
-|-------|----------|
-| >= 80 | critical |
-| >= 60 | high |
-| >= 40 | medium |
-| >= 20 | low |
-| < 20 | info |
-
----
-
-### FÁZE E: Classify
-
-**Vstup:** normalized_message, error_type  
-**Výstup:** category, subcategory
-
-```python
-❌ Žádné heuristiky
-❌ Žádné fuzzy matching
-
-✅ Explicitní pravidla (regex patterns)
-✅ Priority-based matching
-```
-
-**Categories:**
-- `memory` (out_of_memory, memory_leak)
-- `database` (connection, deadlock, constraint_violation)
-- `network` (connection_refused, dns, ssl)
-- `timeout` (read_timeout, connect_timeout)
-- `auth` (unauthorized, forbidden)
-- `business` (not_found, validation)
-- `external` (api_error, service_unavailable)
-- `unknown`
-
----
-
-### FÁZE F: Report
-
-**Vstup:** IncidentCollection  
-**Výstup:** JSON, Markdown, Console
-
-```python
-❌ Žádné počítání
-❌ Žádná logika
-
-✅ Pouze renderování
-✅ Evidence se jen zobrazuje
-```
-
-**Výstupy:**
-- JSON (primární) - kompletní data
-- Markdown - lidsky čitelný report
-- Console - stručný přehled
-- Snapshot - pro replay
-
----
-
-## 🔄 Replay & Regression
-
-```bash
-# Běh s uložením snapshotu
-python pipeline_v4.py data/batches/ --save-snapshot /tmp/snapshots/
-
-# Pozdější běh s porovnáním
-python pipeline_v4.py data/batches/ --replay /tmp/snapshots/summary_20260120.json
-```
-
-**Co se porovnává:**
-- Počet incidentů
-- Změna severity distribution
-- Změna score
-
----
-
-## 📊 Incident Object
-
-```json
-{
-  "id": "inc-20260120-001",
-  "fingerprint": "abc123def456",
-  
-  "normalized_message": "Connection to <IP>:<PORT> refused",
-  "error_type": "ConnectionError",
-  
-  "time": {
-    "first_seen": "2026-01-20T10:00:00Z",
-    "last_seen": "2026-01-20T10:15:00Z",
-    "duration_sec": 900
-  },
-  
-  "stats": {
-    "baseline_rate": 10.5,
-    "baseline_mad": 2.3,
-    "current_rate": 52.0,
-    "trend_direction": "increasing",
-    "trend_ratio": 4.95
-  },
-  
-  "flags": {
-    "new": false,
-    "spike": true,
-    "burst": false,
-    "cross_namespace": true
-  },
-  
-  "evidence": [
-    {
-      "rule": "spike_ewma",
-      "baseline": 10.5,
-      "current": 52.0,
-      "threshold": 3.0,
-      "message": "current (52) > ewma (10.5) * 3.0"
-    }
-  ],
-  
-  "score": 72,
-  "score_breakdown": {
-    "base": 17,
-    "spike": 25,
-    "cross_ns": 20,
-    "total": 72
-  },
-  
-  "severity": "high",
-  "category": "network",
-  "subcategory": "connection_refused"
-}
-```
-
----
-
-## 🚀 Použití
-
-```python
-from v4 import PipelineV4, load_batch_files
-
-# Load data
-errors = load_batch_files("data/batches/2026-01-20/")
-
-# Create pipeline
-pipeline = PipelineV4(
-    spike_threshold=3.0,
-    ewma_alpha=0.3,
-)
-
-# Run
-collection = pipeline.run(errors)
-
-# Report
-for incident in collection.incidents:
-    if incident.severity.value in ['critical', 'high']:
-        print(f"{incident.id}: {incident.category.value} - {incident.score}")
-        for ev in incident.evidence:
-            print(f"  [{ev.rule}] {ev.message}")
-```
-
----
-
-## ✅ Co V4 DĚLÁ
-
-- Deterministická detekce
-- Explicitní pravidla
-- Evidence log
-- Replay/regression
-- Striktně oddělené fáze
-
-## ❌ Co V4 NEDĚLÁ
-
-- Žádné heuristiky ("když text obsahuje X, tak Y")
-- Žádné fuzzy matching
-- Žádné magické severity bez skóre
-- Žádné ML/AI v detekci
-
----
-
-**Verze:** 4.0 | **Datum:** 2026-01-20
+1. **Scope ≠ Propagation** - oddělené datové struktury
+2. **Report VŽDY** - generuje se i prázdný
+3. **Registry append-only** - nikdy se nemaže
+4. **Output dir explicitní** - ne relativní cesty
+5. **Traceback při chybě** - pro debugging

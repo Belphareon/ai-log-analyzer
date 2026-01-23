@@ -1,252 +1,140 @@
-# AI Log Analyzer V4 - Quick Start Guide
+# Quick Start - AI Log Analyzer v5.3.1
 
-## 📦 Obsah balíku
+## 5 minut k prvnímu reportu
 
-```
-ai-log-analyzer-complete/
-├── scripts/
-│   ├── v4/                      # V4 Pipeline (hlavní)
-│   │   ├── incident.py          # Incident Object
-│   │   ├── phase_a_parse.py     # A: Parse & Normalize
-│   │   ├── phase_b_measure.py   # B: Measure (EWMA, MAD)
-│   │   ├── phase_c_detect.py    # C: Detect (flags)
-│   │   ├── phase_d_score.py     # D: Score (0-100)
-│   │   ├── phase_e_classify.py  # E: Classify (taxonomy)
-│   │   ├── phase_f_report.py    # F: Report (render)
-│   │   └── pipeline_v4.py       # Orchestrator
-│   │
-│   ├── core/                    # Core komponenty
-│   │   ├── fetch_unlimited.py   # ES fetcher
-│   │   ├── collect_peak_detailed.py
-│   │   ├── peak_detection_v3.py
-│   │   └── ...
-│   │
-│   ├── init_phase.py            # INIT workflow
-│   ├── regular_phase.py         # REGULAR workflow (cron)
-│   ├── backfill.py              # Backfill workflow
-│   │
-│   ├── utils/                   # Utility skripty
-│   └── migrations/              # SQL migrace
-│
-├── k8s/                         # Kubernetes
-│   └── cronjob.yaml
-│
-├── config/                      # Konfigurace
-│   ├── .env.example
-│   └── namespaces.yaml
-│
-├── docs/                        # Dokumentace
-├── data/                        # Data (batches, reports, snapshots)
-│
-├── run_init.sh                  # → INIT fáze
-├── run_regular.sh               # → REGULAR fáze
-├── run_backfill.sh              # → Backfill
-│
-├── Dockerfile
-├── requirements.txt
-└── README.md
-```
-
----
-
-## 🚀 Quick Start (5 kroků)
-
-### 1. Rozbal a nastav prostředí
+### 1. Instalace (1 min)
 
 ```bash
-unzip ai-log-analyzer-v4-complete.zip
-cd ai-log-analyzer-complete
-
-# Zkopíruj a uprav .env
-cp config/.env.example .env
-vim .env  # Vyplň ES a DB credentials
+pip install psycopg2-binary python-dotenv requests pyyaml
 ```
 
-### 2. Instalace závislostí
+### 2. Konfigurace (2 min)
 
 ```bash
-pip install -r requirements.txt
+cp config/.env.example config/.env
+# Upravit DB_* a ES_* proměnné
 ```
 
-### 3. Databáze - migrace
+### 3. Spuštění (1 min)
 
 ```bash
-# Spusť migrace v pořadí
-psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f scripts/migrations/000_create_base_tables.sql
-psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f scripts/migrations/001_create_peak_thresholds.sql
-psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f scripts/migrations/002_create_enhanced_analysis_tables.sql
+python scripts/regular_phase_v5.3.py
 ```
 
-### 4. INIT fáze (jednorázově, ~21 dní dat)
+### 4. Výsledky (1 min)
 
 ```bash
-# Sběr baseline dat BEZ peak detection
-./run_init.sh --days 21
+# Report
+cat scripts/reports/incident_analysis_15min_*.txt
 
-# Po dokončení: výpočet thresholds
-python scripts/core/calculate_peak_thresholds.py
+# Registry
+cat registry/known_errors.yaml
 ```
 
-### 5. Backfill + REGULAR
-
-```bash
-# Backfill posledních 14 dní S detection
-./run_backfill.sh --days 14
-
-# Setup cron pro regular (každých 15 min)
-crontab -e
-# Přidej: */15 * * * * /path/to/run_regular.sh --quiet
-```
-
----
-
-## ⏰ Workflow přehled
+## Co se stane
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           WORKFLOW                                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   1. INIT (jednorázově)                                                     │
-│      └── Sběr 21+ dní dat BEZ detection                                     │
-│      └── Vytvoření baseline                                                 │
-│                                                                             │
-│   2. Calculate Thresholds                                                    │
-│      └── P93 per (namespace, day_of_week)                                   │
-│      └── CAP per namespace                                                  │
-│                                                                             │
-│   3. BACKFILL (jednorázově)                                                 │
-│      └── Zpracování posledních 14 dní S detection                           │
-│                                                                             │
-│   4. REGULAR (cron */15)                                                    │
-│      └── Zpracování každých 15 minut                                        │
-│      └── Peak detection                                                     │
-│      └── Alerting                                                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+1. Fetch logů z ES (posledních 15 min)
+2. Detekce anomálií (EWMA/MAD)
+3. Analýza incidentů (role, propagace)
+4. Knowledge matching (KNOWN vs NEW)
+5. Registry update (append-only)
+6. Report generace (VŽDY, i prázdný)
 ```
 
----
+## Výstup
 
-## 📊 Pipeline V4
+### Report (scripts/reports/)
 
 ```
-ES Errors → [A] Parse → [B] Measure → [C] Detect → [D] Score → [E] Classify → [F] Report
-               │           │            │            │            │             │
-               ▼           ▼            ▼            ▼            ▼             ▼
-           fingerprint   EWMA/MAD    flags       score      category       JSON/MD
-           normalized    baseline    evidence    0-100      taxonomy       console
+======================================================================
+🔍 INCIDENT ANALYSIS - 15 MIN OPERATIONAL REPORT
+======================================================================
+Period: 09:00 - 09:15
+
+⚠️ 2 INCIDENT(S) DETECTED
+   🆕 1 NEW | 📚 1 KNOWN
+
+────────────────────────────────────────────────────────────
+🔴 [P1] 🆕 NEW INCIDENT (09:01–09:06)
+────────────────────────────────────────────────────────────
+
+FACTS:
+  • order-service: HikariPool-1 - Connection is not available
+  • Root: order-service
+  • Downstream: payment-service
+  • ⚡ PROPAGATED in 25s across 2 apps
+
+IMMEDIATE ACTIONS:
+  1. URGENT: Fast propagation detected (25s)
+  2. Check DB connection pool on order-service
 ```
 
-### Fáze:
-
-| Fáze | Popis | Výstup |
-|------|-------|--------|
-| **A** | Parse & Normalize | fingerprint, normalized_message |
-| **B** | Measure (EWMA, MAD) | baseline, current_rate, trend |
-| **C** | Detect | is_spike, is_new, is_burst + evidence |
-| **D** | Score | score 0-100 (deterministická váhová funkce) |
-| **E** | Classify | category, subcategory (taxonomy) |
-| **F** | Report | JSON, Markdown, Console |
-
----
-
-## 🔧 Konfigurace
-
-### .env (kritické)
-
-```bash
-# Elasticsearch
-ES_HOST=https://elasticsearch.example.com:9500
-ES_USER=your_user
-ES_PASSWORD=your_password
-
-# PostgreSQL
-DB_HOST=postgres.example.com
-DB_USER=ailog_user
-DB_PASSWORD=your_password
-
-# Pipeline
-SPIKE_THRESHOLD=3.0
-EWMA_ALPHA=0.3
-```
-
-### namespaces.yaml
+### Registry (registry/)
 
 ```yaml
-namespaces:
-  - pcb-dev-01-app
-  - pcb-sit-01-app
-  - pcb-prd-01-app
+# known_errors.yaml - automaticky aktualizováno
+- id: KE-000001
+  fingerprint: 9fa2c41e8c3a1b2d
+  first_seen: "2026-01-23T09:12:41"
+  last_seen: "2026-01-23T09:12:41"
+  occurrences: 1
+  affected_apps: [order-service]
+  status: OPEN
 ```
 
----
+## Další kroky
 
-## 📞 Příkazy
+### Cron (automatizace)
 
 ```bash
-# INIT (21 dní baseline)
-./run_init.sh --days 21
-
-# INIT dry run
-./run_init.sh --days 21 --dry-run
-
-# Backfill (14 dní s detection)
-./run_backfill.sh --days 14
-
-# Regular (15-min okno)
-./run_regular.sh
-
-# Regular quiet (pro cron)
-./run_regular.sh --quiet
-
-# Regular s reportem
-./run_regular.sh --output data/reports/
+*/15 * * * * cd /path/to && python scripts/regular_phase_v5.3.py --quiet
 ```
 
----
-
-## 🐳 Docker
+### Backfill (historie)
 
 ```bash
-# Build
-docker build -t ai-log-analyzer:v4 .
-
-# Run regular
-docker run --env-file .env ai-log-analyzer:v4
-
-# Run init
-docker run --env-file .env ai-log-analyzer:v4 python scripts/init_phase.py --days 21
+python scripts/backfill_v5.3.py --days 7
 ```
 
----
+### Knowledge Base (známé errory)
 
-## ☸️ Kubernetes
+```yaml
+# config/known_issues/known_errors.yaml
+- id: KE-001
+  fingerprint: database|connection_pool|hikari
+  description: Known DB pool issue
+  jira: OPS-431
+```
+
+## Troubleshooting
+
+### Prázdný report?
+
+v5.3.1 generuje report VŽDY. Pokud je prázdný:
+- Zkontrolujte `scripts/reports/` - soubor by měl existovat
+- Prázdný report = žádné incidenty = OK
+
+### Registry se neaktualizuje?
 
 ```bash
-# Deploy CronJob
-kubectl apply -f k8s/cronjob.yaml
+# Zkontrolujte oprávnění
+ls -la registry/
 
-# Check
-kubectl get cronjobs -n ailog
-kubectl logs -n ailog job/ailog-pipeline-xxxxx
+# Zkontrolujte logy na chyby
+python scripts/regular_phase_v5.3.py 2>&1 | grep -i error
 ```
 
----
-
-## 🔍 Troubleshooting
+### Import error?
 
 ```bash
-# Check DB connection
-python scripts/utils/check_db_data.py
-
-# Validate detection
-python scripts/utils/validate_detection.py
-
-# Manual fetch test
-python scripts/core/fetch_unlimited.py --from "2026-01-20T10:00:00Z" --to "2026-01-20T10:15:00Z" --output test.json
+# Přidejte do PYTHONPATH
+export PYTHONPATH=/path/to/ai-log-analyzer:$PYTHONPATH
 ```
 
----
+## Klíčové změny v5.3.1
 
-**Verze:** 4.0 | **Velikost:** ~100 KB (ZIP)
+1. **Report VŽDY** - i prázdný, i bez incidentů
+2. **Registry append-only** - automatická evidence všeho
+3. **Scope ≠ Propagation** - oddělené dataclasses
+4. **Output dir** - reporty do `scripts/reports/`
