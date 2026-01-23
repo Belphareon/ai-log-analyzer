@@ -1,247 +1,353 @@
-# AI Log Analyzer V4
+# AI Log Analyzer - Incident Analysis Engine v5.3
 
-**Deterministický incident detektor pro Elasticsearch logy**
+Automatizovaná detekce a analýza incidentů z aplikačních logů.
 
-## 📁 Struktura projektu
+## Přehled
+
+Systém analyzuje error logy z Elasticsearch/PostgreSQL a automaticky:
+- Detekuje anomálie (spiky, bursty, nové errory) pomocí EWMA/MAD statistik
+- Seskupuje související události do incidentů
+- **Klasifikuje role aplikací** (root → downstream → collateral)
+- **Sleduje propagaci** (jak rychle se incident šířil)
+- Určuje root cause pomocí deterministických pravidel (bez LLM)
+- Navrhuje konkrétní opravy s kontextovými akcemi
+- Rozlišuje známé vs nové incidenty (knowledge base)
+- Generuje operační reporty (15min / daily / backfill)
+
+## Changelog
+
+### v5.3 (aktuální)
+
+**Strukturované role aplikací:**
+- `IncidentScope.root_apps` - aplikace která je příčinou
+- `IncidentScope.downstream_apps` - aplikace ovlivněné do 60s
+- `IncidentScope.collateral_apps` - vedlejší poškození (po 60s)
+
+**Propagation tracking:**
+- `propagated` - incident se rozšířil?
+- `propagation_time_sec` - jak rychle?
+- `propagation_path` - cesta šíření
+- Rychlá propagace (<30s) automaticky eskaluje na P1
+
+**Context-aware actions:**
+- Lokální incident → jednodušší diagnostika
+- Fast propagation → URGENT akce
+- Version change → review deployment
+- KNOWN incident → "No immediate action - known stable issue"
+
+**Opravy:**
+- Semver-aware version sorting (1.10.0 > 1.9.0 správně)
+- HYPOTHESIS zobrazena jen při confidence ≥ MEDIUM
+
+### v5.2
+
+- Fingerprint = `category|subcategory|normalized_message`
+- Baseline = None pro 15min mode
+- Grouping podle mode (15min vs daily)
+- Priority přepočet po knowledge matching
+- Duplicitní TOP INCIDENTS → agregace do Operational Incidents
+- Rozšířená kategorizace (~30 nových pattern rules)
+
+### v5.1
+
+- Priority systém (P1-P4)
+- IMMEDIATE ACTIONS (1-3 kroky pro SRE)
+- FACT vs HYPOTHESIS oddělení
+
+## Architektura
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     1. DETECTION (fakta)                        │
+│                                                                 │
+│  Vstup: Peak investigation záznamy z DB                        │
+│  Výstup: IncidentCollection (raw detekce)                      │
+│                                                                 │
+│  • Statistické výpočty (EWMA, MAD)                             │
+│  • Detekce peaků, spiků, burstů                                │
+│  • Fingerprinting errorů                                        │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                  2. INCIDENT ANALYSIS (kauzalita)               │
+│                                                                 │
+│  Vstup: IncidentCollection                                      │
+│  Výstup: IncidentAnalysis[] (analyzované incidenty)            │
+│                                                                 │
+│  • TimelineBuilder - jak se problém šířil (FACTS)              │
+│  • ScopeBuilder - klasifikace rolí aplikací (v5.3)             │
+│  • CausalInferenceEngine - proč (HYPOTHESIS)                   │
+│  • FixRecommender - konkrétní opravy                           │
+│  • Priority calculation (P1-P4)                                │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│               3. KNOWLEDGE MATCHING (known vs new)              │
+│                                                                 │
+│  Vstup: IncidentAnalysis[], KnowledgeBase                      │
+│  Výstup: Enriched IncidentAnalysis[]                           │
+│                                                                 │
+│  • KnowledgeBase loader (YAML + MD)                            │
+│  • KnowledgeMatcher (fingerprint → cluster → pattern)          │
+│  • TriageReportGenerator (pro NEW incidenty)                   │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                   4. REPORTING (výstup)                         │
+│                                                                 │
+│  Vstup: Enriched IncidentAnalysis[]                            │
+│  Výstup: Console, Markdown, JSON, Slack                        │
+│                                                                 │
+│  • 15min mode - operační (max 1 obrazovka)                     │
+│  • Daily mode - přehled (trendy, agregace)                     │
+│  • Report je ČISTÝ RENDERER - nic nepřepočítává!               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Struktura projektu
 
 ```
 ai-log-analyzer/
+├── analyze_incidents.py           # CLI vstupní bod
+├── incident_analysis/             # Hlavní modul v5.3
+│   ├── __init__.py
+│   ├── models.py                  # Datové modely, calculate_priority()
+│   ├── analyzer.py                # IncidentAnalysisEngine
+│   ├── timeline_builder.py        # TimelineBuilder
+│   ├── causal_inference.py        # CausalInferenceEngine
+│   ├── fix_recommender.py         # FixRecommender
+│   ├── knowledge_base.py          # KnowledgeBase loader
+│   ├── knowledge_matcher.py       # KnowledgeMatcher
+│   └── formatter.py               # IncidentReportFormatter
 ├── scripts/
-│   ├── v4/                    # Pipeline V4 (hlavní)
-│   │   ├── incident.py        # Incident Object
-│   │   ├── phase_a_parse.py   # Parse & Normalize
-│   │   ├── phase_b_measure.py # Measure (EWMA, MAD)
-│   │   ├── phase_c_detect.py  # Detect (boolean flags)
-│   │   ├── phase_d_score.py   # Score (váhová funkce)
-│   │   ├── phase_e_classify.py# Classify (taxonomy)
-│   │   ├── phase_f_report.py  # Report (render)
-│   │   └── pipeline_v4.py     # Main orchestrator
-│   ├── core/                  # Core komponenty
-│   │   ├── fetch_unlimited.py # ES fetcher (search_after)
-│   │   ├── collect_peak_detailed.py
-│   │   ├── peak_detection_v3.py
-│   │   └── ...
-│   ├── utils/                 # Utility skripty
-│   └── migrations/            # SQL migrace
-├── k8s/                       # Kubernetes manifests
-├── config/                    # Konfigurace
-├── docs/                      # Dokumentace
-├── data/                      # Data adresáře
-│   ├── batches/              # Dočasné batch soubory
-│   ├── reports/              # Generované reporty
-│   └── snapshots/            # Snapshoty pro replay
-├── run_init.sh               # Spustí INIT fázi
-├── run_regular.sh            # Spustí REGULAR fázi
-├── run_backfill.sh           # Backfill posledních N dní
+│   ├── regular_phase_v5.3.py      # 15min orchestrace s analysis
+│   ├── backfill_v5.3.py           # Daily orchestrace s analysis
+│   ├── regular_phase.py           # Legacy (bez analysis)
+│   ├── backfill.py                # Legacy (bez analysis)
+│   └── v4/                        # Pipeline (detekce)
+├── config/
+│   ├── known_issues/              # Knowledge base (YAML)
+│   │   ├── known_errors.yaml
+│   │   ├── known_peaks.yaml
+│   │   └── known_issues.yaml
+│   └── namespaces.yaml
+├── knowledge/                     # Templates pro KB
+├── docs/
+│   ├── ADD_APPLICATION_VERSION.md
+│   ├── PIPELINE_V4_ARCHITECTURE.md
+│   └── ...
 └── requirements.txt
 ```
 
-## 🚀 Quick Start
-
-### 1. Nastavení prostředí
+## Instalace
 
 ```bash
-# Vytvoř .env soubor
-cp config/.env.example .env
+# Závislosti
+pip install psycopg2-binary python-dotenv requests pyyaml
 
-# Uprav .env s tvými credentials
-vim .env
-
-# Instalace závislostí
-pip install -r requirements.txt
+# Konfigurace
+cp config/.env.example config/.env
+# Upravit DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 ```
 
-### 2. Databáze - migrace
+## Použití
+
+### Standalone analýza
 
 ```bash
-# Připojení k DB
-export PGPASSWORD=$DB_PASSWORD
+# 15min mode (default)
+python analyze_incidents.py --mode 15min --knowledge-dir config/known_issues
 
-# Spusť migrace
-psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f scripts/migrations/000_create_base_tables.sql
-psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f scripts/migrations/001_create_peak_thresholds.sql
-psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -f scripts/migrations/002_create_enhanced_analysis_tables.sql
+# Daily mode
+python analyze_incidents.py --mode daily --date 2026-01-22
+
+# Backfill
+python analyze_incidents.py --mode backfill --days 7
+
+# Jen critical/high
+python analyze_incidents.py --mode 15min --only-critical
+
+# S odesláním do Slacku
+python analyze_incidents.py --mode 15min --slack-webhook https://hooks.slack.com/...
 ```
 
-### 3. INIT Fáze (jednorázově)
-
-Sbírá baseline data za 21+ dní BEZ peak detection:
+### Orchestrovaný běh (s pipeline)
 
 ```bash
-# Sběr dat za poslední 3 týdny
-./run_init.sh --days 21
+# 15min cyklus (fetch → pipeline → DB → analysis → report)
+python scripts/regular_phase_v5.3.py
 
-# Nebo konkrétní období
-./run_init.sh --from "2025-12-01T00:00:00Z" --to "2025-12-21T23:59:59Z"
+# Backfill N dní
+python scripts/backfill_v5.3.py --days 7
 
-# Dry run (bez zápisu do DB)
-./run_init.sh --days 21 --dry-run
+# Bez analýzy (jen pipeline)
+python scripts/regular_phase_v5.3.py --no-analysis
 ```
 
-### 4. Výpočet thresholds (po INIT)
+### Cron
 
 ```bash
-python scripts/core/calculate_peak_thresholds.py
+# 15min operační report
+*/15 * * * * cd /path/to/project && python scripts/regular_phase_v5.3.py
+
+# Daily report (8:00)
+0 8 * * * cd /path/to/project && python analyze_incidents.py --mode daily
 ```
 
-### 5. Backfill (zpracování historických dat)
-
-Zpracuje posledních N dní S peak detection:
-
-```bash
-# Backfill posledních 14 dní
-./run_backfill.sh --days 14
-
-# S uložením reportů
-./run_backfill.sh --days 14 --output data/reports/
-```
-
-### 6. REGULAR Fáze (cron každých 15 minut)
-
-```bash
-# Manuální spuštění
-./run_regular.sh
-
-# S uložením reportu
-./run_regular.sh --output data/reports/
-
-# Quiet mode (pro cron)
-./run_regular.sh --quiet
-```
-
-## ⏰ Cron Setup
-
-### Linux crontab
-
-```cron
-# Každých 15 minut
-*/15 * * * * cd /path/to/ai-log-analyzer && ./run_regular.sh --quiet >> /var/log/ailog/cron.log 2>&1
-```
-
-### Kubernetes CronJob
-
-```bash
-kubectl apply -f k8s/cronjob.yaml
-```
-
-## 📊 Pipeline V4 Architektura
+## Formát reportu (v5.3)
 
 ```
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ PHASE A │────▶│ PHASE B │────▶│ PHASE C │────▶│ PHASE D │────▶│ PHASE E │────▶│ PHASE F │
-│  PARSE  │     │ MEASURE │     │ DETECT  │     │  SCORE  │     │CLASSIFY │     │ REPORT  │
-└─────────┘     └─────────┘     └─────────┘     └─────────┘     └─────────┘     └─────────┘
-     │               │               │               │               │               │
-     ▼               ▼               ▼               ▼               ▼               ▼
- fingerprint    EWMA/MAD        boolean         score          category         JSON/MD
- normalized     baseline        flags           0-100          taxonomy         console
+======================================================================
+🔍 INCIDENT ANALYSIS - 15 MIN OPERATIONAL REPORT
+======================================================================
+Period: 09:00 - 09:15
+Analysis time: 45ms
+
+⚠️ 2 INCIDENT(S) DETECTED
+   🆕 1 NEW | 📚 1 KNOWN
+   🔴 1 CRITICAL | 🟠 1 HIGH
+
+────────────────────────────────────────────────────────────
+🔴 [P1] 🆕 NEW INCIDENT (09:01–09:06)
+────────────────────────────────────────────────────────────
+
+FACTS:
+  • order-service: HikariPool-1 - Connection is not available
+  • Root: order-service
+  • Downstream: payment-service, gateway
+  • Collateral: notification-service
+  • Errors: 1,234 | Peak: 15.2x baseline
+  • ⚡ PROPAGATED in 25s across 4 apps
+  • ⚠️ VERSION CHANGE: order-service (1.8.3 → 1.8.4)
+
+HYPOTHESIS:
+  [?] Insufficient data for reliable root cause inference
+
+STATUS: NEW - requires triage
+
+IMMEDIATE ACTIONS:
+  1. URGENT: Fast propagation detected (25s) - check order-service
+  2. Review recent deployment of order-service (1.8.3 → 1.8.4)
+  3. Check DB connection pool on order-service
+
+────────────────────────────────────────────────────────────
+🟠 [P3] 📚 KNOWN INCIDENT (09:05–09:10) [KE-002]
+────────────────────────────────────────────────────────────
+
+FACTS:
+  • auth-service: Token validation failed
+  • Root: auth-service
+  • Errors: 234 | Peak: 3.1x baseline
+  • ✓ Localized (single app)
+
+HYPOTHESIS:
+  [✓] External OAuth provider intermittent issues
+
+STATUS: Known issue KE-002
+  Jira: OPS-445
+
+IMMEDIATE ACTIONS:
+  1. No immediate action - known stable issue
 ```
 
-| Fáze | Vstup | Výstup | Popis |
-|------|-------|--------|-------|
-| A | raw errors | normalized records | Normalizace, fingerprint |
-| B | records | measurements | EWMA baseline, MAD, trend |
-| C | measurements | flags + evidence | is_spike, is_new, is_burst |
-| D | flags | score | Deterministická váhová funkce |
-| E | message | category | Taxonomy klasifikace |
-| F | incidents | report | JSON, MD, console |
+## Klíčové koncepty
 
-## 🔧 Konfigurace
+### Priority vs Severity
 
-### Environment variables (.env)
+| Koncept | Význam | Hodnoty |
+|---------|--------|---------|
+| **Severity** | DOPAD (jak moc to bolí) | CRITICAL, HIGH, MEDIUM, LOW |
+| **Priority** | AKČNOST (mám to řešit hned?) | P1, P2, P3, P4 |
 
-```bash
-# Elasticsearch
-ES_HOST=https://elasticsearch.example.com:9500
-ES_USER=your_user
-ES_PASSWORD=your_password
-ES_INDEX=cluster-app_pcb-*
+### Priority pravidla (v5.3)
 
-# PostgreSQL
-DB_HOST=postgres.example.com
-DB_PORT=5432
-DB_NAME=ailog_analyzer
-DB_USER=ailog_user
-DB_PASSWORD=your_password
-
-# Pipeline
-SPIKE_THRESHOLD=3.0
-EWMA_ALPHA=0.3
-
-# Notifications (optional)
-TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/...
+```
+P1: NEW AND (CRITICAL OR cross-app ≥3 OR fast_propagation <30s)
+P2: KNOWN AND worsening
+P2: NEW AND not critical
+P3: KNOWN AND stable
+P4: ostatní
 ```
 
-### config/namespaces.yaml
+### Role aplikací (v5.3)
+
+```
+Root        = aplikace s první chybou (nebo nejvíc errory při shodném čase)
+Downstream  = aplikace zasažené do 60s od root
+Collateral  = aplikace zasažené po 60s (vedlejší poškození)
+```
+
+### FACT vs HYPOTHESIS
+
+- **FACTS** = detekované události (co se stalo) - vždy zobrazeny
+- **HYPOTHESIS** = odvozený root cause (proč) - jen při confidence ≥ MEDIUM
+
+### Known vs New
+
+- **KNOWN** = incident matchuje záznam v knowledge base → P3
+- **NEW** = incident vyžaduje triage → P1/P2
+
+## Knowledge Base
+
+### Struktura
 
 ```yaml
-namespaces:
-  - pcb-dev-01-app
-  - pcb-sit-01-app
-  - pcb-uat-01-app
-  - pcb-prd-01-app
+# config/known_issues/known_errors.yaml
+- id: KE-001
+  fingerprint: database|connection_pool|hikaripool.*connection
+  category: DATABASE
+  description: Order-service DB connection pool exhaustion
+  affected_apps:
+    - order-service
+    - payment-service
+  jira: OPS-431
+  status: OPEN
+  workaround:
+    - Restart order-service pod
 ```
 
-## 📈 Výstupy
-
-### Incident Object (JSON)
-
-```json
-{
-  "id": "inc-20260120-001",
-  "fingerprint": "abc123def456",
-  "score": 72,
-  "severity": "high",
-  "category": "network",
-  "flags": {
-    "spike": true,
-    "new": false,
-    "cross_namespace": true
-  },
-  "evidence": [
-    {
-      "rule": "spike_ewma",
-      "baseline": 10.5,
-      "current": 52.0,
-      "threshold": 3.0
-    }
-  ]
-}
-```
-
-### Replay (regression testing)
-
-```bash
-# Uložení snapshotu
-./run_regular.sh --output data/snapshots/
-
-# Pozdější porovnání
-python scripts/v4/pipeline_v4.py data/batches/ --replay data/snapshots/summary_20260120.json
-```
-
-## 📚 Dokumentace
-
-- [Pipeline V4 Architecture](docs/PIPELINE_V4_ARCHITECTURE.md)
-- [Incident Object Reference](docs/INCIDENT_OBJECT.md)
-- [Database Schema](docs/DATABASE_SCHEMA.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-
-## 🔒 Požadavky
-
-- Python 3.10+
-- PostgreSQL 13+
-- Elasticsearch 7.x/8.x
-- Kubernetes 1.24+ (pro K8s deployment)
-
-## 📦 Závislosti
+### Workflow
 
 ```
-psycopg2-binary>=2.9.0
-python-dotenv>=1.0.0
-requests>=2.28.0
-PyYAML>=6.0
+1. Report označí incident jako NEW → P1/P2
+2. Člověk vyšetří, vytvoří Jira, zapíše do KB
+3. Další běhy hlásí KNOWN → P3
 ```
 
----
+## Komponenty
 
-**Verze:** 4.0 | **Datum:** 2026-01-20
+| Soubor | Třída | Popis |
+|--------|-------|-------|
+| `models.py` | `IncidentAnalysis` | Hlavní datový model |
+| `models.py` | `IncidentScope` | Scope s rolemi (v5.3) |
+| `models.py` | `calculate_priority()` | Výpočet P1-P4 |
+| `analyzer.py` | `IncidentAnalysisEngine` | Hlavní engine |
+| `timeline_builder.py` | `TimelineBuilder` | Staví časovou osu |
+| `causal_inference.py` | `CausalInferenceEngine` | Root cause inference |
+| `fix_recommender.py` | `FixRecommender` | Generuje opravy |
+| `knowledge_base.py` | `KnowledgeBase` | YAML/MD loader |
+| `knowledge_matcher.py` | `KnowledgeMatcher` | KNOWN vs NEW |
+| `formatter.py` | `IncidentReportFormatter` | Výstupní formáty |
+
+## Známé limity
+
+| Limit | Důvod | Workaround |
+|-------|-------|------------|
+| Hypothesis je slabá | Chybí traceID, dependency graph | Zobrazuj jen při confidence ≥ MEDIUM |
+| Score není v reportu | Záměrně - je jen ordering hint | Používej priority místo score |
+| Chybí application.version | Pole není v ES | Viz `docs/ADD_APPLICATION_VERSION.md` |
+
+## Principy návrhu
+
+1. **Incident-centric** - analyzujeme problémy, ne jednotlivé errory
+2. **FACT vs HYPOTHESIS** - jasně oddělujeme detekované vs odvozené
+3. **Priority** - "mám to řešit hned?" (P1-P4)
+4. **IMMEDIATE ACTIONS** - 1-3 kroky pro SRE ve 3 ráno, context-aware
+5. **Report = renderer** - nic nepřepočítává, jen zobrazuje
+6. **Knowledge base = human-managed** - žádná automatická magie
+7. **15min ready** - max 1 obrazovka, co dělat TEĎ
+8. **Role clarity** - kdo je root, kdo je downstream, kdo collateral
+
+## Licence
+
+Internal use only.

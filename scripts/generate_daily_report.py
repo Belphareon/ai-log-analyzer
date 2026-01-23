@@ -96,7 +96,7 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
             input_records=0,
         )
     
-    # Group by fingerprint AND day
+    # Group by fingerprint
     grouped = defaultdict(list)
     for row in rows:
         (timestamp, namespace, original_value, reference_value,
@@ -104,12 +104,9 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
          error_type, error_message, score, severity) = row
         
         fp = hashlib.md5(f"{error_type}:{error_message}".encode()).hexdigest()[:16]
-        # Group by fingerprint + day to get per-day incidents
-        day = timestamp.date() if timestamp else date_from.date()
-        grouped[(fp, day)].append(row)
+        grouped[fp].append(row)
     
-    unique_fps = len(set(key[0] for key in grouped.keys()))
-    print(f"   Found {unique_fps:,} unique fingerprints across {len(grouped):,} fingerprint-days")
+    print(f"   Found {len(grouped):,} unique fingerprints")
     
     collection = IncidentCollection(
         run_id=f"db-{date_from.strftime('%Y%m%d')}-{date_to.strftime('%Y%m%d')}",
@@ -118,14 +115,14 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
         input_records=len(rows),
     )
     
-    for (fp, day), fp_rows in grouped.items():
+    for fp, fp_rows in grouped.items():
         row = fp_rows[0]
         (timestamp, namespace, original_value, reference_value,
          is_new, is_spike, is_burst, is_cross_namespace,
          error_type, error_message, score, severity) = row
         
         namespaces = list(set(r[1] for r in fp_rows if r[1]))
-        total_count = int(sum(r[2] or 0 for r in fp_rows))
+        total_count = sum(r[2] or 0 for r in fp_rows)
         avg_ref = sum(r[3] or 0 for r in fp_rows) / len(fp_rows) if fp_rows else 0
         
         timestamps = [r[0] for r in fp_rows if r[0]]
@@ -133,8 +130,8 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
         last_seen = max(timestamps) if timestamps else None
         
         inc = Incident(
-            id=f"db-{fp[:8]}-{day.strftime('%Y%m%d')}",
-            fingerprint=f"{fp}-{day.strftime('%Y%m%d')}",  # Make fingerprint unique per day
+            id=f"db-{fp[:8]}",
+            fingerprint=fp,
             pipeline_version="4.0",
         )
         

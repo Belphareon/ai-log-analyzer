@@ -1,0 +1,33 @@
+# Known Errors - YAML (machine readable)
+# This file is MANUALLY maintained. Do not auto-generate entries.
+# Each entry MUST have corresponding entry in known_errors.md
+
+known_errors:
+  - id: KE-001
+    fingerprint: abc123def456  # From incident fingerprint
+    category: DATABASE
+    description: >
+      Order-service DB connection pool exhaustion during traffic spikes.
+      Happens when incoming request rate exceeds pool capacity.
+    affected_apps:
+      - order-service
+      - payment-service
+    affected_namespaces:
+      - uat
+      - prod
+    first_seen: 2025-11-12
+    jira: OPS-431
+    status: OPEN  # OPEN, IN_PROGRESS, WORKAROUND, RESOLVED, WONT_FIX
+    owner: platform-team
+    workaround:
+      - Restart order-service pod
+      - Scale up replicas temporarily
+    permanent_fix:
+      - Increase pool size to 25
+      - Optimize slow queries
+      - Add connection timeout
+    related_fingerprints:
+      - related_fp_001
+      - related_fp_002
+    error_pattern: "HikariPool.*Connection is not available"
+    notes: Happens during morning traffic peak (8-9 AM)

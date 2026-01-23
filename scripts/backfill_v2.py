@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-BACKFILL - Zpracování historických dat s peak detection
-========================================================
+BACKFILL V2 - Opravená verze s korektním concurrency modelem
+============================================================
 
-Zpracuje posledních N dní S peak detection (po INIT fázi).
+OPRAVY:
+1. Worker VŽDY vrátí výsledek (try/finally)
+2. DB insert běží v MAIN THREADU (ne v workeru)
+3. Watchdog na futures
 
 Použití:
-    python backfill.py --days 14
-    python backfill.py --from "2026-01-06" --to "2026-01-20"
-    python backfill.py --days 14 --output data/reports/
-
+    python backfill_v2.py --days 3 --workers 4
 """
 
 import os
@@ -62,7 +62,7 @@ def get_db_connection():
         user=os.getenv('DB_DDL_USER', os.getenv('DB_USER')),
         password=os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD')),
         connect_timeout=30,
-        options='-c statement_timeout=300000' # 5 min statement timeout
+        options='-c statement_timeout=300000'  # 5 min statement timeout
     )
 
 
@@ -72,7 +72,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
     Returns number of saved records or 0 on error
     """
     if not HAS_DB:
-        safe_print(f" ⚠️ {date_str} - No DB driver")
+        safe_print(f"   ⚠️  {date_str} - No DB driver")
         return 0
     
     if not collection or not collection.incidents:
@@ -121,7 +121,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
         return len(data)
         
     except Exception as e:
-        safe_print(f" ⚠️ {date_str} - DB error: {e}")
+        safe_print(f"   ⚠️  {date_str} - DB error: {e}")
         return 0
 
 
@@ -134,7 +134,7 @@ def process_day_worker(date: datetime, dry_run: bool = False) -> dict:
             'status': 'success' | 'error' | 'no_data',
             'date': str,
             'error_count': int,
-            'collection': IncidentCollection | None, # Pro DB insert v main
+            'collection': IncidentCollection | None,  # Pro DB insert v main
             'error': str | None
         }
     """
@@ -153,7 +153,7 @@ def process_day_worker(date: datetime, dry_run: bool = False) -> dict:
     
     try:
         # 1. Fetch
-        safe_print(f" 📅 [{thread_name}] {date_str} - Fetching...")
+        safe_print(f"   📅 [{thread_name}] {date_str} - Fetching...")
         
         date_from = date.replace(hour=0, minute=0, second=0, microsecond=0)
         date_to = date.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -170,7 +170,7 @@ def process_day_worker(date: datetime, dry_run: bool = False) -> dict:
             result['status'] = 'no_data'
         else:
             result['error_count'] = len(errors)
-            safe_print(f" 📥 [{thread_name}] {date_str} - {len(errors):,} errors, running pipeline...")
+            safe_print(f"   📥 [{thread_name}] {date_str} - {len(errors):,} errors, running pipeline...")
             
             # 2. Pipeline
             pipeline = PipelineV4(
@@ -185,12 +185,12 @@ def process_day_worker(date: datetime, dry_run: bool = False) -> dict:
             result['by_severity'] = collection.by_severity
             result['status'] = 'success'
             
-            safe_print(f" ✅ [{thread_name}] {date_str} - Pipeline done: {collection.total_incidents} incidents")
+            safe_print(f"   ✅ [{thread_name}] {date_str} - Pipeline done: {collection.total_incidents} incidents")
         
     except Exception as e:
         result['status'] = 'error'
         result['error'] = str(e)
-        safe_print(f" ❌ [{thread_name}] {date_str} - Exception: {e}")
+        safe_print(f"   ❌ [{thread_name}] {date_str} - Exception: {e}")
     
     # VŽDY vrátit výsledek (po try/except, ne v finally)
     return result
@@ -233,12 +233,12 @@ def run_backfill(
         start_date = end_date - timedelta(days=days - 1)
     
     safe_print(f"\n📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-    safe_print(f" Total days: {(end_date - start_date).days + 1}")
-    safe_print(f" Workers: {workers}")
-    safe_print(f" DB insert: MAIN THREAD (not workers)")
+    safe_print(f"   Total days: {(end_date - start_date).days + 1}")
+    safe_print(f"   Workers: {workers}")
+    safe_print(f"   DB insert: MAIN THREAD (not workers)")
     
     if dry_run:
-        safe_print(" Mode: DRY RUN")
+        safe_print("   Mode: DRY RUN")
     
     # Generate dates
     dates = []
@@ -249,12 +249,12 @@ def run_backfill(
     
     # Process
     results = []
-    collections_to_save = [] # (date_str, collection) tuples
+    collections_to_save = []  # (date_str, collection) tuples
     
     if workers > 1:
         from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
         
-        WORKER_TIMEOUT = 600 # 10 min per worker
+        WORKER_TIMEOUT = 600  # 10 min per worker
         
         safe_print(f"\n🚀 Starting {len(dates)} days with {workers} parallel workers...")
         
@@ -265,7 +265,7 @@ def run_backfill(
                 for d in dates
             }
             
-            safe_print(f" 📤 Submitted {len(futures)} tasks\n")
+            safe_print(f"   📤 Submitted {len(futures)} tasks\n")
             
             # Collect results with timeout
             completed = 0
@@ -282,10 +282,10 @@ def run_backfill(
                     if result['status'] == 'success' and result.get('collection'):
                         collections_to_save.append((date_str, result['collection']))
                     
-                    safe_print(f" ✓ [{completed}/{len(dates)}] {date_str} - {result['status']}")
+                    safe_print(f"   ✓ [{completed}/{len(dates)}] {date_str} - {result['status']}")
                     
                 except TimeoutError:
-                    safe_print(f" ⏰ [{completed}/{len(dates)}] {date_str} - TIMEOUT")
+                    safe_print(f"   ⏰ [{completed}/{len(dates)}] {date_str} - TIMEOUT")
                     results.append({
                         'status': 'error',
                         'date': date_str,
@@ -293,14 +293,14 @@ def run_backfill(
                     })
                     
                 except Exception as e:
-                    safe_print(f" ❌ [{completed}/{len(dates)}] {date_str} - {e}")
+                    safe_print(f"   ❌ [{completed}/{len(dates)}] {date_str} - {e}")
                     results.append({
                         'status': 'error',
                         'date': date_str,
                         'error': str(e)
                     })
         
-        safe_print(f"\n 🏁 All {completed} workers completed")
+        safe_print(f"\n   🏁 All {completed} workers completed")
         
     else:
         # Sequential
@@ -332,35 +332,9 @@ def run_backfill(
                     r['saved'] = saved
                     break
             
-            safe_print(f" 💾 {date_str}: {saved} saved")
+            safe_print(f"   💾 {date_str}: {saved} saved")
         
-        safe_print(f" ✅ Total saved: {total_saved}")
-    
-    # =========================================================
-    # AGGREGATE ALL INCIDENTS FOR REPORT
-    # =========================================================
-    from v4.incident import IncidentCollection
-    from v4.phase_f_report import PhaseF_Report
-    
-    # Calculate totals first
-    success_count = sum(1 for r in results if r['status'] == 'success')
-    error_count = sum(1 for r in results if r['status'] == 'error')
-    no_data_count = sum(1 for r in results if r['status'] == 'no_data')
-    total_errors = sum(r.get('error_count', 0) for r in results)
-    total_incidents = sum(r.get('incidents', 0) for r in results)
-    
-    # Merge all collections into one for reporting
-    all_incidents = IncidentCollection(
-        run_id=f"backfill-{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}",
-        run_timestamp=datetime.now(timezone.utc),
-        pipeline_version="4.0",
-        input_records=total_errors,
-    )
-    
-    for date_str, collection in collections_to_save:
-        if collection:
-            for inc in collection.incidents:
-                all_incidents.add_incident(inc)
+        safe_print(f"   ✅ Total saved: {total_saved}")
     
     # =========================================================
     # SUMMARY - ALWAYS RUNS
@@ -369,39 +343,28 @@ def run_backfill(
     safe_print("📊 BACKFILL SUMMARY")
     safe_print("=" * 70)
     
-    safe_print(f"\n Days processed: {len(results)}")
-    safe_print(f" ✅ Successful: {success_count}")
-    safe_print(f" ⚪ No data: {no_data_count}")
-    safe_print(f" ❌ Failed: {error_count}")
-    safe_print(f"\n Total errors fetched: {total_errors:,}")
-    safe_print(f" Total incidents: {total_incidents}")
-    safe_print(f" Saved to DB: {total_saved}")
+    success_count = sum(1 for r in results if r['status'] == 'success')
+    error_count = sum(1 for r in results if r['status'] == 'error')
+    no_data_count = sum(1 for r in results if r['status'] == 'no_data')
+    total_errors = sum(r.get('error_count', 0) for r in results)
+    total_incidents = sum(r.get('incidents', 0) for r in results)
+    
+    safe_print(f"\n   Days processed: {len(results)}")
+    safe_print(f"   ✅ Successful: {success_count}")
+    safe_print(f"   ⚪ No data: {no_data_count}")
+    safe_print(f"   ❌ Failed: {error_count}")
+    safe_print(f"\n   Total errors fetched: {total_errors:,}")
+    safe_print(f"   Total incidents: {total_incidents}")
+    safe_print(f"   Saved to DB: {total_saved}")
     
     # Per-day breakdown
     if results:
-        safe_print(f"\n Per-day breakdown:")
+        safe_print(f"\n   Per-day breakdown:")
         for r in sorted(results, key=lambda x: x['date']):
             status_icon = {'success': '✅', 'error': '❌', 'no_data': '⚪'}.get(r['status'], '?')
             saved = r.get('saved', 0)
             incidents = r.get('incidents', 0)
-            safe_print(f" {status_icon} {r['date']}: {incidents} incidents, {saved} saved")
-    
-    # =========================================================
-    # INCIDENT ANALYSIS REPORT
-    # =========================================================
-    if all_incidents.total_incidents > 0:
-        reporter = PhaseF_Report()
-        
-        safe_print("\n")
-        safe_print(reporter.to_console(all_incidents))
-        
-        # Save detailed report files
-        if output_dir:
-            report_files = reporter.save_snapshot(all_incidents, output_dir)
-            safe_print(f"\n📄 Detailed reports saved:")
-            safe_print(f" JSON: {report_files.get('json')}")
-            safe_print(f" Markdown: {report_files.get('markdown')}")
-            safe_print(f" Summary: {report_files.get('summary')}")
+            safe_print(f"      {status_icon} {r['date']}: {incidents} incidents, {saved} saved")
     
     # Save summary JSON
     if output_dir:
@@ -474,7 +437,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-
-
-
-    

@@ -43,6 +43,78 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
+# Incident Analysis v5.2
+try:
+    from incident_analysis import (
+        IncidentAnalysisEngine,
+        IncidentReportFormatter,
+    )
+    from incident_analysis.knowledge_base import KnowledgeBase
+    from incident_analysis.knowledge_matcher import KnowledgeMatcher
+    from incident_analysis.models import calculate_priority
+    HAS_INCIDENT_ANALYSIS = True
+except ImportError:
+    HAS_INCIDENT_ANALYSIS = False
+
+
+def run_incident_analysis_daily(all_incidents, start_date, end_date):
+    """
+    Spustí Incident Analysis na agregovaných datech z backfillu.
+    
+    Pro backfill používáme daily mode - agregace přes celé období.
+    
+    Returns:
+        str: Formátovaný report nebo None
+    """
+    if not HAS_INCIDENT_ANALYSIS:
+        safe_print("   ⚠️  Incident Analysis not available")
+        return None
+    
+    if not all_incidents.incidents:
+        return None
+    
+    try:
+        # 1. Analyzuj incidenty
+        engine = IncidentAnalysisEngine()
+        result = engine.analyze(
+            all_incidents.incidents,
+            analysis_start=start_date,
+            analysis_end=end_date,
+        )
+        
+        if result.total_incidents == 0:
+            return None
+        
+        # 2. Knowledge matching
+        kb_path = SCRIPT_DIR.parent / 'config' / 'known_issues'
+        if kb_path.exists():
+            kb = KnowledgeBase(str(kb_path))
+            kb.load()
+            
+            matcher = KnowledgeMatcher(kb)
+            result = matcher.enrich_incidents(result)
+            
+            # Přepočti priority
+            for incident in result.incidents:
+                incident.priority, incident.priority_reasons = calculate_priority(
+                    knowledge_status=incident.knowledge_status,
+                    severity=incident.severity,
+                    blast_radius=incident.scope.blast_radius,
+                    namespace_count=len(incident.scope.namespaces),
+                    propagated=incident.scope.propagated,
+                    propagation_time_sec=incident.scope.propagation_time_sec,
+                )
+        
+        # 3. Formátuj jako daily report (ne 15min)
+        formatter = IncidentReportFormatter()
+        report = formatter.format_daily(result)
+        
+        return report
+        
+    except Exception as e:
+        safe_print(f"   ⚠️  Incident Analysis error: {e}")
+        return None
+
 
 # Thread-safe print
 _print_lock = threading.Lock()
@@ -202,7 +274,8 @@ def run_backfill(
     date_to: str = None,
     output_dir: str = None,
     dry_run: bool = False,
-    workers: int = 1
+    workers: int = 1,
+    skip_analysis: bool = False
 ) -> dict:
     """
     Spustí backfill - workers dělají jen pipeline, DB insert v main threadu.
@@ -387,7 +460,7 @@ def run_backfill(
             safe_print(f" {status_icon} {r['date']}: {incidents} incidents, {saved} saved")
     
     # =========================================================
-    # INCIDENT ANALYSIS REPORT
+    # INCIDENT ANALYSIS REPORT (legacy)
     # =========================================================
     if all_incidents.total_incidents > 0:
         reporter = PhaseF_Report()
@@ -402,6 +475,23 @@ def run_backfill(
             safe_print(f" JSON: {report_files.get('json')}")
             safe_print(f" Markdown: {report_files.get('markdown')}")
             safe_print(f" Summary: {report_files.get('summary')}")
+    
+    # =========================================================
+    # INCIDENT ANALYSIS v5.2 (daily mode)
+    # =========================================================
+    if HAS_INCIDENT_ANALYSIS and all_incidents.total_incidents > 0 and not skip_analysis:
+        safe_print("\n" + "=" * 70)
+        safe_print("🔍 INCIDENT ANALYSIS v5.2 (Daily Mode)")
+        safe_print("=" * 70)
+        
+        analysis_report = run_incident_analysis_daily(
+            all_incidents,
+            start_date,
+            end_date
+        )
+        
+        if analysis_report:
+            safe_print(analysis_report)
     
     # Save summary JSON
     if output_dir:
@@ -457,6 +547,7 @@ def main():
     parser.add_argument('--output', type=str, help='Output directory')
     parser.add_argument('--dry-run', action='store_true', help='No DB writes')
     parser.add_argument('--workers', type=int, default=1, help='Parallel workers (default: 1)')
+    parser.add_argument('--no-analysis', action='store_true', help='Skip incident analysis')
     
     args = parser.parse_args()
     
@@ -466,7 +557,8 @@ def main():
         date_to=args.date_to,
         output_dir=args.output,
         dry_run=args.dry_run,
-        workers=args.workers
+        workers=args.workers,
+        skip_analysis=args.no_analysis
     )
     
     return 0 if result['error_count'] == 0 else 1

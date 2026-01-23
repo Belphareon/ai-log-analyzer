@@ -1,0 +1,19 @@
+# Known Peaks - YAML (machine readable)
+# This file is MANUALLY maintained.
+
+known_peaks:
+  - id: KP-001
+    fingerprint: peak_fp_001
+    peak_type: error  # error, traffic, latency
+    description: Order-service error spike during DB pool exhaustion
+    affected_apps:
+      - order-service
+    first_seen: 2025-11-12
+    typical_duration_min: 15
+    jira: OPS-431
+    status: OPEN
+    linked_error_id: KE-001  # Links to known error
+    mitigation:
+      - Scale up pods
+      - Restart affected service
+    error_pattern: ""

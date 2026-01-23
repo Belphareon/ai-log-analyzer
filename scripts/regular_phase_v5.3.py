@@ -42,6 +42,78 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
+# Incident Analysis v5.2
+try:
+    from incident_analysis import (
+        IncidentAnalysisEngine,
+        IncidentReportFormatter,
+    )
+    from incident_analysis.knowledge_base import KnowledgeBase
+    from incident_analysis.knowledge_matcher import KnowledgeMatcher
+    from incident_analysis.models import calculate_priority
+    HAS_INCIDENT_ANALYSIS = True
+except ImportError:
+    HAS_INCIDENT_ANALYSIS = False
+
+
+def run_incident_analysis(collection, window_start, window_end, quiet=False):
+    """
+    Spustí Incident Analysis na výsledcích pipeline.
+    
+    Returns:
+        str: Formátovaný report nebo None při chybě
+    """
+    if not HAS_INCIDENT_ANALYSIS:
+        if not quiet:
+            print("   ⚠️  Incident Analysis not available (missing module)")
+        return None
+    
+    if not collection.incidents:
+        return None
+    
+    try:
+        # 1. Analyzuj incidenty
+        engine = IncidentAnalysisEngine()
+        result = engine.analyze(
+            collection.incidents,
+            analysis_start=window_start,
+            analysis_end=window_end,
+        )
+        
+        if result.total_incidents == 0:
+            return None
+        
+        # 2. Knowledge matching
+        kb_path = SCRIPT_DIR.parent / 'config' / 'known_issues'
+        if kb_path.exists():
+            kb = KnowledgeBase(str(kb_path))
+            kb.load()
+            
+            matcher = KnowledgeMatcher(kb)
+            result = matcher.enrich_incidents(result)
+            
+            # Přepočti priority po knowledge matching
+            for incident in result.incidents:
+                incident.priority, incident.priority_reasons = calculate_priority(
+                    knowledge_status=incident.knowledge_status,
+                    severity=incident.severity,
+                    blast_radius=incident.scope.blast_radius,
+                    namespace_count=len(incident.scope.namespaces),
+                    propagated=incident.scope.propagated,
+                    propagation_time_sec=incident.scope.propagation_time_sec,
+                )
+        
+        # 3. Formátuj report
+        formatter = IncidentReportFormatter()
+        report = formatter.format_15min(result)
+        
+        return report
+        
+    except Exception as e:
+        if not quiet:
+            print(f"   ⚠️  Incident Analysis error: {e}")
+        return None
+
 
 def get_db_connection():
     """Get database connection (uses DDL user for INSERT operations)"""
@@ -181,7 +253,8 @@ def run_regular_pipeline(
     date_to: str = None,
     output_dir: str = None,
     dry_run: bool = False,
-    quiet: bool = False
+    quiet: bool = False,
+    skip_analysis: bool = False
 ) -> dict:
     """
     Spustí regular pipeline pro jedno 15-min okno.
@@ -288,6 +361,21 @@ def run_regular_pipeline(
     if collection.by_severity.get('critical', 0) > 0 or collection.by_severity.get('high', 0) > 0:
         send_alerts(collection, webhook_url)
     
+    # === INCIDENT ANALYSIS v5.2 ===
+    if HAS_INCIDENT_ANALYSIS and collection.total_incidents > 0 and not skip_analysis:
+        if not quiet:
+            print(f"\n🔍 Running Incident Analysis...")
+        
+        analysis_report = run_incident_analysis(
+            collection, 
+            window_start, 
+            window_end, 
+            quiet=quiet
+        )
+        
+        if analysis_report and not quiet:
+            print(analysis_report)
+    
     # Duration
     duration = (datetime.now() - start_time).total_seconds()
     
@@ -314,6 +402,7 @@ def main():
     parser.add_argument('--output', type=str, help='Output directory for reports')
     parser.add_argument('--dry-run', action='store_true', help='Dry run - no DB writes')
     parser.add_argument('--quiet', action='store_true', help='Minimal output (for cron)')
+    parser.add_argument('--no-analysis', action='store_true', help='Skip incident analysis')
     
     args = parser.parse_args()
     
@@ -322,7 +411,8 @@ def main():
         date_to=args.date_to,
         output_dir=args.output,
         dry_run=args.dry_run,
-        quiet=args.quiet
+        quiet=args.quiet,
+        skip_analysis=args.no_analysis
     )
     
     # Exit code
