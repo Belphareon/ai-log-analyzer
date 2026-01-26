@@ -3,26 +3,32 @@
 Table Exporter - Operátorský view na Problem Registry
 =====================================================
 
-Generuje filtrovatelné tabulky:
-- errors_table.csv  → Excel, Jira import
-- errors_table.md   → human-readable
-- errors_table.json → API, další zpracování
+Export pravidla (V6.1):
+- latest/   → VŽDY přepsat (overwrite) - aktuální snapshot
+- daily/    → 1× denně, kontrola existence
+- weekly/   → 1× týdně, kontrola existence
 
-Zdroj dat:
-- ProblemRegistry (known_problems.yaml)
-- PeakRegistry (known_peaks.yaml)
-- Runtime incident snapshot (optional)
+Struktura:
+    exports/
+    ├── latest/
+    │   ├── errors_table.csv
+    │   ├── errors_table.md
+    │   ├── peaks_table.csv
+    │   └── peaks_table.md
+    ├── daily/
+    │   ├── 2026-01-26-errors.md
+    │   └── 2026-01-26-peaks.md
+    └── weekly/
+        └── 2026-W04-summary.md
+
+NIKDY negenerovat timestamped soubory při 15min bězích!
 
 Použití:
     from exports import TableExporter
 
     exporter = TableExporter(registry)
-    exporter.export_all('/path/to/output')
-
-    # Nebo jednotlivě:
-    exporter.export_csv('/path/to/errors_table.csv')
-    exporter.export_markdown('/path/to/errors_table.md')
-    exporter.export_json('/path/to/errors_table.json')
+    exporter.export_latest('/path/to/exports')  # overwrite
+    exporter.export_daily('/path/to/exports')   # once per day
 
 CLI:
     python table_exporter.py --registry ../registry --output ./exports
@@ -33,6 +39,7 @@ import sys
 import csv
 import json
 import argparse
+import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -410,83 +417,244 @@ class TableExporter:
         return str(path)
 
     # =========================================================================
-    # EXPORT ALL
+    # ATOMIC WRITE HELPER
+    # =========================================================================
+
+    def _write_atomic(self, path: Path, content: str) -> None:
+        """
+        Atomic write - tmp soubor + rename.
+        Safe při crashi, zajistí konzistenci.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write to temp file in same directory (same filesystem for atomic rename)
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(content)
+            os.replace(tmp_path, path)  # Atomic on POSIX
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+
+    # =========================================================================
+    # LATEST EXPORTS (OVERWRITE)
+    # =========================================================================
+
+    def export_latest(self, output_dir: str) -> Dict[str, str]:
+        """
+        Exportuje do latest/ složky - VŽDY přepíše.
+
+        Toto je DEFAULT pro 15-min běhy.
+        Odpovídá na otázku: "Jaký je stav TEĎ?"
+
+        Struktura:
+            exports/latest/
+            ├── errors_table.csv
+            ├── errors_table.md
+            ├── errors_table.json
+            ├── peaks_table.csv
+            ├── peaks_table.md
+            └── peaks_table.json
+        """
+        latest_dir = Path(output_dir) / 'latest'
+        latest_dir.mkdir(parents=True, exist_ok=True)
+
+        files = {}
+
+        # Errors - atomic overwrite
+        files['errors_csv'] = self.export_errors_csv(latest_dir / 'errors_table.csv')
+        files['errors_md'] = self.export_errors_markdown(latest_dir / 'errors_table.md')
+        files['errors_json'] = self.export_errors_json(latest_dir / 'errors_table.json')
+
+        # Peaks - atomic overwrite
+        files['peaks_csv'] = self.export_peaks_csv(latest_dir / 'peaks_table.csv')
+        files['peaks_md'] = self.export_peaks_markdown(latest_dir / 'peaks_table.md')
+        files['peaks_json'] = self.export_peaks_json(latest_dir / 'peaks_table.json')
+
+        return files
+
+    # =========================================================================
+    # DAILY EXPORTS (ONCE PER DAY)
+    # =========================================================================
+
+    def export_daily(self, output_dir: str, force: bool = False) -> Dict[str, str]:
+        """
+        Exportuje do daily/ složky - pouze 1× denně.
+
+        Kontroluje existenci souboru před zápisem.
+        force=True přepíše i existující.
+
+        Struktura:
+            exports/daily/
+            ├── 2026-01-26-errors.csv
+            ├── 2026-01-26-errors.md
+            ├── 2026-01-26-peaks.csv
+            └── 2026-01-26-peaks.md
+        """
+        daily_dir = Path(output_dir) / 'daily'
+        daily_dir.mkdir(parents=True, exist_ok=True)
+
+        date_str = self.generated_at.strftime('%Y-%m-%d')
+        files = {}
+
+        # Errors
+        errors_csv = daily_dir / f'{date_str}-errors.csv'
+        errors_md = daily_dir / f'{date_str}-errors.md'
+
+        if force or not errors_csv.exists():
+            files['errors_csv'] = self.export_errors_csv(errors_csv)
+        if force or not errors_md.exists():
+            files['errors_md'] = self.export_errors_markdown(errors_md)
+
+        # Peaks
+        peaks_csv = daily_dir / f'{date_str}-peaks.csv'
+        peaks_md = daily_dir / f'{date_str}-peaks.md'
+
+        if force or not peaks_csv.exists():
+            files['peaks_csv'] = self.export_peaks_csv(peaks_csv)
+        if force or not peaks_md.exists():
+            files['peaks_md'] = self.export_peaks_markdown(peaks_md)
+
+        return files
+
+    # =========================================================================
+    # WEEKLY EXPORTS (ONCE PER WEEK)
+    # =========================================================================
+
+    def export_weekly(self, output_dir: str, force: bool = False) -> Dict[str, str]:
+        """
+        Exportuje do weekly/ složky - pouze 1× týdně (summary).
+
+        Struktura:
+            exports/weekly/
+            └── 2026-W04-summary.md
+        """
+        weekly_dir = Path(output_dir) / 'weekly'
+        weekly_dir.mkdir(parents=True, exist_ok=True)
+
+        week_str = self.generated_at.strftime('%Y-W%W')
+        files = {}
+
+        summary_path = weekly_dir / f'{week_str}-summary.md'
+
+        if force or not summary_path.exists():
+            files['summary'] = self._export_weekly_summary(summary_path)
+
+        return files
+
+    def _export_weekly_summary(self, output_path: Path) -> str:
+        """Generuje týdenní summary report."""
+        errors_rows = self.get_errors_rows()
+        peaks_rows = self.get_peaks_rows()
+
+        # Filter to last 7 days
+        week_ago = self.generated_at - timedelta(days=7)
+        recent_errors = [r for r in errors_rows if r.last_seen_days_ago <= 7]
+        recent_peaks = [r for r in peaks_rows
+                        if r.last_seen and datetime.strptime(r.last_seen, "%Y-%m-%d %H:%M") > week_ago]
+
+        lines = [
+            f"# Weekly Summary - {self.generated_at.strftime('%Y-W%W')}",
+            f"",
+            f"**Generated:** {self.generated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Period:** {week_ago.strftime('%Y-%m-%d')} to {self.generated_at.strftime('%Y-%m-%d')}",
+            f"",
+            f"## Overview",
+            f"",
+            f"- **Total problems:** {len(errors_rows)}",
+            f"- **Active this week:** {len(recent_errors)}",
+            f"- **Total peaks:** {len(peaks_rows)}",
+            f"- **Peaks this week:** {len(recent_peaks)}",
+            f"",
+        ]
+
+        # Category breakdown for active problems
+        if recent_errors:
+            by_cat = {}
+            for r in recent_errors:
+                by_cat[r.category] = by_cat.get(r.category, 0) + 1
+
+            lines.append("## Active Problems by Category")
+            lines.append("")
+            lines.append("| Category | Count |")
+            lines.append("|----------|-------|")
+            for cat, cnt in sorted(by_cat.items(), key=lambda x: -x[1]):
+                lines.append(f"| {cat} | {cnt} |")
+            lines.append("")
+
+        # Top 10 by occurrences this week
+        if recent_errors:
+            lines.append("## Top 10 Most Frequent (This Week)")
+            lines.append("")
+            top10 = sorted(recent_errors, key=lambda r: r.occurrences, reverse=True)[:10]
+            for i, r in enumerate(top10, 1):
+                lines.append(f"{i}. **{r.problem_key}** - {r.occurrences:,} occurrences")
+            lines.append("")
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines))
+
+        return str(output_path)
+
+    # =========================================================================
+    # EXPORT ALL (BACKWARD COMPAT - NOW CALLS LATEST)
     # =========================================================================
 
     def export_all(self, output_dir: str) -> Dict[str, str]:
         """
-        Exportuje všechny tabulky do output_dir.
+        DEPRECATED: Pro zpětnou kompatibilitu.
+        Volá export_latest() - VŽDY overwrite.
 
-        Returns:
-            Dict s cestami k vygenerovaným souborům.
+        Pro nové implementace používej přímo:
+        - export_latest()  pro 15-min běhy
+        - export_daily()   pro denní snapshot
+        - export_weekly()  pro týdenní report
         """
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        timestamp = self.generated_at.strftime('%Y%m%d_%H%M%S')
-
-        files = {}
-
-        # Errors tables
-        files['errors_csv'] = self.export_errors_csv(output_path / f'errors_table_{timestamp}.csv')
-        files['errors_md'] = self.export_errors_markdown(output_path / f'errors_table_{timestamp}.md')
-        files['errors_json'] = self.export_errors_json(output_path / f'errors_table_{timestamp}.json')
-
-        # Also create "latest" symlinks/copies
-        files['errors_csv_latest'] = self.export_errors_csv(output_path / 'errors_table_latest.csv')
-        files['errors_md_latest'] = self.export_errors_markdown(output_path / 'errors_table_latest.md')
-        files['errors_json_latest'] = self.export_errors_json(output_path / 'errors_table_latest.json')
-
-        # Peaks tables
-        files['peaks_csv'] = self.export_peaks_csv(output_path / f'peaks_table_{timestamp}.csv')
-        files['peaks_md'] = self.export_peaks_markdown(output_path / f'peaks_table_{timestamp}.md')
-        files['peaks_json'] = self.export_peaks_json(output_path / f'peaks_table_{timestamp}.json')
-
-        files['peaks_csv_latest'] = self.export_peaks_csv(output_path / 'peaks_table_latest.csv')
-        files['peaks_md_latest'] = self.export_peaks_markdown(output_path / 'peaks_table_latest.md')
-        files['peaks_json_latest'] = self.export_peaks_json(output_path / 'peaks_table_latest.json')
-
-        return files
+        return self.export_latest(output_dir)
 
 
 # =============================================================================
 # CONVENIENCE FUNCTIONS
 # =============================================================================
 
-def export_errors_table(registry: ProblemRegistry, output_dir: str) -> Dict[str, str]:
-    """Convenience function - exportuje jen errors tabulky."""
+def export_latest(registry: ProblemRegistry, output_dir: str) -> Dict[str, str]:
+    """
+    Hlavní funkce pro 15-min běhy.
+    Exportuje do latest/ - VŽDY overwrite.
+    """
     exporter = TableExporter(registry)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    return exporter.export_latest(output_dir)
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    return {
-        'csv': exporter.export_errors_csv(output_path / f'errors_table_{timestamp}.csv'),
-        'md': exporter.export_errors_markdown(output_path / f'errors_table_{timestamp}.md'),
-        'json': exporter.export_errors_json(output_path / f'errors_table_{timestamp}.json'),
-        'csv_latest': exporter.export_errors_csv(output_path / 'errors_table_latest.csv'),
-        'md_latest': exporter.export_errors_markdown(output_path / 'errors_table_latest.md'),
-        'json_latest': exporter.export_errors_json(output_path / 'errors_table_latest.json'),
-    }
+def export_daily(registry: ProblemRegistry, output_dir: str, force: bool = False) -> Dict[str, str]:
+    """
+    Funkce pro denní snapshot.
+    Exportuje do daily/ - pouze 1× denně.
+    """
+    exporter = TableExporter(registry)
+    return exporter.export_daily(output_dir, force=force)
+
+
+def export_weekly(registry: ProblemRegistry, output_dir: str, force: bool = False) -> Dict[str, str]:
+    """
+    Funkce pro týdenní report.
+    Exportuje do weekly/ - pouze 1× týdně.
+    """
+    exporter = TableExporter(registry)
+    return exporter.export_weekly(output_dir, force=force)
+
+
+# Backward compatibility aliases
+def export_errors_table(registry: ProblemRegistry, output_dir: str) -> Dict[str, str]:
+    """DEPRECATED: Použij export_latest()."""
+    return export_latest(registry, output_dir)
 
 
 def export_peaks_table(registry: ProblemRegistry, output_dir: str) -> Dict[str, str]:
-    """Convenience function - exportuje jen peaks tabulky."""
-    exporter = TableExporter(registry)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    return {
-        'csv': exporter.export_peaks_csv(output_path / f'peaks_table_{timestamp}.csv'),
-        'md': exporter.export_peaks_markdown(output_path / f'peaks_table_{timestamp}.md'),
-        'json': exporter.export_peaks_json(output_path / f'peaks_table_{timestamp}.json'),
-        'csv_latest': exporter.export_peaks_csv(output_path / 'peaks_table_latest.csv'),
-        'md_latest': exporter.export_peaks_markdown(output_path / 'peaks_table_latest.md'),
-        'json_latest': exporter.export_peaks_json(output_path / 'peaks_table_latest.json'),
-    }
+    """DEPRECATED: Použij export_latest()."""
+    return export_latest(registry, output_dir)
 
 
 # =============================================================================
@@ -498,10 +666,27 @@ def main():
         description='Export Problem Registry to tables (CSV, MD, JSON)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Export Modes:
+  latest  - VŽDY overwrite (default, pro 15-min běhy)
+  daily   - 1× denně, kontrola existence
+  weekly  - 1× týdně, summary report
+  all     - latest + daily + weekly
+
+Struktura výstupu:
+  exports/
+  ├── latest/        ← overwrite
+  │   ├── errors_table.csv
+  │   ├── errors_table.md
+  │   └── peaks_table.*
+  ├── daily/         ← once per day
+  │   └── 2026-01-26-errors.*
+  └── weekly/        ← once per week
+      └── 2026-W04-summary.md
+
 Examples:
   %(prog)s --registry ../registry --output ./exports
-  %(prog)s --registry ../registry --output ./exports --format csv
-  %(prog)s --registry ../registry --output ./exports --errors-only
+  %(prog)s --registry ../registry --output ./exports --mode daily
+  %(prog)s --registry ../registry --output ./exports --mode all --force
         """
     )
 
@@ -509,66 +694,54 @@ Examples:
                         help='Registry directory (default: ../registry)')
     parser.add_argument('--output', type=str, default='./exports',
                         help='Output directory (default: ./exports)')
-    parser.add_argument('--format', type=str, choices=['all', 'csv', 'md', 'json'], default='all',
-                        help='Output format (default: all)')
-    parser.add_argument('--errors-only', action='store_true',
-                        help='Export only errors table')
-    parser.add_argument('--peaks-only', action='store_true',
-                        help='Export only peaks table')
+    parser.add_argument('--mode', type=str,
+                        choices=['latest', 'daily', 'weekly', 'all'],
+                        default='latest',
+                        help='Export mode (default: latest)')
+    parser.add_argument('--force', action='store_true',
+                        help='Force overwrite daily/weekly even if exists')
 
     args = parser.parse_args()
 
     # Load registry
-    print(f"📂 Loading registry from {args.registry}...")
+    print(f"Loading registry from {args.registry}...")
     registry = ProblemRegistry(args.registry)
 
     if not registry.load():
-        print("⚠️ Registry empty or not found, creating empty tables...")
+        print("Registry empty or not found, creating empty tables...")
 
     print(f"   Problems: {len(registry.problems)}")
     print(f"   Peaks: {len(registry.peaks)}")
 
     # Export
     exporter = TableExporter(registry)
-    output_path = Path(args.output)
-    output_path.mkdir(parents=True, exist_ok=True)
+    all_files = {}
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    files = []
+    if args.mode in ('latest', 'all'):
+        print(f"\nExporting to latest/ (overwrite)...")
+        files = exporter.export_latest(args.output)
+        all_files.update({f'latest_{k}': v for k, v in files.items()})
+        print(f"   {len(files)} files written")
 
-    # Errors
-    if not args.peaks_only:
-        if args.format in ('all', 'csv'):
-            f = exporter.export_errors_csv(output_path / f'errors_table_{timestamp}.csv')
-            files.append(f)
-            exporter.export_errors_csv(output_path / 'errors_table_latest.csv')
-        if args.format in ('all', 'md'):
-            f = exporter.export_errors_markdown(output_path / f'errors_table_{timestamp}.md')
-            files.append(f)
-            exporter.export_errors_markdown(output_path / 'errors_table_latest.md')
-        if args.format in ('all', 'json'):
-            f = exporter.export_errors_json(output_path / f'errors_table_{timestamp}.json')
-            files.append(f)
-            exporter.export_errors_json(output_path / 'errors_table_latest.json')
+    if args.mode in ('daily', 'all'):
+        print(f"\nExporting to daily/ (once per day)...")
+        files = exporter.export_daily(args.output, force=args.force)
+        if files:
+            all_files.update({f'daily_{k}': v for k, v in files.items()})
+            print(f"   {len(files)} files written")
+        else:
+            print(f"   Skipped (already exists, use --force to overwrite)")
 
-    # Peaks
-    if not args.errors_only:
-        if args.format in ('all', 'csv'):
-            f = exporter.export_peaks_csv(output_path / f'peaks_table_{timestamp}.csv')
-            files.append(f)
-            exporter.export_peaks_csv(output_path / 'peaks_table_latest.csv')
-        if args.format in ('all', 'md'):
-            f = exporter.export_peaks_markdown(output_path / f'peaks_table_{timestamp}.md')
-            files.append(f)
-            exporter.export_peaks_markdown(output_path / 'peaks_table_latest.md')
-        if args.format in ('all', 'json'):
-            f = exporter.export_peaks_json(output_path / f'peaks_table_{timestamp}.json')
-            files.append(f)
-            exporter.export_peaks_json(output_path / 'peaks_table_latest.json')
+    if args.mode in ('weekly', 'all'):
+        print(f"\nExporting to weekly/ (once per week)...")
+        files = exporter.export_weekly(args.output, force=args.force)
+        if files:
+            all_files.update({f'weekly_{k}': v for k, v in files.items()})
+            print(f"   {len(files)} files written")
+        else:
+            print(f"   Skipped (already exists, use --force to overwrite)")
 
-    print(f"\n✅ Exported {len(files)} files to {args.output}/")
-    for f in files:
-        print(f"   📄 {Path(f).name}")
+    print(f"\nDone. Total: {len(all_files)} files")
 
     return 0
 
