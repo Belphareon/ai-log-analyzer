@@ -18,9 +18,27 @@ Pouze:
 
 import re
 import hashlib
+import sys
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from dataclasses import dataclass
+
+# Add core to path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'core'))
+
+try:
+    from telemetry_context import (
+        extract_application_version,
+        extract_environment,
+        extract_trace_id,
+        extract_span_id,
+        extract_parent_span_id,
+        Environment,
+    )
+    HAS_TELEMETRY = True
+except ImportError:
+    HAS_TELEMETRY = False
 
 
 @dataclass
@@ -29,18 +47,21 @@ class NormalizedRecord:
     # Original
     raw_message: str
     raw_timestamp: str
-    
+
     # Extracted
     timestamp: Optional[datetime]
     namespace: str
-    app_name: str
-    app_version: str
+    app_name: str                           # deployment_label (může obsahovat -v1)
+    app_version: Optional[str]              # application.version (X.Y.Z) nebo None
     trace_id: Optional[str]
-    
+    span_id: Optional[str] = None           # NEW: span v rámci trace
+    parent_span_id: Optional[str] = None    # NEW: parent span
+    environment: str = "unknown"            # NEW: prod/uat/sit/dev
+
     # Normalized
-    normalized_message: str
-    error_type: str
-    fingerprint: str
+    normalized_message: str = ""
+    error_type: str = ""
+    fingerprint: str = ""
 
 
 class PhaseA_Parser:
@@ -145,24 +166,40 @@ class PhaseA_Parser:
         combined = f"{error_type}:{normalized_message}"
         return hashlib.md5(combined.encode()).hexdigest()[:16]
     
-    def extract_app_version(self, app_name: str, error: dict) -> str:
+    def extract_app_version(self, app_name: str, error: dict) -> Optional[str]:
         """
-        Extrahuje verzi aplikace.
-        
-        1. Z explicitního pole (app_version, version)
-        2. Z názvu aplikace (bl-pcb-v1 → v1)
+        Extrahuje verzi aplikace POUZE z explicitního pole.
+
+        POVOLENO:
+        - application.version
+        - app_version
+        - version (pokud je semantic X.Y.Z)
+
+        ZAKÁZÁNO:
+        - Extrakce z názvu aplikace (-v1, -v2)
+        - Build number
+        - SDK version
         """
-        # Try explicit fields
-        version = error.get('app_version') or error.get('version') or error.get('appVersion')
-        if version:
-            return str(version)
-        
-        # Try to extract from app name
-        match = re.search(r'-v(\d+(?:\.\d+)*)$', app_name)
-        if match:
-            return f"v{match.group(1)}"
-        
-        return 'unknown'
+        if HAS_TELEMETRY:
+            return extract_application_version(error)
+
+        # Fallback bez telemetry modulu
+        version = (
+            error.get('application.version') or
+            error.get('app_version') or
+            error.get('appVersion')
+        )
+
+        if not version:
+            return None
+
+        version = str(version).strip()
+
+        # Validace semantic version
+        if re.match(r'^\d+\.\d+\.\d+', version):
+            return version
+
+        return None
     
     def parse_timestamp(self, ts_str: str) -> Optional[datetime]:
         """Parse timestamp string to datetime"""
@@ -179,32 +216,52 @@ class PhaseA_Parser:
     def parse(self, error: dict) -> NormalizedRecord:
         """
         Parsuje jeden error záznam.
-        
+
         Vstup: raw error dict z ES/JSON
         Výstup: NormalizedRecord
+
+        Nová pole v V6:
+        - span_id, parent_span_id (pro trace propagation)
+        - environment (odvozeno z namespace)
+        - app_version = POUZE z application.version (ne z názvu!)
         """
         # Extract raw values
         raw_message = error.get('message', '')
-        raw_timestamp = error.get('timestamp', '')
-        namespace = error.get('namespace', 'unknown')
-        app_name = error.get('application') or error.get('app') or 'unknown'
-        trace_id = error.get('trace_id')
-        
+        raw_timestamp = error.get('@timestamp') or error.get('timestamp', '')
+        namespace = error.get('kubernetes.namespace') or error.get('namespace', 'unknown')
+        app_name = error.get('application.name') or error.get('application') or error.get('app') or 'unknown'
+
+        # Handle nested application object
+        if isinstance(error.get('application'), dict):
+            app_name = error['application'].get('name', app_name)
+
         # Parse timestamp
         timestamp = self.parse_timestamp(raw_timestamp)
-        
-        # Extract app version
+
+        # Extract app version (ONLY from explicit field, never from name!)
         app_version = self.extract_app_version(app_name, error)
-        
+
+        # Extract trace info
+        if HAS_TELEMETRY:
+            trace_id = extract_trace_id(error)
+            span_id = extract_span_id(error)
+            parent_span_id = extract_parent_span_id(error)
+            environment = extract_environment(namespace).value
+        else:
+            trace_id = error.get('traceId') or error.get('trace_id')
+            span_id = error.get('spanId') or error.get('span_id')
+            parent_span_id = error.get('parentId') or error.get('parent_id')
+            environment = self._derive_environment(namespace)
+
         # Normalize message
         normalized_message = self.normalize_message(raw_message)
-        
+
         # Extract error type
         error_type = self.extract_error_type(raw_message)
-        
+
         # Generate fingerprint
         fingerprint = self.generate_fingerprint(normalized_message, error_type)
-        
+
         return NormalizedRecord(
             raw_message=raw_message[:1000],  # Keep sample
             raw_timestamp=raw_timestamp,
@@ -213,10 +270,26 @@ class PhaseA_Parser:
             app_name=app_name,
             app_version=app_version,
             trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            environment=environment,
             normalized_message=normalized_message,
             error_type=error_type,
             fingerprint=fingerprint,
         )
+
+    def _derive_environment(self, namespace: str) -> str:
+        """Fallback environment detection bez telemetry modulu."""
+        ns_lower = namespace.lower()
+        if '-prod-' in ns_lower or ns_lower.endswith('-prod'):
+            return 'prod'
+        if '-uat-' in ns_lower or ns_lower.endswith('-uat'):
+            return 'uat'
+        if '-sit-' in ns_lower or ns_lower.endswith('-sit'):
+            return 'sit'
+        if '-dev-' in ns_lower or ns_lower.endswith('-dev'):
+            return 'dev'
+        return 'unknown'
     
     def parse_batch(self, errors: List[dict]) -> List[NormalizedRecord]:
         """Parsuje batch errorů"""

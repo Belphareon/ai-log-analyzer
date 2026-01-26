@@ -113,18 +113,64 @@ class ScoreBreakdown:
     regression_bonus: float = 0.0
     cascade_bonus: float = 0.0
     cross_ns_bonus: float = 0.0
-    
+    propagation_bonus: float = 0.0  # NEW: bonus pro propagované incidenty
+
     @property
     def total(self) -> float:
-        return min(100, max(0, 
-            self.base_score + 
-            self.spike_bonus + 
-            self.burst_bonus + 
-            self.new_bonus + 
+        return min(100, max(0,
+            self.base_score +
+            self.spike_bonus +
+            self.burst_bonus +
+            self.new_bonus +
             self.regression_bonus +
             self.cascade_bonus +
-            self.cross_ns_bonus
+            self.cross_ns_bonus +
+            self.propagation_bonus
         ))
+
+
+@dataclass
+class PropagationInfo:
+    """
+    Informace o propagaci incidentu (V6).
+
+    Propagace = incident se šíří přes více services (detekováno přes traceId).
+    """
+    propagated: bool = False                        # Incident se šíří přes více services
+    root_deployment: Optional[str] = None           # Deployment kde incident začal
+    affected_deployments: List[str] = field(default_factory=list)  # Všechny affected deployments
+    propagation_time_sec: Optional[float] = None    # Čas propagace
+    trace_count: int = 0                            # Počet trace s propagací
+
+    def to_dict(self) -> dict:
+        return {
+            'propagated': self.propagated,
+            'root_deployment': self.root_deployment,
+            'affected_deployments': self.affected_deployments,
+            'propagation_time_sec': self.propagation_time_sec,
+            'trace_count': self.trace_count,
+        }
+
+
+@dataclass
+class TraceInfo:
+    """
+    Agregované trace informace pro incident (V6).
+    """
+    trace_ids: List[str] = field(default_factory=list)    # Všechny trace IDs
+    trace_count: int = 0                                  # Počet unikátních traces
+    trace_services: List[str] = field(default_factory=list)  # Services v traces
+    trace_first_seen: Optional[datetime] = None           # První event v trace
+    trace_last_seen: Optional[datetime] = None            # Poslední event v trace
+
+    def to_dict(self) -> dict:
+        return {
+            'trace_ids': self.trace_ids[:10],  # Limit pro export
+            'trace_count': self.trace_count,
+            'trace_services': self.trace_services,
+            'trace_first_seen': self.trace_first_seen.isoformat() if self.trace_first_seen else None,
+            'trace_last_seen': self.trace_last_seen.isoformat() if self.trace_last_seen else None,
+        }
 
 
 @dataclass 
@@ -152,10 +198,21 @@ class Incident:
     stats: Stats = field(default_factory=Stats)
     
     # Affected entities
-    apps: List[str] = field(default_factory=list)
+    apps: List[str] = field(default_factory=list)           # deployment_labels (mohou obsahovat -v1)
     namespaces: List[str] = field(default_factory=list)
-    versions: List[str] = field(default_factory=list)
+    environments: List[str] = field(default_factory=list)   # V6: prod/uat/sit/dev
+
+    # V6: Oddělené verze a deploymenty
+    deployment_labels: List[str] = field(default_factory=list)  # V6: explicitní deployment labels
+    app_versions: List[str] = field(default_factory=list)       # V6: POUZE semantic versions (X.Y.Z)
+    versions: List[str] = field(default_factory=list)           # DEPRECATED: pro zpětnou kompatibilitu
+
+    # V6: Trace info
     trace_ids: List[str] = field(default_factory=list)
+    trace_info: TraceInfo = field(default_factory=TraceInfo)
+
+    # V6: Propagation
+    propagation: PropagationInfo = field(default_factory=PropagationInfo)
     
     # === FÁZE C: Detect ===
     flags: Flags = field(default_factory=Flags)
@@ -227,7 +284,14 @@ class Incident:
             
             "apps": self.apps,
             "namespaces": self.namespaces,
-            "versions": self.versions,
+            "environments": self.environments,
+            "deployment_labels": self.deployment_labels,
+            "app_versions": self.app_versions,
+            "versions": self.versions,  # DEPRECATED
+
+            # V6: Trace & Propagation
+            "trace_info": self.trace_info.to_dict(),
+            "propagation": self.propagation.to_dict(),
             
             "flags": {
                 "new": self.flags.is_new,

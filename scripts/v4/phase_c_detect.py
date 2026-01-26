@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-FÁZE C: Detect (OPTIMALIZOVANÁ VERZE)
-=====================================
+FÁZE C: Detect (V2 - S REGISTRY INTEGRACÍ)
+==========================================
 
-OPRAVA: Předgrupování records v detect_batch místo filtrování v každém volání.
+OPRAVY v2:
+1. Správná integrace s ProblemRegistry
+2. Lookup přes problem_key, ne jen fingerprint
+3. Propagace event timestamps (ne run timestamps)
+
 Složitost: O(n) místo O(n × fingerprints)
 """
 
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -44,6 +48,18 @@ except ImportError:
     from phase_b_measure import MeasurementResult
     from incident import Evidence, Flags
 
+# Import registry (optional - for backwards compatibility)
+try:
+    from core.problem_registry import ProblemRegistry, compute_problem_key
+    HAS_REGISTRY = True
+except ImportError:
+    try:
+        from problem_registry import ProblemRegistry, compute_problem_key
+        HAS_REGISTRY = True
+    except ImportError:
+        HAS_REGISTRY = False
+        ProblemRegistry = None
+
 
 @dataclass
 class DetectionResult:
@@ -52,16 +68,25 @@ class DetectionResult:
     flags: Flags = field(default_factory=Flags)
     evidence: List[Evidence] = field(default_factory=list)
     
+    # Event timestamps (pro registry update)
+    first_event_ts: Optional[datetime] = None
+    last_event_ts: Optional[datetime] = None
+    
+    # Problem key (pro registry lookup)
+    problem_key: Optional[str] = None
+    
     def add_evidence(self, rule: str, **kwargs):
         self.evidence.append(Evidence(rule=rule, **kwargs))
 
 
 class PhaseC_Detect:
     """
-    FÁZE C: Detect (OPTIMALIZOVANÁ)
+    FÁZE C: Detect (V2 s Registry)
     
-    Klíčová optimalizace: records se předgrupují JEDNOU v detect_batch,
-    ne pro každý fingerprint zvlášť.
+    Klíčové opravy:
+    1. Registry se načte při __init__ nebo přes load_registry()
+    2. Lookup používá BOTH fingerprint AND problem_key
+    3. Event timestamps se propagují do DetectionResult
     """
     
     def __init__(
@@ -73,14 +98,54 @@ class PhaseC_Detect:
         cross_ns_threshold: int = 2,
         known_fingerprints: Set[str] = None,
         known_fixes: Dict[str, str] = None,
+        registry: 'ProblemRegistry' = None,
     ):
         self.spike_threshold = spike_threshold
         self.spike_mad_threshold = spike_mad_threshold
         self.burst_threshold = burst_threshold
         self.burst_window_sec = burst_window_sec
         self.cross_ns_threshold = cross_ns_threshold
+        
+        # Legacy: direct fingerprint set
         self.known_fingerprints = known_fingerprints or set()
         self.known_fixes = known_fixes or {}
+        
+        # V2: Registry integration
+        self.registry = registry
+        
+        # Stats
+        self.stats = {
+            'total_processed': 0,
+            'detected_new': 0,
+            'detected_known': 0,
+            'detected_spike': 0,
+            'detected_burst': 0,
+            'detected_cross_ns': 0,
+        }
+    
+    def load_registry(self, registry_dir: str) -> bool:
+        """
+        Načte ProblemRegistry z adresáře.
+        
+        Volej PŘED spuštěním pipeline!
+        """
+        if not HAS_REGISTRY:
+            print("⚠️ ProblemRegistry not available")
+            return False
+        
+        try:
+            self.registry = ProblemRegistry(registry_dir)
+            self.registry.load()
+            
+            # Sync known_fingerprints from registry
+            self.known_fingerprints = self.registry.get_all_known_fingerprints()
+            
+            print(f"✅ Loaded registry: {len(self.known_fingerprints)} known fingerprints")
+            return True
+            
+        except Exception as e:
+            print(f"⚠️ Failed to load registry: {e}")
+            return False
     
     def _detect_spike(self, measurement: MeasurementResult, result: DetectionResult) -> bool:
         """Detekuje spike: current > baseline * threshold"""
@@ -96,6 +161,7 @@ class PhaseC_Detect:
                     threshold=self.spike_threshold,
                     message=f"ratio ({ratio:.2f}) > threshold ({self.spike_threshold})"
                 )
+                self.stats['detected_spike'] += 1
                 return True
         
         # MAD test
@@ -110,6 +176,7 @@ class PhaseC_Detect:
                     threshold=mad_upper,
                     message=f"current ({measurement.current_rate}) > median + {self.spike_mad_threshold}*MAD ({mad_upper:.2f})"
                 )
+                self.stats['detected_spike'] += 1
                 return True
         
         return False
@@ -117,7 +184,7 @@ class PhaseC_Detect:
     def _detect_burst(
         self,
         measurement: MeasurementResult,
-        fp_records: List,  # PŘEDFILTROVANÉ records pro tento fingerprint
+        fp_records: List,
         result: DetectionResult
     ) -> bool:
         """Detekuje burst - přijímá UŽ FILTROVANÉ records"""
@@ -133,7 +200,11 @@ class PhaseC_Detect:
         if len(sorted_records) < 2:
             return False
         
-        # Optimalizace: použij sliding window s O(n) complexity
+        # Capture event timestamps
+        result.first_event_ts = sorted_records[0].timestamp
+        result.last_event_ts = sorted_records[-1].timestamp
+        
+        # Sliding window with O(n) complexity
         window = timedelta(seconds=self.burst_window_sec)
         window_start_idx = 0
         
@@ -143,13 +214,11 @@ class PhaseC_Detect:
                    sorted_records[window_start_idx].timestamp < record.timestamp - window):
                 window_start_idx += 1
             
-            # Count in window = i - window_start_idx + 1
             count_in_window = i - window_start_idx + 1
             
-            if count_in_window < 3:  # Minimum pro burst
+            if count_in_window < 3:
                 continue
             
-            # Calculate rate
             rate_per_min = count_in_window / (self.burst_window_sec / 60)
             
             if measurement.baseline_ewma > 0:
@@ -165,24 +234,73 @@ class PhaseC_Detect:
                         message=f"rate_change ({rate_change:.2f}) > {self.burst_threshold}",
                         timestamp=record.timestamp
                     )
+                    self.stats['detected_burst'] += 1
                     return True
         
         return False
     
-    def _detect_new(self, measurement: MeasurementResult, result: DetectionResult) -> bool:
-        """Detekuje nový fingerprint"""
+    def _detect_new(
+        self,
+        measurement: MeasurementResult,
+        result: DetectionResult,
+        apps: List[str] = None,
+        error_type: str = "",
+        normalized_message: str = "",
+        namespaces: List[str] = None,
+    ) -> bool:
+        """
+        Detekuje nový fingerprint/problem.
+        
+        V2: Kontroluje BOTH fingerprint AND problem_key!
+        """
         fp = measurement.fingerprint
         
-        if fp not in self.known_fingerprints:
-            result.flags.is_new = True
-            result.add_evidence(
-                rule="new_fingerprint",
-                message=f"fingerprint {fp} not seen before"
-            )
-            self.known_fingerprints.add(fp)
-            return True
+        # 1. Check fingerprint index
+        if fp in self.known_fingerprints:
+            self.stats['detected_known'] += 1
+            return False
         
-        return False
+        # 2. If registry available, check problem_key
+        if self.registry and HAS_REGISTRY and apps:
+            # Get category from somewhere (measurement or classification)
+            category = getattr(measurement, 'category', 'unknown')
+            
+            problem_key = compute_problem_key(
+                category=category,
+                app_names=apps,
+                error_type=error_type,
+                normalized_message=normalized_message,
+                namespaces=namespaces,
+            )
+            
+            result.problem_key = problem_key
+            
+            # Even if fingerprint is new, problem might be known
+            if self.registry.is_problem_key_known(problem_key):
+                # Problem is known, but fingerprint is new - add to index
+                # This is NOT a "new" problem, just a new variant
+                result.add_evidence(
+                    rule="new_fingerprint_known_problem",
+                    message=f"fingerprint {fp} is new, but problem {problem_key} is known"
+                )
+                
+                # Still mark fingerprint as known for this session
+                self.known_fingerprints.add(fp)
+                self.stats['detected_known'] += 1
+                return False
+        
+        # 3. Truly new
+        result.flags.is_new = True
+        result.add_evidence(
+            rule="new_fingerprint",
+            message=f"fingerprint {fp} not seen before"
+        )
+        
+        # Add to known (for this session)
+        self.known_fingerprints.add(fp)
+        self.stats['detected_new'] += 1
+        
+        return True
     
     def _detect_cross_namespace(self, measurement: MeasurementResult, result: DetectionResult) -> bool:
         """Detekuje cross-namespace pattern"""
@@ -196,6 +314,7 @@ class PhaseC_Detect:
                 threshold=self.cross_ns_threshold,
                 message=f"found in {ns_count} namespaces: {measurement.namespaces}"
             )
+            self.stats['detected_cross_ns'] += 1
             return True
         
         return False
@@ -253,12 +372,35 @@ class PhaseC_Detect:
         measurement: MeasurementResult,
         fp_records: List = None,
         current_version: str = None,
+        apps: List[str] = None,
+        error_type: str = "",
+        normalized_message: str = "",
+        namespaces: List[str] = None,
     ) -> DetectionResult:
         """Aplikuje všechna detekční pravidla"""
         result = DetectionResult(fingerprint=measurement.fingerprint)
         
+        self.stats['total_processed'] += 1
+        
+        # Capture event timestamps from records if available
+        if fp_records:
+            sorted_records = sorted(
+                [r for r in fp_records if r.timestamp],
+                key=lambda r: r.timestamp
+            )
+            if sorted_records:
+                result.first_event_ts = sorted_records[0].timestamp
+                result.last_event_ts = sorted_records[-1].timestamp
+        
+        # Apply detection rules
         self._detect_spike(measurement, result)
-        self._detect_new(measurement, result)
+        self._detect_new(
+            measurement, result,
+            apps=apps,
+            error_type=error_type,
+            normalized_message=normalized_message,
+            namespaces=namespaces,
+        )
         self._detect_cross_namespace(measurement, result)
         self._detect_silence(measurement, result)
         
@@ -275,25 +417,64 @@ class PhaseC_Detect:
         measurements: Dict[str, MeasurementResult],
         records: List = None,
         versions: Dict[str, str] = None,
+        record_metadata: Dict[str, dict] = None,
     ) -> Dict[str, DetectionResult]:
         """
         OPTIMALIZOVANÁ verze - předgrupuje records JEDNOU.
+        
+        V2: Přidán record_metadata pro apps, error_type, normalized_message.
         """
-        # Předgrupuj records (O(n))
+        # Pre-group records by fingerprint (O(n))
         records_by_fp: Dict[str, List] = defaultdict(list)
         if records:
             for r in records:
                 records_by_fp[r.fingerprint].append(r)
         
-        # Detekce (O(fingerprints))
+        # Pre-extract metadata if not provided
+        if record_metadata is None:
+            record_metadata = {}
+            for fp, fp_records in records_by_fp.items():
+                if fp_records:
+                    r = fp_records[0]
+                    record_metadata[fp] = {
+                        'apps': list(set(rec.app_name for rec in fp_records)),
+                        'error_type': getattr(r, 'error_type', ''),
+                        'normalized_message': getattr(r, 'normalized_message', ''),
+                        'namespaces': list(set(rec.namespace for rec in fp_records)),
+                    }
+        
+        # Detection (O(fingerprints))
         results = {}
         items = list(measurements.items())
+        
         for fp, measurement in progress_iter(items, desc="Phase C: Detect", total=len(items)):
             fp_records = records_by_fp.get(fp, [])
             version = versions.get(fp) if versions else None
-            results[fp] = self.detect(measurement, fp_records, version)
+            meta = record_metadata.get(fp, {})
+            
+            results[fp] = self.detect(
+                measurement,
+                fp_records,
+                version,
+                apps=meta.get('apps', []),
+                error_type=meta.get('error_type', ''),
+                normalized_message=meta.get('normalized_message', ''),
+                namespaces=meta.get('namespaces', []),
+            )
         
         return results
+    
+    def get_event_timestamps(self, results: Dict[str, DetectionResult]) -> Dict[str, Tuple[datetime, datetime]]:
+        """
+        Vrátí event timestamps pro registry update.
+        
+        Returns: {fingerprint: (first_ts, last_ts)}
+        """
+        timestamps = {}
+        for fp, result in results.items():
+            if result.first_event_ts and result.last_event_ts:
+                timestamps[fp] = (result.first_event_ts, result.last_event_ts)
+        return timestamps
     
     def add_known_fingerprint(self, fingerprint: str):
         self.known_fingerprints.add(fingerprint)
@@ -302,6 +483,7 @@ class PhaseC_Detect:
         self.known_fixes[fingerprint] = fixed_in_version
     
     def load_known_from_db(self, conn):
+        """Legacy: load from DB (use load_registry instead)"""
         cursor = conn.cursor()
         cursor.execute("SELECT signature_hash FROM ailog_peak.error_signatures")
         self.known_fingerprints = {row[0] for row in cursor.fetchall()}
@@ -311,7 +493,17 @@ class PhaseC_Detect:
             WHERE fixed_in_version IS NOT NULL
         """)
         self.known_fixes = {row[0]: row[1] for row in cursor.fetchall()}
+    
+    def print_stats(self):
+        """Print detection statistics"""
+        print("\n📊 Detection Stats:")
+        print(f"   Total processed: {self.stats['total_processed']}")
+        print(f"   New: {self.stats['detected_new']}")
+        print(f"   Known: {self.stats['detected_known']}")
+        print(f"   Spikes: {self.stats['detected_spike']}")
+        print(f"   Bursts: {self.stats['detected_burst']}")
+        print(f"   Cross-NS: {self.stats['detected_cross_ns']}")
 
 
 if __name__ == "__main__":
-    print("Phase C: Detect - optimized version")
+    print("Phase C: Detect V2 - with Registry integration")
