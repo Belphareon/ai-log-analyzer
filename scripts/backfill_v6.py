@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-BACKFILL V6 - S KOMPLETNÍ REGISTRY INTEGRACÍ
-=============================================
+BACKFILL V6 - S KOMPLETNÍ REGISTRY INTEGRACÍ + PROBLEM-CENTRIC ANALYSIS
+========================================================================
 
 OPRAVY v6:
 1. Registry se načítá PŘED pipeline
@@ -11,6 +11,15 @@ OPRAVY v6:
 5. Problem_key místo 1:1 fingerprint
 6. Správné ukončení (cleanup connections)
 7. Detekce již zpracovaných dnů
+
+NOVÉ v6.1 (Problem-Centric Analysis):
+- Incidenty se agregují do PROBLÉMŮ (problem_key)
+- Report iteruje přes problémy, NE incidenty
+- Root cause inference (deterministicky z trace)
+- Propagation analysis (služby, ne boolean)
+- Version impact analysis
+- Category refinement (automatická reklasifikace unknown)
+- CSV/JSON exporty oddělené od reportu
 
 Použití:
     python backfill_v6.py --days 14
@@ -63,7 +72,7 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
-# Incident Analysis
+# Incident Analysis (legacy)
 try:
     from incident_analysis import (
         IncidentAnalysisEngine,
@@ -77,6 +86,19 @@ try:
 except ImportError as e:
     HAS_INCIDENT_ANALYSIS = False
     print(f"⚠️ Incident Analysis import failed: {e}")
+
+# Problem-Centric Analysis V6
+try:
+    from analysis import (
+        aggregate_by_problem_key,
+        ProblemReportGenerator,
+        ProblemExporter,
+        get_representative_traces,
+    )
+    HAS_PROBLEM_ANALYSIS = True
+except ImportError as e:
+    HAS_PROBLEM_ANALYSIS = False
+    print(f"⚠️ Problem Analysis import failed: {e}")
 
 
 # =============================================================================
@@ -662,37 +684,64 @@ def run_backfill(
             safe_print(f" {status_icon} {r['date']}: {incidents} incidents, {saved} saved")
     
     # ==========================================================================
-    # INCIDENT ANALYSIS REPORT
+    # PROBLEM-CENTRIC ANALYSIS REPORT (V6)
     # ==========================================================================
-    if all_incidents_collection.total_incidents > 0:
+    if all_incidents_collection.total_incidents > 0 and HAS_PROBLEM_ANALYSIS and not skip_analysis:
+        safe_print("\n" + "=" * 70)
+        safe_print("🔍 PROBLEM ANALYSIS V6")
+        safe_print("=" * 70)
+
+        # 1. Agreguj incidenty do problémů
+        problems = aggregate_by_problem_key(all_incidents_collection.incidents)
+        safe_print(f"\n📊 Aggregated {len(all_incidents_collection.incidents)} incidents into {len(problems)} problems")
+
+        # 2. Získej reprezentativní traces
+        trace_flows = get_representative_traces(problems)
+
+        # 3. Generuj problem-centric report
+        reports_dir = output_dir or str(SCRIPT_DIR / 'reports')
+
+        generator = ProblemReportGenerator(
+            problems=problems,
+            trace_flows=trace_flows,
+            analysis_start=start_date,
+            analysis_end=end_date,
+            run_id=all_incidents_collection.run_id,
+        )
+
+        # Textový report
+        problem_report = generator.generate_text_report(max_problems=20)
+        safe_print(problem_report)
+
+        # Ulož reporty
+        if output_dir:
+            report_files = generator.save_reports(output_dir, prefix="problem_report")
+            safe_print(f"\n📄 Problem reports saved:")
+            safe_print(f"   Text: {report_files.get('text')}")
+            safe_print(f"   JSON: {report_files.get('json')}")
+
+            # CSV exporty
+            exporter = ProblemExporter(
+                problems=problems,
+                run_id=all_incidents_collection.run_id,
+                analysis_date=datetime.now(timezone.utc),
+            )
+            csv_files = exporter.export_all(output_dir)
+            safe_print(f"\n📊 CSV exports saved:")
+            for name, path in csv_files.items():
+                safe_print(f"   {name}: {path}")
+
+    elif all_incidents_collection.total_incidents > 0:
+        # Fallback: Legacy incident report
         reporter = PhaseF_Report()
         safe_print("\n")
         safe_print(reporter.to_console(all_incidents_collection))
-        
+
         if output_dir:
             report_files = reporter.save_snapshot(all_incidents_collection, output_dir)
             safe_print(f"\n📄 Detailed reports saved:")
-            safe_print(f" JSON: {report_files.get('json')}")
-            safe_print(f" Markdown: {report_files.get('markdown')}")
-            safe_print(f" Summary: {report_files.get('summary')}")
-    
-    if HAS_INCIDENT_ANALYSIS and not skip_analysis:
-        safe_print("\n" + "=" * 70)
-        safe_print("🔍 INCIDENT ANALYSIS v6 (Daily Mode)")
-        safe_print("=" * 70)
-        
-        reports_dir = output_dir or (SCRIPT_DIR / 'reports')
-        
-        analysis_report = run_incident_analysis_daily(
-            all_incidents_collection,
-            start_date,
-            end_date,
-            output_dir=str(reports_dir),
-            quiet=False
-        )
-        
-        if analysis_report:
-            safe_print(analysis_report)
+            safe_print(f"   JSON: {report_files.get('json')}")
+            safe_print(f"   Markdown: {report_files.get('markdown')}")
     
     # Save summary JSON
     if output_dir:
