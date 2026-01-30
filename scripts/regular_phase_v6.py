@@ -56,7 +56,7 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
-# Incident Analysis
+# Incident Analysis (legacy)
 try:
     from incident_analysis import (
         IncidentAnalysisEngine,
@@ -69,6 +69,19 @@ try:
     HAS_INCIDENT_ANALYSIS = True
 except ImportError as e:
     HAS_INCIDENT_ANALYSIS = False
+
+# Problem-Centric Analysis V6.1
+try:
+    from analysis import (
+        aggregate_by_problem_key,
+        ProblemReportGenerator,
+        ProblemExporter,
+        get_representative_traces,
+    )
+    HAS_PROBLEM_ANALYSIS = True
+except ImportError as e:
+    HAS_PROBLEM_ANALYSIS = False
+    print(f"⚠️ Problem Analysis import failed: {e}")
 
 
 # =============================================================================
@@ -362,19 +375,56 @@ def run_regular_phase(
         print(f"   New peaks: {stats['new_peaks_added']}")
     
     # ==========================================================================
-    # INCIDENT ANALYSIS
+    # PROBLEM-CENTRIC ANALYSIS (V6.1)
     # ==========================================================================
-    if HAS_INCIDENT_ANALYSIS:
-        print("\n🔍 Running Incident Analysis...")
-        
+    if collection.incidents and HAS_PROBLEM_ANALYSIS:
+        print("\n🔍 Running Problem Analysis V6.1...")
+
+        # 1. Agreguj incidenty do problémů
+        problems = aggregate_by_problem_key(collection.incidents)
+        print(f"   Aggregated {len(collection.incidents)} incidents into {len(problems)} problems")
+
+        # 2. Získej reprezentativní traces
+        trace_flows = get_representative_traces(problems)
+
+        # 3. Generuj problem-centric report
+        report_dir = output_dir or str(SCRIPT_DIR / 'reports')
+
+        generator = ProblemReportGenerator(
+            problems=problems,
+            trace_flows=trace_flows,
+            analysis_start=window_start,
+            analysis_end=window_end,
+            run_id=run_id,
+        )
+
+        # Textový report (zkrácený pro 15-min okno)
+        problem_report = generator.generate_text_report(max_problems=10)
+
+        # Print jen summary pro 15-min
+        lines = problem_report.split('\n')
+        for line in lines[:40]:  # První část reportu
+            print(line)
+
+        # Ulož reporty
+        if output_dir:
+            report_files = generator.save_reports(output_dir, prefix="problem_report_15min")
+            print(f"\n📄 Problem reports saved:")
+            print(f"   Text: {report_files.get('text')}")
+            print(f"   JSON: {report_files.get('json')}")
+
+    elif collection.incidents and HAS_INCIDENT_ANALYSIS:
+        # Fallback: Legacy incident analysis
+        print("\n🔍 Running Incident Analysis (legacy)...")
+
         report_dir = output_dir or (SCRIPT_DIR / 'reports')
         report = run_incident_analysis(collection, window_start, window_end, str(report_dir))
-        
+
         # Print summary only (not full report for 15min runs)
         lines = report.split('\n')[:30]
         for line in lines:
             print(line)
-    
+
     result['status'] = 'success'
 
     # ==========================================================================
