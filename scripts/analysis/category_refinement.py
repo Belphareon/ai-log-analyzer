@@ -10,11 +10,17 @@ Pravidla:
 
 Logika:
 1. Pokud category == "unknown"
-2. Projdi root cause message
-3. Aplikuj keyword pravidla
+2. Projdi root cause message (včetně trace_root_cause V6.3)
+3. Aplikuj keyword pravidla (Java exceptions mají prioritu V6.3)
 4. Přiřaď novou kategorii
 
-Verze: 6.0
+V6.3 změny:
+- Přidány Java exception patterny (ConstraintViolationException, etc.)
+- Přidány config error patterny
+- Přidány serialization error patterny
+- Trace root cause message má nejvyšší prioritu
+
+Verze: 6.3
 """
 
 from typing import List, Tuple, Optional, Any
@@ -27,7 +33,76 @@ import re
 
 # Pravidla: (pattern_list, new_category, subcategory)
 # Pattern může být string nebo regex
+# V6.3: Rozšířeno o Java exceptions a specifické error messages
 CATEGORY_RULES: List[Tuple[List[str], str, str]] = [
+
+    # === JAVA EXCEPTIONS (V6.3 - vysoká priorita) ===
+    # Tyto patterny jsou specifičtější, proto jsou na začátku
+
+    # Configuration errors
+    (
+        ['configuration error', 'config error', 'configurationexception',
+         'invalid configuration', 'missing configuration', 'bad configuration',
+         'property not found', 'propertynotfoundexception', 'missingpropertyexception'],
+        'config',
+        'configuration_error'
+    ),
+
+    # Constraint/Validation exceptions (Java specific)
+    (
+        ['constraintviolationexception', 'constraint violation', 'data integrity',
+         'dataintegrityviolationexception', 'duplicate key', 'unique constraint',
+         'foreign key constraint', 'referential integrity'],
+        'database',
+        'constraint_violation'
+    ),
+
+    # Access/Permission errors
+    (
+        ['accessdeniedexception', 'access denied', 'permission denied',
+         'insufficientpermission', 'securityexception', 'authorizationexception',
+         'forbidden access', 'not authorized'],
+        'auth',
+        'access_denied'
+    ),
+
+    # Serialization/Format exceptions (Java specific)
+    (
+        ['invalidformatexception', 'invalid format', 'jsonparseexception',
+         'jsonmappingexception', 'unmarshalexception', 'serializationexception',
+         'deserializationexception', 'malformed json', 'malformed xml'],
+        'serialization',
+        'format_error'
+    ),
+
+    # Service/Business exceptions (common patterns)
+    (
+        ['servicebusinessexception', 'businessexception', 'business error',
+         'serviceexception', 'applicationexception', 'domainexception',
+         'business logic', 'business rule violated'],
+        'business',
+        'business_exception'
+    ),
+
+    # Null/Empty errors (Java specific)
+    (
+        ['nullpointerexception', 'npe', 'null pointer', 'is null',
+         'cannot be null', 'must not be null', 'required field is null',
+         'illegalaargumentexception: null', 'emptyresultdataaccessexception'],
+        'code',
+        'null_error'
+    ),
+
+    # State errors
+    (
+        ['illegalstateexception', 'illegal state', 'invalid state',
+         'inconsistent state', 'state machine', 'statemachineexception'],
+        'code',
+        'state_error'
+    ),
+
+    # === ORIGINAL RULES (lower priority) ===
+
     # AUTH
     (
         ['token', 'jwt', 'oauth', 'unauthorized', 'forbidden', 'authentication',
@@ -48,7 +123,7 @@ CATEGORY_RULES: List[Tuple[List[str], str, str]] = [
     (
         ['sql', 'database', 'db connection', 'jdbc', 'postgres', 'mysql',
          'mongo', 'redis', 'connection pool', 'pool exhausted', 'query failed',
-         'deadlock', 'lock wait', 'constraint violation'],
+         'deadlock', 'lock wait'],
         'database',
         'database_error'
     ),
@@ -78,7 +153,7 @@ CATEGORY_RULES: List[Tuple[List[str], str, str]] = [
         'external_service_error'
     ),
 
-    # BUSINESS
+    # BUSINESS (generic - lower priority than Java exceptions)
     (
         ['validation', 'invalid', 'not found', 'missing', 'required field',
          'constraint', 'business rule', 'insufficient', 'limit exceeded',
@@ -102,12 +177,21 @@ CATEGORY_RULES: List[Tuple[List[str], str, str]] = [
         'ssl_error'
     ),
 
-    # SERIALIZATION
+    # SERIALIZATION (generic)
     (
         ['json', 'xml', 'parse', 'serialize', 'deserialize', 'unmarshal',
          'marshal', 'encoding', 'decoding'],
-        'business',
+        'serialization',
         'serialization_error'
+    ),
+
+    # === FALLBACK CATEGORIES ===
+
+    # Generic error handled (catch-all for "error handled" messages)
+    (
+        ['error handled', 'exception handled', 'caught exception'],
+        'business',
+        'handled_error'
     ),
 ]
 
@@ -133,7 +217,13 @@ def refine_category(
     # Sesbírej text k analýze
     texts_to_check = []
 
-    # 1. Root cause message
+    # 0. V6.3: Trace root cause message (nejvyšší priorita - už je analyzovaný)
+    if hasattr(problem, 'trace_root_cause') and problem.trace_root_cause:
+        trace_msg = problem.trace_root_cause.get('message', '')
+        if trace_msg:
+            texts_to_check.append(trace_msg)
+
+    # 1. Root cause message (legacy)
     if root_cause and hasattr(root_cause, 'message'):
         texts_to_check.append(root_cause.message)
         if hasattr(root_cause, 'error_type') and root_cause.error_type:
@@ -151,8 +241,8 @@ def refine_category(
     if problem.error_class and problem.error_class != 'unknown':
         texts_to_check.append(problem.error_class)
 
-    # 5. Sample messages
-    for sample in problem.sample_messages[:3]:
+    # 5. Sample messages (V6.3: all samples, not just first 3)
+    for sample in problem.sample_messages[:5]:
         texts_to_check.append(sample)
 
     # Spojí všechny texty

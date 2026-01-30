@@ -11,7 +11,12 @@ Tok:
 3. Každý ProblemAggregate obsahuje všechna data pro analýzu
 4. Report iteruje přes problémy, ne incidenty
 
-Verze: 6.0
+V6.3 změny:
+- Robustní výpočet occurrences z více zdrojů (ne jen stats.current_count)
+- Vylepšené priority scoring s log-scale occurrences a fan-out bonus
+- Lepší diferenciace mezi MEDIUM problémy
+
+Verze: 6.3
 """
 
 from dataclasses import dataclass, field
@@ -92,9 +97,9 @@ class ProblemAggregate:
         self._incidents.append(incident)
         self.incident_count += 1
 
-        # Počty - minimum 1 per incident (fallback pokud current_count je 0 nebo chybí)
-        count = getattr(incident.stats, 'current_count', 1) or 1
-        self.total_occurrences += max(1, count)
+        # Počty - V6.3: robustní výpočet z více zdrojů
+        count = _get_incident_occurrence_count(incident)
+        self.total_occurrences += count
 
         # Fingerprint
         self.fingerprints.add(incident.fingerprint)
@@ -265,6 +270,41 @@ def aggregate_by_problem_key(incidents: List[Any]) -> Dict[str, ProblemAggregate
     return problems
 
 
+def _get_incident_occurrence_count(incident: Any) -> int:
+    """
+    Získá počet occurrences z incidentu (V6.3 - robustní).
+
+    Hierarchie zdrojů:
+    1. incident.stats.current_count (pokud > 0)
+    2. incident.trace_info.trace_count (pokud > 0)
+    3. len(incident.raw_samples) (pokud > 0)
+    4. Fallback: 1 (každý incident = minimálně 1 occurrence)
+
+    Returns:
+        int: Počet occurrences (vždy >= 1)
+    """
+    # 1. Primary source: stats.current_count
+    if hasattr(incident, 'stats') and incident.stats:
+        count = getattr(incident.stats, 'current_count', 0)
+        if count and count > 0:
+            return count
+
+    # 2. Fallback: trace count
+    if hasattr(incident, 'trace_info') and incident.trace_info:
+        trace_count = getattr(incident.trace_info, 'trace_count', 0)
+        if trace_count and trace_count > 0:
+            return trace_count
+
+    # 3. Fallback: raw samples count (pokud není 0)
+    if hasattr(incident, 'raw_samples') and incident.raw_samples:
+        sample_count = len(incident.raw_samples)
+        if sample_count > 0:
+            return sample_count
+
+    # 4. Ultimate fallback: každý incident = 1 occurrence
+    return 1
+
+
 def _get_problem_key(incident: Any) -> str:
     """
     Získá nebo vypočítá problem_key pro incident.
@@ -379,18 +419,60 @@ def sort_problems_by_priority(
     """
     Seřadí problémy podle priority pro report.
 
-    Kritéria (v pořadí):
-    1. max_score (desc)
-    2. is_cross_namespace (desc)
-    3. total_occurrences (desc)
-    4. incident_count (desc)
+    V6.3: Vylepšený composite scoring pro lepší diferenciaci.
+
+    Kritéria (vážená kombinace):
+    1. max_score (základ)
+    2. occurrences bonus (log scale - masivní problémy mají přednost)
+    3. fan_out bonus (propagace přes více služeb)
+    4. confidence bonus (high confidence root cause)
+    5. new problem bonus
+    6. cross_namespace bonus
     """
+    import math
+
+    def compute_priority_score(p: ProblemAggregate) -> float:
+        """Vypočítá composite priority score."""
+        score = p.max_score  # Základ: 0-100
+
+        # Occurrences bonus (log scale, max +20)
+        if p.total_occurrences > 0:
+            occ_bonus = min(20, math.log10(p.total_occurrences + 1) * 6)
+            score += occ_bonus
+
+        # Fan-out bonus (počet affected apps, max +10)
+        fan_out = len(p.apps) - 1 if len(p.apps) > 1 else 0
+        score += min(10, fan_out * 2)
+
+        # Confidence bonus (from trace_root_cause)
+        if hasattr(p, 'trace_root_cause') and p.trace_root_cause:
+            confidence = p.trace_root_cause.get('confidence', '')
+            if confidence == 'high':
+                score += 10
+            elif confidence == 'medium':
+                score += 5
+
+        # New problem bonus
+        if p.has_new:
+            score += 8
+
+        # Cross-namespace bonus
+        if p.is_cross_namespace:
+            score += 5
+
+        # Spike/Burst bonus
+        if p.has_spike:
+            score += 5
+        if p.has_burst:
+            score += 3
+
+        return score
+
     return sorted(
         problems.values(),
         key=lambda p: (
-            -p.max_score,
-            -int(p.is_cross_namespace),
-            -p.total_occurrences,
+            -compute_priority_score(p),
+            -p.total_occurrences,  # Tie-breaker
             -p.incident_count,
         )
     )

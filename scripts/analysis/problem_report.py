@@ -9,7 +9,7 @@ ZÁSADNÍ ZMĚNA:
 - Jeden kvalitní seznam problémů
 
 Report struktura:
-1. Executive Summary
+1. Executive Summary (V6.3: pouze actionable problémy)
 2. Problem List (seřazeno podle priority)
 3. Per-problem detail:
    - Root cause
@@ -18,7 +18,13 @@ Report struktura:
    - Sample trace
 4. Statistics (na konci, oddělené)
 
-Verze: 6.0
+V6.3 změny:
+- Executive Summary filtruje jen relevantní problémy
+- Trace flow: smart deduplication zachovává různé apps
+- Plné message a trace ID (bez truncation)
+- Confidence level u root cause
+
+Verze: 6.3
 """
 
 from datetime import datetime
@@ -163,16 +169,71 @@ class ProblemReportGenerator:
         lines.append(f"  - Cross-namespace: {cross_ns}")
         lines.append("")
 
-        # Top 3 problémy (one-liner)
-        sorted_problems = sort_problems_by_priority(self.problems)
-        if sorted_problems:
-            lines.append("Top issues:")
-            for i, problem in enumerate(sorted_problems[:3], 1):
+        # Top issues - POUZE relevantní problémy (V6.3)
+        # Filtr: musí splnit aspoň 1 podmínku
+        MIN_OCCURRENCES = 50
+        actionable_problems = [
+            p for p in sort_problems_by_priority(self.problems)
+            if self._is_actionable_problem(p, MIN_OCCURRENCES)
+        ]
+
+        if actionable_problems:
+            lines.append("Top issues (actionable):")
+            for i, problem in enumerate(actionable_problems[:5], 1):
                 severity_icon = self._severity_icon(problem.max_severity)
-                lines.append(f"  {i}. {severity_icon} [{problem.category}] {problem.error_class} ({problem.total_occurrences:,} occ)")
+                # Confidence z trace_root_cause pokud existuje
+                confidence = ""
+                if problem.trace_root_cause:
+                    conf = problem.trace_root_cause.get('confidence', '')
+                    if conf:
+                        confidence = f" [{conf}]"
+                lines.append(
+                    f"  {i}. {severity_icon} [{problem.category}] {problem.error_class} "
+                    f"({problem.total_occurrences:,} occ){confidence}"
+                )
+        else:
+            lines.append("Top issues: No high-priority actionable problems found.")
 
         lines.append("")
         return lines
+
+    def _is_actionable_problem(self, problem: ProblemAggregate, min_occ: int = 50) -> bool:
+        """
+        Určí, zda je problém actionable pro Executive Summary.
+
+        Podmínky (OR):
+        1. severity >= HIGH
+        2. total_occurrences >= min_occ
+        3. has_spike == True
+        4. trace_root_cause confidence == 'high'
+        5. is_cross_namespace == True
+
+        Vyloučení:
+        - category == 'unknown' AND total_occurrences < min_occ
+        - error_class == 'unknown_error' AND occurrences == 0
+        """
+        # Vyloučení: bezvýznamné unknown problémy
+        if problem.category == 'unknown' and problem.total_occurrences < min_occ:
+            # Ale povol pokud má jiné signály
+            if not (problem.has_spike or problem.is_cross_namespace):
+                return False
+
+        if problem.error_class == 'unknown_error' and problem.total_occurrences == 0:
+            return False
+
+        # Pozitivní podmínky (OR)
+        if problem.max_severity in ('critical', 'high'):
+            return True
+        if problem.total_occurrences >= min_occ:
+            return True
+        if problem.has_spike:
+            return True
+        if problem.is_cross_namespace:
+            return True
+        if problem.trace_root_cause and problem.trace_root_cause.get('confidence') == 'high':
+            return True
+
+        return False
 
     def _format_problem_list(self, max_problems: int) -> List[str]:
         """Formátuje seznam problémů."""
@@ -224,7 +285,7 @@ class ProblemReportGenerator:
 
         lines.append("")
 
-        # === BEHAVIOR / TRACE FLOW (V6.1) ===
+        # === BEHAVIOR / TRACE FLOW (V6.3) ===
         if problem.representative_trace_id and problem.trace_flow_summary:
             # Počet zpráv pro trace
             trace_msg_count = sum(step.get('count', 1) for step in problem.trace_flow_summary)
@@ -232,24 +293,37 @@ class ProblemReportGenerator:
             lines.append(f"    TraceID: {problem.representative_trace_id}")
             lines.append("")
 
-            # Deduplicate a formátuj kroky
-            prev_msg = None
+            # V6.3: Smart deduplication - zachovat různé apps i se stejnou message
             steps = problem.trace_flow_summary
             num_steps = len(steps)
+            step_num = 0
+            prev_app = None
+            prev_msg = None
 
-            for i, step in enumerate(steps, 1):
+            for i, step in enumerate(steps):
+                app = step.get('app', '?')
                 msg = step.get('message', '')
-                # Skip pokud stejná message jako předchozí
-                if msg == prev_msg:
+
+                # Skip pouze pokud OBOJE app i message jsou stejné jako předchozí
+                if app == prev_app and msg == prev_msg:
                     continue
+
+                step_num += 1
+                is_same_msg = (msg == prev_msg)  # Check BEFORE updating
+                prev_app = app
                 prev_msg = msg
 
-                # Přidej "..." před poslední krok (pokud je 3+)
-                if i == num_steps and num_steps >= 3:
+                # Přidej "..." před poslední krok (pokud jsou 3+ unikátní kroky)
+                if i == num_steps - 1 and step_num >= 3:
                     lines.append("    ...")
 
-                lines.append(f"    {i}) {step.get('app', '?')}")
-                lines.append(f"       \"{msg}\"")
+                # Formát: pokud stejná message jako předchozí (ale jiná app) = zkrácený formát
+                if is_same_msg and step_num > 1:
+                    # Zkrácený formát pro propagaci stejné chyby
+                    lines.append(f"    {step_num}) {app} (same error)")
+                else:
+                    lines.append(f"    {step_num}) {app}")
+                    lines.append(f"       \"{msg}\"")
 
             lines.append("")
 
