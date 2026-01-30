@@ -68,20 +68,30 @@ class ProblemReportGenerator:
 
     def _enrich_problems(self, output_dir: str = None):
         """Obohatí problémy o všechny analýzy."""
+        total = len(self.problems)
+        print(f"   Enriching {total} problems...", flush=True)
+
         # 1. Trace behavior (V6.1) - MUSÍ BÝT PRVNÍ pro trace-based root cause
-        enrich_all_problems_with_traces(self.problems, output_dir=output_dir)
+        print("   [1/5] Trace enrichment...", flush=True)
+        enrich_all_problems_with_traces(self.problems, output_dir=output_dir, verbose=True)
 
         # 2. Root cause (fallback pokud trace nemá)
+        print("   [2/5] Root cause inference...", flush=True)
         enrich_problems_with_root_cause(self.problems, self.trace_flows)
 
         # 3. Propagation
+        print("   [3/5] Propagation analysis...", flush=True)
         enrich_problems_with_propagation(self.problems, self.trace_flows)
 
         # 4. Version analysis
+        print("   [4/5] Version analysis...", flush=True)
         enrich_problems_with_version_analysis(self.problems)
 
         # 5. Category refinement
+        print("   [5/5] Category refinement...", flush=True)
         refine_all_problems(self.problems)
+
+        print("   ✓ Enrichment complete", flush=True)
 
     def generate_text_report(self, max_problems: int = 20) -> str:
         """

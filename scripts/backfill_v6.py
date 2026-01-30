@@ -692,11 +692,14 @@ def run_backfill(
         safe_print("=" * 70)
 
         # 1. Agreguj incidenty do problémů
+        safe_print(f"\n📊 Aggregating incidents...")
         problems = aggregate_by_problem_key(all_incidents_collection.incidents)
-        safe_print(f"\n📊 Aggregated {len(all_incidents_collection.incidents)} incidents into {len(problems)} problems")
+        safe_print(f"   ✓ Aggregated {len(all_incidents_collection.incidents)} incidents into {len(problems)} problems")
 
-        # 2. Získej reprezentativní traces
+        # 2. Získej reprezentativní traces (pro legacy root cause)
+        safe_print(f"   Getting representative traces...")
         trace_flows = get_representative_traces(problems)
+        safe_print(f"   ✓ Got traces for {len(trace_flows)} problems")
 
         # 3. Generuj problem-centric report
         reports_dir = output_dir or str(SCRIPT_DIR / 'reports')

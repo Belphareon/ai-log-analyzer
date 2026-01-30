@@ -113,8 +113,16 @@ class TraceFlow:
     error_count: int = 0
 
     def add_step(self, step: TraceStep):
-        """Přidá krok a přepočítá metriky."""
+        """Přidá krok (bez sortování - sort až na konci)."""
         self.steps.append(step)
+        # POZOR: Nesortujeme zde! Volej finalize() po přidání všech kroků.
+
+    def finalize(self):
+        """Seřadí kroky a přepočítá metriky. Volat po add_step()."""
+        if not self.steps:
+            return
+
+        # Sort jednou na konci (ne po každém add_step)
         self.steps.sort(key=lambda s: s.timestamp)
 
         # Přepočítej metriky
@@ -208,6 +216,8 @@ def build_trace_flow(incidents: List[Any], trace_id: str) -> TraceFlow:
             )
             flow.add_step(step)
 
+    # Finalizuj (sort + metriky) až po přidání všech kroků
+    flow.finalize()
     return flow
 
 
@@ -632,7 +642,8 @@ def enrich_problem_with_trace(
 
 def enrich_all_problems_with_traces(
     problems: Dict[str, Any],
-    output_dir: str = None
+    output_dir: str = None,
+    verbose: bool = False
 ) -> Dict[str, Any]:
     """
     Obohatí všechny problémy o trace behavior.
@@ -640,11 +651,22 @@ def enrich_all_problems_with_traces(
     Args:
         problems: Dict[problem_key, ProblemAggregate]
         output_dir: Volitelný adresář pro plné traces
+        verbose: Pokud True, vypisuje progress
 
     Returns:
         Stejný dict s obohacenými problémy
     """
-    for problem in problems.values():
+    total = len(problems)
+    enriched = 0
+
+    for i, problem in enumerate(problems.values(), 1):
         enrich_problem_with_trace(problem, output_dir=output_dir)
+
+        if problem.representative_trace_id:
+            enriched += 1
+
+        # Progress každých 100 problémů nebo na konci
+        if verbose and (i % 100 == 0 or i == total):
+            print(f"   Trace enrichment: {i}/{total} ({enriched} with traces)", flush=True)
 
     return problems
