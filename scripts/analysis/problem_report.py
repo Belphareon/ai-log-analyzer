@@ -226,21 +226,38 @@ class ProblemReportGenerator:
 
         # === BEHAVIOR / TRACE FLOW (V6.1) ===
         if problem.representative_trace_id and problem.trace_flow_summary:
-            lines.append(f"  Behavior (trace flow):")
-            lines.append(f"    TraceID: {problem.representative_trace_id[:24]}...")
+            # Počet zpráv pro trace
+            trace_msg_count = sum(step.get('count', 1) for step in problem.trace_flow_summary)
+            lines.append(f"  Behavior (trace flow): {trace_msg_count} messages")
+            lines.append(f"    TraceID: {problem.representative_trace_id}")
             lines.append("")
-            lines.append("    START")
-            for i, step in enumerate(problem.trace_flow_summary, 1):
+
+            # Deduplicate a formátuj kroky
+            prev_msg = None
+            steps = problem.trace_flow_summary
+            num_steps = len(steps)
+
+            for i, step in enumerate(steps, 1):
+                msg = step.get('message', '')
+                # Skip pokud stejná message jako předchozí
+                if msg == prev_msg:
+                    continue
+                prev_msg = msg
+
+                # Přidej "..." před poslední krok (pokud je 3+)
+                if i == num_steps and num_steps >= 3:
+                    lines.append("    ...")
+
                 lines.append(f"    {i}) {step.get('app', '?')}")
-                msg = step.get('message', '')[:80]
                 lines.append(f"       \"{msg}\"")
-            lines.append("    END")
+
             lines.append("")
 
             # Inferred root cause z trace
             if problem.trace_root_cause:
-                lines.append(f"  Inferred root cause:")
-                lines.append(f"    - {problem.trace_root_cause.get('service', '?')}: {problem.trace_root_cause.get('message', '')[:80]}")
+                confidence = problem.trace_root_cause.get('confidence', 'unknown')
+                lines.append(f"  Inferred root cause [{confidence}]:")
+                lines.append(f"    - {problem.trace_root_cause.get('service', '?')}: {problem.trace_root_cause.get('message', '')}")
                 lines.append("")
 
         # Root Cause (fallback/legacy)
@@ -248,7 +265,7 @@ class ProblemReportGenerator:
         if root_cause and not problem.trace_root_cause:
             lines.append(f"  Root cause [{root_cause.confidence}]:")
             lines.append(f"    Service: {root_cause.service}")
-            lines.append(f"    Error: {root_cause.message[:100]}")
+            lines.append(f"    Error: {root_cause.message}")
 
         # Propagation
         propagation = getattr(problem, 'propagation_result', None)
@@ -265,7 +282,7 @@ class ProblemReportGenerator:
 
         # Sample message
         if problem.normalized_message:
-            lines.append(f"  Message: {problem.normalized_message[:120]}")
+            lines.append(f"  Message: {problem.normalized_message}")
 
         return lines
 

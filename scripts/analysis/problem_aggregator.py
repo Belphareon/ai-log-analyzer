@@ -92,8 +92,9 @@ class ProblemAggregate:
         self._incidents.append(incident)
         self.incident_count += 1
 
-        # Počty
-        self.total_occurrences += incident.stats.current_count
+        # Počty - minimum 1 per incident (fallback pokud current_count je 0 nebo chybí)
+        count = getattr(incident.stats, 'current_count', 1) or 1
+        self.total_occurrences += max(1, count)
 
         # Fingerprint
         self.fingerprints.add(incident.fingerprint)
