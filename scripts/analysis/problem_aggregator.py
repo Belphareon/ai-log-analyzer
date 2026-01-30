@@ -270,7 +270,7 @@ def aggregate_by_problem_key(incidents: List[Any]) -> Dict[str, ProblemAggregate
     return problems
 
 
-def _get_incident_occurrence_count(incident: Any) -> int:
+def _get_incident_occurrence_count(incident: Any, debug: bool = False) -> int:
     """
     Získá počet occurrences z incidentu (V6.3 - robustní).
 
@@ -280,29 +280,58 @@ def _get_incident_occurrence_count(incident: Any) -> int:
     3. len(incident.raw_samples) (pokud > 0)
     4. Fallback: 1 (každý incident = minimálně 1 occurrence)
 
+    Args:
+        incident: Incident objekt
+        debug: Pokud True, loguje zdroj hodnoty
+
     Returns:
         int: Počet occurrences (vždy >= 1)
     """
+    source = "fallback"
+    count = 1
+
     # 1. Primary source: stats.current_count
     if hasattr(incident, 'stats') and incident.stats:
-        count = getattr(incident.stats, 'current_count', 0)
-        if count and count > 0:
+        stats_count = getattr(incident.stats, 'current_count', 0)
+        if stats_count and stats_count > 0:
+            count = stats_count
+            source = "stats.current_count"
+            if debug:
+                _log_occurrence_source(incident, count, source)
             return count
 
     # 2. Fallback: trace count
     if hasattr(incident, 'trace_info') and incident.trace_info:
         trace_count = getattr(incident.trace_info, 'trace_count', 0)
         if trace_count and trace_count > 0:
-            return trace_count
+            count = trace_count
+            source = "trace_info.trace_count"
+            if debug:
+                _log_occurrence_source(incident, count, source)
+            return count
 
     # 3. Fallback: raw samples count (pokud není 0)
     if hasattr(incident, 'raw_samples') and incident.raw_samples:
         sample_count = len(incident.raw_samples)
         if sample_count > 0:
-            return sample_count
+            count = sample_count
+            source = "raw_samples.length"
+            if debug:
+                _log_occurrence_source(incident, count, source)
+            return count
 
     # 4. Ultimate fallback: každý incident = 1 occurrence
-    return 1
+    if debug:
+        _log_occurrence_source(incident, count, source)
+    return count
+
+
+def _log_occurrence_source(incident: Any, count: int, source: str):
+    """Loguje zdroj occurrence count (pro debug/audit)."""
+    import logging
+    logger = logging.getLogger('problem_aggregator')
+    fingerprint = getattr(incident, 'fingerprint', 'unknown')[:16]
+    logger.debug(f"Occurrence count: {count} from {source} (incident: {fingerprint}...)")
 
 
 def _get_problem_key(incident: Any) -> str:
@@ -420,6 +449,7 @@ def sort_problems_by_priority(
     Seřadí problémy podle priority pro report.
 
     V6.3: Vylepšený composite scoring pro lepší diferenciaci.
+    V6.3.1: Upper cap + stabilní tie-breaker
 
     Kritéria (vážená kombinace):
     1. max_score (základ)
@@ -428,8 +458,15 @@ def sort_problems_by_priority(
     4. confidence bonus (high confidence root cause)
     5. new problem bonus
     6. cross_namespace bonus
+
+    Stabilita:
+    - Upper cap 150 - extrémní outlier nerozbije TOP list
+    - Deterministický tie-breaker přes problem_key
     """
     import math
+
+    # Upper cap pro score - extrémní outlier nesmí odsunout všechno ostatní
+    SCORE_CAP = 150.0
 
     def compute_priority_score(p: ProblemAggregate) -> float:
         """Vypočítá composite priority score."""
@@ -466,14 +503,16 @@ def sort_problems_by_priority(
         if p.has_burst:
             score += 3
 
-        return score
+        # V6.3.1: Apply upper cap
+        return min(score, SCORE_CAP)
 
     return sorted(
         problems.values(),
         key=lambda p: (
             -compute_priority_score(p),
-            -p.total_occurrences,  # Tie-breaker
-            -p.incident_count,
+            -p.total_occurrences,  # Tie-breaker 1: volume
+            -p.incident_count,     # Tie-breaker 2: incident count
+            p.problem_key,         # Tie-breaker 3: deterministic (alphabetical)
         )
     )
 
