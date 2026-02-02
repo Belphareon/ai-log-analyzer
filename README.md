@@ -4,6 +4,65 @@ Automatizovaná detekce a analýza incidentů z aplikačních logů.
 
 **📚 [Kompletní dokumentace](docs/README.md)** | **🚀 [Quick Start](docs/QUICKSTART.md)** | **🔧 [Troubleshooting](docs/TROUBLESHOOTING.md)**
 
+## 🔴 KNOWN ISSUES (Únor 2026)
+
+**Non-Critical Issues** (neblokují core funkcionalitu):
+- ⚠️ **Teams notifications**: Module `core/teams_notifier.py` vytvořen, ale import fallback v `main()` nefunguje (ModuleNotFoundError)
+  - Impact: Backfill běží, ale Teams notifikace se neposílají
+  - Workaround: Backfill core functionality (DB save) funguje bez problémů
+  
+- ⚠️ **Export feature**: `table_exporter.py` error - `'PeakEntry' object has no attribute 'category'`
+  - Impact: Export to CSV/JSON/Markdown nefunguje
+  - Workaround: Core incident processing (Elasticsearch → DB) funguje
+  
+**Resolution Plan:**
+- [ ] Vyřešit Teams import (move get_notifier() to module level?)
+- [ ] Fix PeakEntry dataclass definition
+- [ ] Test regular_phase v K8s
+
+## 🚀 Recent Fixes (Únor 2026 - SESSION)
+
+**Infrastructure Fixes:**
+```bash
+# ✅ FIX 1: PostgreSQL Driver
+# Problem: ModuleNotFoundError: No module named 'psycopg2'
+# Solution:
+apt-get install python3-psycopg2  # Install system-wide
+# Result: ✅ Backfill saves to DB successfully
+
+# ✅ FIX 2: K8s Paths
+# File: sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/templates/cronjob.yaml
+# Changes:
+#   - python → python3
+#   - scripts/regular_phase_v6.py → /app/scripts/regular_phase_v6.py  
+#   - Added TEAMS_WEBHOOK_URL env var
+
+# ✅ FIX 3: Timezone Bugs
+# File: scripts/exports/table_exporter.py
+# Changes:
+#   Line 118: datetime.now() → datetime.now(timezone.utc)
+#   Line 127: datetime.now() → datetime.now(timezone.utc)
+#   Line 556: Added .replace(tzinfo=timezone.utc)
+# Result: ✅ Offset-naive/aware datetime errors fixed
+
+# ✅ FIX 4: Teams Webhook Configuration  
+# Files: .env, values.yaml, cronjob.yaml
+# Added: TEAMS_WEBHOOK_URL environment variable
+# Result: ✅ Config ready (import issue prevents testing)
+```
+
+**Test Results:**
+```
+Backfill E2E Test: ✅ SUCCESS
+- Command: python3 scripts/backfill_v6.py --days 4 --workers 4
+- Result: 236,419 incidents saved to DB
+- Registry: 299 problems, 65 peaks updated
+
+Single-day Test: ✅ SUCCESS  
+- Command: python3 scripts/backfill_v6.py --days 1 --workers 1 --force
+- Result: 58,692 incidents saved to DB
+```
+
 ## Přehled
 
 Systém analyzuje error logy z Elasticsearch/PostgreSQL a automaticky:

@@ -119,6 +119,50 @@ python scripts/regular_phase_v5.3.py --dry-run
 
 ## Troubleshooting
 
+### ❌ Error: `ModuleNotFoundError: No module named 'psycopg2'`
+
+**Příčina:** psycopg2 není nainstalován
+
+**Řešení:**
+```bash
+# Systémová instalace (doporučeno pro production):
+apt-get install python3-psycopg2
+
+# NEBO pip instalace:
+pip install psycopg2-binary
+
+# Pokud backfill nefunguje - vytvořit fresh venv:
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+apt-get install python3-psycopg2  # Naimportuje se z systému
+```
+
+### ❌ Error: `'PeakEntry' object has no attribute 'category'` (Export)
+
+**Příčina:** Export feature - PeakEntry dataclass chybí category field
+
+**Impact:** Export funkce (scripts/exports/table_exporter.py) nefunguje
+
+**Workaround:** Core functionality (DB save, registry update) funguje bez exportu
+
+**TODO:** Opravit PeakEntry dataclass definici
+
+### ⚠️ Warning: Teams notifications not sending
+
+**Příčina:** Import `core/teams_notifier.py` v `backfill_v6.py` main() nefunguje
+
+**Impact:** Backfill běží a ukládá data ✅, ale Teams zprávy se neposílají ⚠️
+
+**Logs:** Backfill output obsahuje `⚠️ Teams notification failed: No module named 'core.teams_notifier'`
+
+**Workaround:** Core functionality (DB storage) funguje normálně
+
+**TODO:** Vyřešit sys.path konfiguraci pro dynamic import v main()
+
+
+
 ### ModuleNotFoundError
 
 ```bash
