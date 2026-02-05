@@ -13,7 +13,7 @@ Fáze:
 - F: Report (render)
 
 Použití:
-    from pipeline.pipeline import PipelineV6
+    from pipeline import PipelineV6
     
     pipeline = PipelineV6()
     collection = pipeline.run(errors)

@@ -29,12 +29,11 @@ from typing import Dict, Tuple, Optional, Any
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
-sys.path.insert(0, str(SCRIPT_DIR / 'pipeline'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry
-from pipeline.pipeline import PipelineV6
+from pipeline import PipelineV6
 from pipeline.incident import IncidentCollection
 
 # Table exports
