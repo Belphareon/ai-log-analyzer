@@ -553,7 +553,7 @@ class TableExporter:
         week_ago = self.generated_at - timedelta(days=7)
         recent_errors = [r for r in errors_rows if r.last_seen_days_ago <= 7]
         recent_peaks = [r for r in peaks_rows
-                        if r.last_seen and datetime.strptime(r.last_seen, "%Y-%m-%d %H:%M") > week_ago]
+                        if r.last_seen and datetime.strptime(r.last_seen, "%Y-%m-%d %H:%M").replace(tzinfo=None) > week_ago.replace(tzinfo=None)]
 
         lines = [
             f"# Weekly Summary - {self.generated_at.strftime('%Y-W%W')}",
