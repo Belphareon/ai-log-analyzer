@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pipeline V4 - Incident Detection Pipeline
+Pipeline V6 - Incident Detection Pipeline
 ==========================================
 
 Striktně oddělené fáze:
@@ -18,13 +18,13 @@ Podporuje:
 
 Použití:
     # Normální běh
-    python pipeline_v4.py data/batches/2026-01-20/
+    python pipeline.py data/batches/2026-01-20/
     
     # S uložením snapshotu
-    python pipeline_v4.py data/batches/2026-01-20/ --save-snapshot /tmp/snapshots/
+    python pipeline.py data/batches/2026-01-20/ --save-snapshot /tmp/snapshots/
     
     # Replay a porovnání
-    python pipeline_v4.py data/batches/2026-01-20/ --replay /tmp/snapshots/summary_20260120.json
+    python pipeline.py data/batches/2026-01-20/ --replay /tmp/snapshots/summary_20260120.json
 """
 
 import json
@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import asdict
 
-# Add scripts/v4 to path
+# Add scripts/pipeline to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from incident import (
@@ -53,9 +53,9 @@ from phase_e_classify import PhaseE_Classify, ClassificationResult
 from phase_f_report import PhaseF_Report
 
 
-class PipelineV4:
+class PipelineV6:
     """
-    Incident Detection Pipeline V4
+    Incident Detection Pipeline V6
     
     Orchestruje 6 fází:
     A → B → C → D → E → F
@@ -457,7 +457,7 @@ def main():
     print(f"\n✅ Loaded {len(errors):,} total errors")
     
     # Create pipeline
-    pipeline = PipelineV4(
+    pipeline = PipelineV6(
         spike_threshold=args.spike_threshold,
         ewma_alpha=args.ewma_alpha,
     )

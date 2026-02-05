@@ -40,7 +40,7 @@ import json
 
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
-sys.path.insert(0, str(SCRIPT_DIR / 'v4'))
+sys.path.insert(0, str(SCRIPT_DIR / 'pipeline'))
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -56,7 +56,7 @@ from incident_analysis.knowledge_base import KnowledgeBase, create_knowledge_bas
 from incident_analysis.knowledge_matcher import KnowledgeMatcher, TriageReportGenerator
 
 # Import detection components
-from v4.incident import (
+from pipeline.incident import (
     Incident, IncidentCollection, IncidentSeverity, IncidentCategory,
 )
 

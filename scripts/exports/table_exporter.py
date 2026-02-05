@@ -41,7 +41,7 @@ import json
 import argparse
 import tempfile
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 
@@ -115,7 +115,15 @@ class TableExporter:
 
     def __init__(self, registry: ProblemRegistry):
         self.registry = registry
-        self.generated_at = datetime.now()
+        self.generated_at = datetime.now(timezone.utc)
+
+    @staticmethod
+    def _ensure_aware(value: Optional[datetime]) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
     # =========================================================================
     # ERRORS TABLE
@@ -124,17 +132,20 @@ class TableExporter:
     def get_errors_rows(self) -> List[ErrorTableRow]:
         """Převede Problem Registry na řádky tabulky."""
         rows = []
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
 
         for problem_key, problem in self.registry.problems.items():
             # Calculate age
             age_days = 0
             last_seen_days = 0
 
-            if problem.first_seen:
-                age_days = (now - problem.first_seen).days
-            if problem.last_seen:
-                last_seen_days = (now - problem.last_seen).days
+            first_seen = self._ensure_aware(problem.first_seen)
+            last_seen = self._ensure_aware(problem.last_seen)
+
+            if first_seen:
+                age_days = (now - first_seen).days
+            if last_seen:
+                last_seen_days = (now - last_seen).days
 
             # V6: Separate deployment_labels from app_versions
             deployment_labels = ", ".join(sorted(problem.deployments_seen)[:10]) if problem.deployments_seen else ""
@@ -152,8 +163,8 @@ class TableExporter:
                 app_versions=app_versions,            # V6: ONLY semantic versions
                 fingerprint_count=len(problem.fingerprints),
                 occurrences=problem.occurrences,
-                first_seen=problem.first_seen.strftime("%Y-%m-%d %H:%M") if problem.first_seen else "",
-                last_seen=problem.last_seen.strftime("%Y-%m-%d %H:%M") if problem.last_seen else "",
+                first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
+                last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
                 age_days=age_days,
                 last_seen_days_ago=last_seen_days,
                 scope=problem.scope,
@@ -319,6 +330,8 @@ class TableExporter:
         rows = []
 
         for problem_key, peak in self.registry.peaks.items():
+            first_seen = self._ensure_aware(peak.first_seen)
+            last_seen = self._ensure_aware(peak.last_seen)
             row = PeakTableRow(
                 peak_id=peak.id,
                 problem_key=problem_key,
@@ -329,8 +342,8 @@ class TableExporter:
                 peak_count=peak.peak_count,
                 baseline_rate=peak.baseline_rate,
                 peak_ratio=peak.peak_ratio,
-                first_seen=peak.first_seen.strftime("%Y-%m-%d %H:%M") if peak.first_seen else "",
-                last_seen=peak.last_seen.strftime("%Y-%m-%d %H:%M") if peak.last_seen else "",
+                first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
+                last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
                 occurrence_count=peak.occurrence_count,
                 status=peak.status,
             )

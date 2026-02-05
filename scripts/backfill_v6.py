@@ -45,13 +45,13 @@ from typing import Dict, List, Optional, Tuple, Any
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
-sys.path.insert(0, str(SCRIPT_DIR / 'v4'))
+sys.path.insert(0, str(SCRIPT_DIR / 'pipeline'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry, compute_problem_key
-from v4.pipeline_v4 import PipelineV4
-from v4.phase_f_report import PhaseF_Report
+from pipeline.pipeline import PipelineV6
+from pipeline.phase_f_report import PhaseF_Report
 
 # Table exports
 try:
@@ -133,11 +133,18 @@ def get_db_connection():
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_DDL_USER', os.getenv('DB_USER')),
-        password=os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD')),
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD'),
         connect_timeout=30,
         options='-c statement_timeout=300000'  # 5 min
     )
+
+
+def set_db_role(cursor) -> None:
+    """Set DDL role after login (if configured)."""
+    ddl_role = os.getenv('DB_DDL_ROLE') or os.getenv('DB_DDL_USER') or 'role_ailog_analyzer_ddl'
+    if ddl_role:
+        cursor.execute(f"SET ROLE {ddl_role}")
 
 
 def check_day_processed(date: datetime) -> bool:
@@ -152,7 +159,7 @@ def check_day_processed(date: datetime) -> bool:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SET ROLE role_ailog_analyzer_ddl")
+        set_db_role(cursor)
         
         date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         date_end = date.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -186,7 +193,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SET ROLE role_ailog_analyzer_ddl")
+        set_db_role(cursor)
         
         data = []
         for incident in collection.incidents:
@@ -353,7 +360,7 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
             registry = get_registry()
             known_fps = registry.get_all_known_fingerprints() if registry else set()
             
-            pipeline = PipelineV4(
+            pipeline = PipelineV6(
                 spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
                 ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
             )
@@ -633,7 +640,7 @@ def run_backfill(
     # ==========================================================================
     # AGGREGATE FOR REPORT
     # ==========================================================================
-    from v4.incident import IncidentCollection
+    from pipeline.incident import IncidentCollection
     
     success_count = sum(1 for r in results if r['status'] == 'success')
     error_count = sum(1 for r in results if r['status'] == 'error')

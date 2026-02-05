@@ -116,7 +116,7 @@ Příklady:
 | Soubor | Popis |
 |--------|-------|
 | `core/problem_registry.py` | Hlavní registry modul s problem_key |
-| `v4/phase_c_detect_v2.py` | Detection s registry integrací |
+| `pipeline/phase_c_detect.py` | Detection s registry integrací (V6) |
 
 ### Scripty
 
@@ -176,7 +176,7 @@ python regular_phase_v6.py
 
 **Předtím:**
 ```python
-pipeline = PipelineV4()  # known_fingerprints = empty set
+pipeline = PipelineV6()  # known_fingerprints = empty set
 ```
 
 **Nyní:**
@@ -323,7 +323,7 @@ spec:
         spec:
           containers:
           - name: analyzer
-            image: your-registry/log-analyzer:v6
+            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r1
             command:
             - python
             - backfill_v6.py
@@ -349,7 +349,7 @@ spec:
         spec:
           containers:
           - name: analyzer
-            image: your-registry/log-analyzer:v6
+            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r1
             command:
             - python
             - regular_phase_v6.py

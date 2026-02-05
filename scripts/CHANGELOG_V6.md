@@ -267,7 +267,7 @@ spec:
         spec:
           containers:
           - name: analyzer
-            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r1
+            image: your-registry/log-analyzer:v6
             command:
             - python
             - backfill_v6.py
@@ -293,7 +293,7 @@ spec:
         spec:
           containers:
           - name: analyzer
-            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r1
+            image: your-registry/log-analyzer:v6
             command:
             - python
             - regular_phase_v6.py
@@ -325,106 +325,12 @@ Zpracuje i dny, které už jsou v DB (pro regeneraci s novými pravidly).
 
 ---
 
----
-
-## V6.1 - Telemetry Context & Trace Propagation (2026-01-26)
-
-### Nové funkce
-
-#### 1. IncidentTelemetryContext
-
-Jednotná normalizační vrstva pro ES eventy:
-
-```python
-@dataclass
-class IncidentTelemetryContext:
-    deployment_label: str                 # application.name (s -v1, -v2)
-    application_version: Optional[str]    # POUZE X.Y.Z nebo None
-    environment: Environment              # prod/uat/sit/dev
-    trace_id: Optional[str]
-    span_id: Optional[str]
-    parent_span_id: Optional[str]
-    event_timestamp: datetime
-```
-
-#### 2. Trace-based Propagation Detection
-
-Detekce šíření incidentu přes více services pomocí traceId:
-
-```python
-# Agregace trace kontextů
-trace_contexts = aggregate_trace_contexts(telemetry_contexts)
-
-# Detekce propagace
-propagation = detect_propagation(trace_contexts)
-
-if propagation.propagated:
-    print(f"Root service: {propagation.root_deployment}")
-    print(f"Affected services: {propagation.affected_deployments}")
-    print(f"Propagation time: {propagation.propagation_time_sec}s")
-```
-
-#### 3. Oddělené verze a deploymenty
-
-| Pole | Zdroj | Příklad |
-|------|-------|---------|
-| `deployment_labels` | application.name | `my-app-v1`, `my-app-v2` |
-| `app_versions` | application.version | `3.5.0`, `3.5.1` |
-
-**ZAKÁZÁNO:**
-- ❌ Extrakce verze z `-v1`, `-v2` suffixu
-- ❌ Build number jako verze
-- ❌ SDK/API version
-
-#### 4. Rozšířené tabulkové exporty
-
-Nové sloupce v CSV/MD/JSON exportech:
-
-| Sloupec | Popis |
-|---------|-------|
-| `deployment_labels` | Deployment labels (app-v1, app-v2) |
-| `app_versions` | Skutečné semantic verze (3.5.0) |
-
-### Nové soubory
-
-| Soubor | Popis |
-|--------|-------|
-| `core/telemetry_context.py` | Telemetry normalizační vrstva |
-| `exports/table_exporter.py` | Tabulkové exporty (CSV, MD, JSON) |
-
-### Upravené soubory
-
-| Soubor | Změny |
-|--------|-------|
-| `pipeline/phase_a_parse.py` | Extrakce span_id, parent_span_id, environment |
-| `pipeline/incident.py` | PropagationInfo, TraceInfo dataclasses |
-| `core/problem_registry.py` | Ukládání app_versions_seen odděleně |
-
-### Použití
-
-```bash
-# Export tabulek
-python exports/table_exporter.py --registry ../registry --output ./exports
-
-# Backfill s novými features
-python backfill_v6.py --days 14 --workers 4
-```
-
-### CSV export ukázka
-
-```csv
-problem_id,category,flow,deployment_labels,app_versions,scope,status
-KP-000001,business,card,svc-a-v1,3.5.0,CROSS_NS,OPEN
-```
-
----
-
 ## Možná budoucí vylepšení
 
-1. ~~**Verze aplikace** - Extrakce z ES pole `application.version`~~ ✅ DONE
-2. ~~**Trace propagation** - Detekce šíření přes traceId~~ ✅ DONE
-3. **XLSX export** - Pro lepší práci s daty
-4. **Flow detection** - Automatická detekce business flows z call chain
+1. **XLSX export** - Pro lepší práci s daty
+2. **Flow detection** - Automatická detekce business flows z call chain
+3. **Verze aplikace** - Extrakce z ES pole `application.version`
+4. **Root cause inference** - Lepší odvození root cause bez LLM
 5. **Trending** - Detekce trendů napříč dny
 
 ---

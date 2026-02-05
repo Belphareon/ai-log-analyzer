@@ -20,18 +20,18 @@ import hashlib
 
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
-sys.path.insert(0, str(SCRIPT_DIR / 'v4'))
+sys.path.insert(0, str(SCRIPT_DIR / 'pipeline'))
 
 from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
-from v4.incident import (
+from pipeline.incident import (
     Incident, IncidentCollection, IncidentSeverity, IncidentCategory,
 )
-from v4.daily_report_models import KnownIssuesRegistry
-from v4.daily_report_generator import DailyReportGenerator
-from v4.daily_report_formatter import DailyReportFormatter
+from pipeline.daily_report_models import KnownIssuesRegistry
+from pipeline.daily_report_generator import DailyReportGenerator
+from pipeline.daily_report_formatter import DailyReportFormatter
 
 
 def guess_category(error_type: str, message: str) -> IncidentCategory:

@@ -1,4 +1,4 @@
-# AI Log Analyzer - Incident Analysis Engine v5.3.1
+# AI Log Analyzer - Incident Analysis Engine v6.0.1
 
 Automatizovaná detekce a analýza incidentů z aplikačních logů.
 

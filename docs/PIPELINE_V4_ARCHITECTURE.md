@@ -4,8 +4,8 @@
 
 Systém se skládá ze dvou hlavních částí:
 
-1. **Detection Pipeline (v4)** - statistická detekce anomálií
-2. **Incident Analysis (v5.3.1)** - kauzální analýza a reporting
+1. **Detection Pipeline (v6)** - statistická detekce anomálií
+2. **Incident Analysis (v6.0.1)** - kauzální analýza a reporting
 
 ## Celková architektura
 
@@ -16,7 +16,7 @@ Systém se skládá ze dvou hlavních částí:
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                DETECTION PIPELINE (v4)                          │
+│                DETECTION PIPELINE (v6)                          │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐           │
 │  │ Phase A │→ │ Phase B │→ │ Phase C │→ │ Phase D │           │
 │  │ Parse   │  │ Measure │  │ Detect  │  │ Score   │           │
@@ -31,7 +31,7 @@ Systém se skládá ze dvou hlavních částí:
                     IncidentCollection
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│              INCIDENT ANALYSIS (v5.3.1)                         │
+│              INCIDENT ANALYSIS (v6.0.1)                         │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
 │  │ TimelineBuilder│→ │  ScopeBuilder  │→ │ CausalInference│   │
 │  │                │  │ + Propagation  │  │                │   │
@@ -43,7 +43,7 @@ Systém se skládá ze dvou hlavních částí:
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                    OUTPUT (v5.3.1)                              │
+│                    OUTPUT (v6.0.1)                              │
 │  ┌────────────────┐  ┌────────────────┐                        │
 │  │ scripts/reports│  │   registry/    │                        │
 │  │   (reporty)   │  │ (append-only)  │                        │
@@ -51,7 +51,7 @@ Systém se skládá ze dvou hlavních částí:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Detection Pipeline (v4)
+## Detection Pipeline (v6)
 
 ### Phase A: Parse
 
@@ -119,41 +119,23 @@ class IncidentAnalysis:
     # Priorita
     priority: IncidentPriority  # P1-P4
     priority_reasons: List[str]
-    
-    # Akce
-    immediate_actions: List[str]
     recommended_actions: List[RecommendedAction]
 ```
 
-### Komponenty
-
-| Komponenta | Vstup | Výstup |
 |------------|-------|--------|
 | TimelineBuilder | Events | Timeline (FACTS) |
 | ScopeBuilder | Events | IncidentScope + IncidentPropagation |
-| CausalInferenceEngine | Timeline, Trigger | CausalChain (HYPOTHESIS) |
-| FixRecommender | CausalChain | RecommendedActions |
-| KnowledgeMatcher | Incident, KB | KNOWN/NEW status |
 | Formatter | IncidentAnalysis | Report string |
 
-### Registry Update (v5.3.1)
-
-```
-Každý běh:
+### Registry Update (v6.0.1)
   Pro každý incident:
     Pro každý fingerprint:
       IF fingerprint NOT IN registry:
-        CREATE new entry
-      ELSE:
-        UPDATE last_seen, occurrences++
         
   WRITE registry/known_errors.yaml
   WRITE registry/known_errors.md
-```
 
-## Orchestrace
-
-### regular_phase_v5.3.py (15min)
+### regular_phase_v6.py (15min)
 
 ```python
 def run_regular_pipeline():
@@ -161,16 +143,16 @@ def run_regular_pipeline():
     errors = fetch_unlimited(...)
     
     # 2. Detection pipeline
-    pipeline = PipelineV4()
-    collection = pipeline.process(errors)
+    pipeline = PipelineV6()
+    collection = pipeline.run(errors)
     
     # 3. Save to DB
     save_incidents_to_db(collection)
     
-    # 4. Incident Analysis (VŽDY - v5.3.1)
+    # 4. Incident Analysis (VŽDY - v6.0.1)
     report = run_incident_analysis(
         collection,
-        output_dir="scripts/reports/"  # ← v5.3.1: explicitní path
+        output_dir="scripts/reports/"  # ← v6.0.1: explicitní path
     )
     # → report se uloží
     # → registry se aktualizuje
@@ -179,7 +161,7 @@ def run_regular_pipeline():
     print(report)
 ```
 
-### backfill_v5.3.py (daily)
+### backfill_v6.py (daily)
 
 ```python
 def run_backfill():

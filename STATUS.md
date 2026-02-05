@@ -13,7 +13,7 @@
 - CronJob manifest: ✅ Fixed paths and python3
 - Helm values: ✅ Teams webhook URL configured
 - Docker image: ✅ Paths correctly set in Dockerfile
-- Ready to deploy: `helm upgrade --install ai-log-analyzer ...`
+- Ready to deploy: r1 tag (ArgoCD sync)
 
 ---
 

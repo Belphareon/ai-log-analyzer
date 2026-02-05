@@ -46,7 +46,7 @@ ai-log-analyzer/
 │   ├── core/
 │   │   ├── problem_registry.py   # NOVY
 │   │   └── ...
-│   ├── v4/
+│   ├── pipeline/
 │   │   ├── phase_c_detect.py     # V2 s registry
 │   │   └── ...
 │   ├── backfill_v6.py

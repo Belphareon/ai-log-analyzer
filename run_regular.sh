@@ -75,7 +75,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Build command
-CMD="python scripts/regular_phase.py $OUTPUT $QUIET $DRY_RUN $DATE_FROM $DATE_TO"
+CMD="python scripts/regular_phase_v6.py $OUTPUT $QUIET $DRY_RUN $DATE_FROM $DATE_TO"
 
 if [ -z "$QUIET" ]; then
     echo "=============================================="

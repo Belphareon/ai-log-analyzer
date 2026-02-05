@@ -29,13 +29,13 @@ from typing import Dict, Tuple, Optional, Any
 SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
-sys.path.insert(0, str(SCRIPT_DIR / 'v4'))
+sys.path.insert(0, str(SCRIPT_DIR / 'pipeline'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry
-from v4.pipeline_v4 import PipelineV4
-from v4.incident import IncidentCollection
+from pipeline.pipeline import PipelineV6
+from pipeline.incident import IncidentCollection
 
 # Table exports
 try:
@@ -101,11 +101,18 @@ def get_db_connection():
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_DDL_USER', os.getenv('DB_USER')),
-        password=os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD')),
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD'),
         connect_timeout=30,
         options='-c statement_timeout=60000'  # 1 min
     )
+
+
+def set_db_role(cursor) -> None:
+    """Set DDL role after login (if configured)."""
+    ddl_role = os.getenv('DB_DDL_ROLE') or os.getenv('DB_DDL_USER') or 'role_ailog_analyzer_ddl'
+    if ddl_role:
+        cursor.execute(f"SET ROLE {ddl_role}")
 
 
 def save_incidents_to_db(collection: IncidentCollection) -> int:
@@ -121,7 +128,7 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SET ROLE role_ailog_analyzer_ddl")
+        set_db_role(cursor)
         
         data = []
         for incident in collection.incidents:
@@ -322,7 +329,7 @@ def run_regular_phase(
     # ==========================================================================
     # RUN PIPELINE
     # ==========================================================================
-    pipeline = PipelineV4(
+    pipeline = PipelineV6(
         spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
         ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
     )

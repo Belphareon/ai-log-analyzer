@@ -2,38 +2,38 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t ai-log-analyzer:latest .
+#   docker build -t ai-log-analyzer:r1 .
 #
 # Run:
-#   docker run --env-file .env ai-log-analyzer:latest python scripts/regular_phase.py
+#   docker run --env-file .env ai-log-analyzer:r1 python scripts/regular_phase_v6.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="4.0"
+LABEL version="6.0.1"
 LABEL description="AI Log Analyzer - Incident Detection Pipeline"
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+# Install system dependencies (none required for binary wheels)
 
-# Copy requirements first (for caching)
+# Copy requirements and pre-downloaded wheels (for offline install)
 COPY requirements.txt .
+COPY wheels/ /wheels/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies (offline)
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
 
 # Copy application code
 COPY scripts/ scripts/
 COPY config/ config/
 COPY run_*.sh ./
+
+# Compatibility symlink for legacy paths
+RUN ln -s /app/scripts /scripts
 
 # Make scripts executable
 RUN chmod +x run_*.sh
@@ -46,4 +46,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/scripts
 
 # Default command
-CMD ["python", "scripts/regular_phase.py", "--quiet"]
+CMD ["python", "scripts/regular_phase_v6.py", "--quiet"]

@@ -1,4 +1,4 @@
-# Dokumentace AI Log Analyzer v5.3.1
+# Dokumentace AI Log Analyzer v6.0.1
 
 ## Obsah
 
@@ -7,7 +7,7 @@
 | [QUICKSTART.md](QUICKSTART.md) | 5 minut k prvnímu reportu |
 | [INSTALLATION.md](INSTALLATION.md) | Podrobná instalace |
 | [INSTALLATION_CHECKLIST.md](INSTALLATION_CHECKLIST.md) | Checklist pro produkci |
-| [PIPELINE_V4_ARCHITECTURE.md](PIPELINE_V4_ARCHITECTURE.md) | Technická architektura |
+| [PIPELINE_V4_ARCHITECTURE.md](PIPELINE_V4_ARCHITECTURE.md) | Technická architektura (v6) |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Řešení problémů |
 | [ADD_APPLICATION_VERSION.md](ADD_APPLICATION_VERSION.md) | Přidání version pole do ES |
 
@@ -18,7 +18,7 @@
 | [../README.md](../README.md) | Hlavní README projektu |
 | [../INSTALL.md](../INSTALL.md) | Rychlá instalace |
 
-## Změny v5.3.1
+## Změny v6.0.1
 
 ### Architektura
 
@@ -44,7 +44,7 @@ class IncidentAnalysis:
 
 ```bash
 # Spuštění
-python scripts/regular_phase_v5.3.py
+python scripts/regular_phase_v6.py
 
 # Výstup
 cat scripts/reports/incident_analysis_15min_*.txt
