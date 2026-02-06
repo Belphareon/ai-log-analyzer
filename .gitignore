@@ -85,3 +85,8 @@ DAILY_SESSION_*.md
 .backup_*/
 .archive/
 /exports/
+
+# Confidential DB access documentation
+DB_ACCESS_GUIDE.md
+LOCAL_*.md
+CREDENTIALS_*.md
