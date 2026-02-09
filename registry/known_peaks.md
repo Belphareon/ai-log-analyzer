@@ -1,6 +1,6 @@
 # Known Peaks Registry
 
-_Last updated: 2026-02-09 14:54:52_
+_Last updated: 2026-02-09 15:36:53_
 _Total peaks: 34_
 
 ---
@@ -12,7 +12,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:card_opening:burst`
 **First seen:** 2026-02-05 00:05
 **Last seen:** 2026-02-08 23:35
-**Occurrences:** 178
+**Occurrences:** 328
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -26,7 +26,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:card_servicing:burst`
 **First seen:** 2026-02-05 00:06
 **Last seen:** 2026-02-08 23:30
-**Occurrences:** 487
+**Occurrences:** 901
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -40,7 +40,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:card_servicing:burst`
 **First seen:** 2026-02-05 00:25
 **Last seen:** 2026-02-08 23:30
-**Occurrences:** 267
+**Occurrences:** 495
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -54,7 +54,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:event_processing:burst`
 **First seen:** 2026-02-05 00:05
 **Last seen:** 2026-02-08 23:07
-**Occurrences:** 124
+**Occurrences:** 184
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -68,7 +68,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:unknown:burst`
 **First seen:** 2026-02-05 00:05
 **Last seen:** 2026-02-08 23:07
-**Occurrences:** 223
+**Occurrences:** 403
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -82,7 +82,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:unknown:burst`
 **First seen:** 2026-02-05 01:06
 **Last seen:** 2026-02-08 23:07
-**Occurrences:** 662
+**Occurrences:** 1214
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -96,7 +96,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:external:unknown:burst`
 **First seen:** 2026-02-05 11:36
 **Last seen:** 2026-02-08 23:07
-**Occurrences:** 27
+**Occurrences:** 45
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -110,7 +110,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:click2pay:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:51
-**Occurrences:** 35
+**Occurrences:** 65
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -124,7 +124,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:card_servicing:burst`
 **First seen:** 2026-02-05 00:05
 **Last seen:** 2026-02-08 21:51
-**Occurrences:** 44
+**Occurrences:** 80
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -138,7 +138,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:click2pay:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:51
-**Occurrences:** 63
+**Occurrences:** 117
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -152,7 +152,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:card_validation:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:51
-**Occurrences:** 28
+**Occurrences:** 52
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -166,7 +166,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:click2pay:burst`
 **First seen:** 2026-02-05 06:02
 **Last seen:** 2026-02-08 21:51
-**Occurrences:** 42
+**Occurrences:** 78
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -180,7 +180,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:batch_processing:burst`
 **First seen:** 2026-02-05 05:00
 **Last seen:** 2026-02-08 21:50
-**Occurrences:** 59
+**Occurrences:** 113
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -194,7 +194,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:card_validation:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:47
-**Occurrences:** 7
+**Occurrences:** 13
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -208,7 +208,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:document_signing:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:36
-**Occurrences:** 7
+**Occurrences:** 13
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -222,7 +222,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:unknown:burst`
 **First seen:** 2026-02-05 00:06
 **Last seen:** 2026-02-08 21:36
-**Occurrences:** 89
+**Occurrences:** 155
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -236,7 +236,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:card_opening:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:34
-**Occurrences:** 21
+**Occurrences:** 39
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -250,7 +250,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:notification:burst`
 **First seen:** 2026-02-05 00:15
 **Last seen:** 2026-02-08 21:33
-**Occurrences:** 8
+**Occurrences:** 14
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -264,7 +264,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:card_opening:burst`
 **First seen:** 2026-02-05 06:00
 **Last seen:** 2026-02-08 21:32
-**Occurrences:** 72
+**Occurrences:** 132
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -278,7 +278,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:atm_locator:burst`
 **First seen:** 2026-02-05 12:06
 **Last seen:** 2026-02-08 21:30
-**Occurrences:** 14
+**Occurrences:** 26
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -292,7 +292,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:card_sensitive:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:30
-**Occurrences:** 35
+**Occurrences:** 65
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -306,7 +306,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:card_sensitive:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 21:30
-**Occurrences:** 28
+**Occurrences:** 52
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -320,7 +320,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:client_segment:burst`
 **First seen:** 2026-02-05 18:19
 **Last seen:** 2026-02-08 21:27
-**Occurrences:** 21
+**Occurrences:** 39
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -334,7 +334,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:token:burst`
 **First seen:** 2026-02-05 09:33
 **Last seen:** 2026-02-08 21:00
-**Occurrences:** 7
+**Occurrences:** 13
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -348,7 +348,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:georisk:burst`
 **First seen:** 2026-02-05 08:47
 **Last seen:** 2026-02-08 20:54
-**Occurrences:** 28
+**Occurrences:** 52
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -362,7 +362,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:georisk:burst`
 **First seen:** 2026-02-05 18:22
 **Last seen:** 2026-02-08 20:19
-**Occurrences:** 35
+**Occurrences:** 65
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -376,7 +376,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:client_segment:burst`
 **First seen:** 2026-02-05 18:19
 **Last seen:** 2026-02-08 20:16
-**Occurrences:** 14
+**Occurrences:** 26
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -390,7 +390,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:external:card_servicing:burst`
 **First seen:** 2026-02-05 19:47
 **Last seen:** 2026-02-08 19:48
-**Occurrences:** 21
+**Occurrences:** 39
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -404,7 +404,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:business:card_sensitive:burst`
 **First seen:** 2026-02-05 19:33
 **Last seen:** 2026-02-08 19:32
-**Occurrences:** 7
+**Occurrences:** 13
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -418,7 +418,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:pilot_context:burst`
 **First seen:** 2026-02-08 15:35
 **Last seen:** 2026-02-08 15:39
-**Occurrences:** 18
+**Occurrences:** 36
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -432,7 +432,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:auth:document_signing:burst`
 **First seen:** 2026-02-05 06:01
 **Last seen:** 2026-02-08 06:01
-**Occurrences:** 28
+**Occurrences:** 52
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -476,7 +476,7 @@ _Total peaks: 34_
 **Problem Key:** `PEAK:unknown:design_lifecycle:spike`
 **First seen:** 2026-02-05 00:08
 **Last seen:** 2026-02-08 23:46
-**Occurrences:** 7
+**Occurrences:** 13
 **Max value:** 1.00
 **Max ratio:** 3.04x
 

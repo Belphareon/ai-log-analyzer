@@ -229,7 +229,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - cd /app && python3 scripts/backfill_v6.py --days 1
+            - cd /app && python3 scripts/backfill_v6.py --days 1 --output /app/scripts/reports
             env:
             - name: DB_HOST
               valueFrom:

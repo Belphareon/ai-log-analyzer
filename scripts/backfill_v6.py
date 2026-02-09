@@ -43,6 +43,7 @@ from typing import Dict, List, Optional, Tuple, Any
 
 # Add paths
 SCRIPT_DIR = Path(__file__).parent
+sys.path.insert(0, str(SCRIPT_DIR.parent))  # Add parent to path so we can import core/
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
@@ -68,7 +69,7 @@ except ImportError:
     HAS_DB = False
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(SCRIPT_DIR.parent / '.env')
 load_dotenv(SCRIPT_DIR.parent / 'config' / '.env')
 
 # Incident Analysis (legacy)
@@ -100,12 +101,27 @@ except ImportError as e:
     print(f"⚠️ Problem Analysis import failed: {e}")
 
 # Teams Notifications
+HAS_TEAMS = False
 try:
+    # Try direct import first
     from core.teams_notifier import TeamsNotifier
     HAS_TEAMS = True
-except ImportError:
+except ModuleNotFoundError:
+    # Fallback: try adding explicit path
+    try:
+        import importlib.util
+        team_path = SCRIPT_DIR.parent / 'core' / 'teams_notifier.py'
+        spec = importlib.util.spec_from_file_location("teams_notifier", str(team_path))
+        teams_notifier_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(teams_notifier_module)
+        TeamsNotifier = teams_notifier_module.TeamsNotifier
+        HAS_TEAMS = True
+    except Exception as e:
+        HAS_TEAMS = False
+        print(f"⚠️ Teams notifier not available: {e}")
+except Exception as e:
     HAS_TEAMS = False
-    print(f"⚠️ Teams notifier not available")
+    print(f"⚠️ Teams notifier import failed: {e}")
 
 
 # =============================================================================

@@ -3,7 +3,7 @@
   peak_type: SPIKE
   first_seen: '2026-02-05T00:08:02.643000+00:00'
   last_seen: '2026-02-08T23:46:06.915000+00:00'
-  occurrences: 7
+  occurrences: 13
   fingerprints:
   - b4fcd6415c0cd3e9
   affected_apps:
@@ -20,7 +20,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:05:00.702000+00:00'
   last_seen: '2026-02-08T23:35:00.766000+00:00'
-  occurrences: 178
+  occurrences: 328
   fingerprints:
   - 4fbd1ff79b930c80
   - d3ddb47f8162899a
@@ -70,7 +70,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:06:45.327000+00:00'
   last_seen: '2026-02-08T23:30:19.941000+00:00'
-  occurrences: 487
+  occurrences: 901
   fingerprints:
   - 27d9b2c407385032
   - 2f14e590de72ac76
@@ -181,7 +181,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:25:15.413000+00:00'
   last_seen: '2026-02-08T23:30:19.624000+00:00'
-  occurrences: 267
+  occurrences: 495
   fingerprints:
   - 7c21892701f103b7
   - 27db84a338656b4f
@@ -246,7 +246,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:05:51.569000+00:00'
   last_seen: '2026-02-08T23:07:30.545000+00:00'
-  occurrences: 124
+  occurrences: 184
   fingerprints:
   - 169f0db11a155b1f
   - aaebe13319806688
@@ -329,7 +329,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:05:51.561000+00:00'
   last_seen: '2026-02-08T23:07:30.542000+00:00'
-  occurrences: 223
+  occurrences: 403
   fingerprints:
   - 92f2862220ae1d68
   - 97e65518db01ffc6
@@ -400,7 +400,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T01:06:16.095000+00:00'
   last_seen: '2026-02-08T23:07:29.042000+00:00'
-  occurrences: 662
+  occurrences: 1214
   fingerprints:
   - dd76a2038bba2f50
   - 2cb04c78ee00db98
@@ -541,7 +541,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T11:36:14.784000+00:00'
   last_seen: '2026-02-08T23:07:29.042000+00:00'
-  occurrences: 27
+  occurrences: 45
   fingerprints:
   - 2f60e9de0ed6b6a7
   - 554142620e02bcc9
@@ -571,7 +571,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:11.179000+00:00'
   last_seen: '2026-02-08T21:51:13.249000+00:00'
-  occurrences: 35
+  occurrences: 65
   fingerprints:
   - 38fabcc6d5d497c7
   - 31e9d614043437a0
@@ -596,7 +596,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:05:00.707000+00:00'
   last_seen: '2026-02-08T21:51:12.917000+00:00'
-  occurrences: 44
+  occurrences: 80
   fingerprints:
   - 211666cbc0a1cab3
   - 3266ae8ad74a807b
@@ -644,7 +644,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:10.693000+00:00'
   last_seen: '2026-02-08T21:51:11.140000+00:00'
-  occurrences: 63
+  occurrences: 117
   fingerprints:
   - 8d0b44c5f6797e62
   - 4a802441a0946a3d
@@ -670,7 +670,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:46.498000+00:00'
   last_seen: '2026-02-08T21:51:11.138000+00:00'
-  occurrences: 28
+  occurrences: 52
   fingerprints:
   - 31f4d697c964923e
   - a378bb3631c0193b
@@ -692,7 +692,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:02:16.175000+00:00'
   last_seen: '2026-02-08T21:51:04.551000+00:00'
-  occurrences: 42
+  occurrences: 78
   fingerprints:
   - 2e3e39e4b455f329
   - 229c8a645783a360
@@ -718,7 +718,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T05:00:04.211000+00:00'
   last_seen: '2026-02-08T21:50:06.507000+00:00'
-  occurrences: 59
+  occurrences: 113
   fingerprints:
   - 54bded69808607ec
   - da8e8d0baa6afc00
@@ -751,7 +751,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:25.161000+00:00'
   last_seen: '2026-02-08T21:47:59.617000+00:00'
-  occurrences: 7
+  occurrences: 13
   fingerprints:
   - 3f120772fe303cbc
   affected_apps:
@@ -769,7 +769,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:13.334000+00:00'
   last_seen: '2026-02-08T21:36:17.057000+00:00'
-  occurrences: 7
+  occurrences: 13
   fingerprints:
   - 1b54d23a5606aa9b
   affected_apps:
@@ -788,7 +788,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:06:11.617000+00:00'
   last_seen: '2026-02-08T21:36:05.499000+00:00'
-  occurrences: 89
+  occurrences: 155
   fingerprints:
   - 350a8571ad4b5ee7
   - 0ac714638fe7389c
@@ -830,7 +830,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:06.430000+00:00'
   last_seen: '2026-02-08T21:34:54.052000+00:00'
-  occurrences: 21
+  occurrences: 39
   fingerprints:
   - a7e0a4c1af481a9c
   - 308b82b4577252a9
@@ -854,7 +854,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T00:15:01.686000+00:00'
   last_seen: '2026-02-08T21:33:43.848000+00:00'
-  occurrences: 8
+  occurrences: 14
   fingerprints:
   - 088df8c1e6c42a0f
   - 80212bca4714df95
@@ -876,7 +876,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:00:39.476000+00:00'
   last_seen: '2026-02-08T21:32:53.750000+00:00'
-  occurrences: 72
+  occurrences: 132
   fingerprints:
   - 7276ca13a604e5f4
   - 5be750dee1c306e3
@@ -905,7 +905,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T12:06:31.173000+00:00'
   last_seen: '2026-02-08T21:30:31.784000+00:00'
-  occurrences: 14
+  occurrences: 26
   fingerprints:
   - 47168064fe54989b
   - 2aebc5256fcbc603
@@ -925,7 +925,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:14.917000+00:00'
   last_seen: '2026-02-08T21:30:08.648000+00:00'
-  occurrences: 35
+  occurrences: 65
   fingerprints:
   - 8c219b4a44f3d838
   - deb5dc563bec42a0
@@ -947,7 +947,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:14.892000+00:00'
   last_seen: '2026-02-08T21:30:08.080000+00:00'
-  occurrences: 28
+  occurrences: 52
   fingerprints:
   - d793f21dc06ad540
   - f1a3431fd37eb66e
@@ -967,7 +967,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T18:19:06.344000+00:00'
   last_seen: '2026-02-08T21:27:03.327000+00:00'
-  occurrences: 21
+  occurrences: 39
   fingerprints:
   - 784e1d7543a3dd53
   - 2266265946231a7c
@@ -987,7 +987,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T09:33:50.616000+00:00'
   last_seen: '2026-02-08T21:00:58.820000+00:00'
-  occurrences: 7
+  occurrences: 13
   fingerprints:
   - 3883ff46685954dc
   affected_apps:
@@ -1005,7 +1005,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T08:47:31.818000+00:00'
   last_seen: '2026-02-08T20:54:58.899000+00:00'
-  occurrences: 28
+  occurrences: 52
   fingerprints:
   - 7d63faa679857d28
   - afb6025b42bb7d45
@@ -1027,7 +1027,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T18:22:03.502000+00:00'
   last_seen: '2026-02-08T20:19:00.214000+00:00'
-  occurrences: 35
+  occurrences: 65
   fingerprints:
   - b20fe11db427be9d
   - 9162fca6c2b1fc10
@@ -1049,7 +1049,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T18:19:06.339000+00:00'
   last_seen: '2026-02-08T20:16:19.158000+00:00'
-  occurrences: 14
+  occurrences: 26
   fingerprints:
   - 3eb2de4d883ad6af
   - e612bb4e48e16ce7
@@ -1068,7 +1068,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T19:47:52.138000+00:00'
   last_seen: '2026-02-08T19:48:00.428000+00:00'
-  occurrences: 21
+  occurrences: 39
   fingerprints:
   - f40f38300306a895
   - f8d979886f24ca5b
@@ -1087,7 +1087,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T19:33:05.350000+00:00'
   last_seen: '2026-02-08T19:32:59.703000+00:00'
-  occurrences: 7
+  occurrences: 13
   fingerprints:
   - cf37f9da2adc6400
   affected_apps:
@@ -1104,7 +1104,7 @@
   peak_type: BURST
   first_seen: '2026-02-08T15:35:36.641000+00:00'
   last_seen: '2026-02-08T15:39:21.638000+00:00'
-  occurrences: 18
+  occurrences: 36
   fingerprints:
   - ceb76030e9e20643
   - 11e586e930cbad44
@@ -1123,7 +1123,7 @@
   peak_type: BURST
   first_seen: '2026-02-05T06:01:13.336000+00:00'
   last_seen: '2026-02-08T06:01:32.917000+00:00'
-  occurrences: 28
+  occurrences: 52
   fingerprints:
   - 13eaf8bc41148e2f
   - 7658825cf095eb26

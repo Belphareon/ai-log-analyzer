@@ -1,6 +1,6 @@
 # Known Problems Registry
 
-_Last updated: 2026-02-09 14:54:52_
+_Last updated: 2026-02-09 15:36:53_
 _Total problems: 310_
 _Total fingerprints: 18819_
 
@@ -2741,7 +2741,7 @@ _Total fingerprints: 18819_
 **Problem Key:** `UNKNOWN:design_lifecycle:unclassified`
 **First seen:** 2026-01-15 14:33
 **Last seen:** 2026-02-08 23:46
-**Occurrences:** 135
+**Occurrences:** 141
 **Fingerprints:** 118
 
 **Apps:** bff-pcb-ch-design-servicing-v1, bl-pcb-design-lifecycle-v1, bl-pcb-v1, feapi-pca-v1

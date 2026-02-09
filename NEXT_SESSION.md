@@ -1,88 +1,153 @@
 # 📝 NEXT SESSION - Action Items
 
-## 🎯 Primary Objectives
+## ✅ Session 2 Completed (Feb 9, 2026)
 
-### Issue #1: Fix Teams Notification Import ⚠️ BLOCKING
+### Fixed: Recent Incidents Confluence Publishing
+- Changed from DAILY_INCIDENT_REPORT to PROBLEM_ANALYSIS_REPORT V6
+- Now shows EXECUTIVE_SUMMARY + top 20 PROBLEM_DETAILS
+- Fixed HTML dark mode formatting (removed white background)
+- All three Confluence pages working:
+  - Known Errors ✅
+  - Known Peaks ✅
+  - Recent Incidents ✅
+- Commits pushed (git push blocked by network - needs retry)
 
-**Current State:**
-- Module exists: `core/teams_notifier.py`
-- Integration code present: `backfill_v6.py` line 45 and main()
-- Error: `ModuleNotFoundError: No module named 'core.teams_notifier'`
-- sys.path fallback attempted in main() but not working
+---
 
-**Investigation Steps:**
+## 🎯 Next Session Objectives
 
-1. **Check current implementation:**
+### Issue #1: Git Push + K8s Deployment
+
+**Status**: Commits ready, push blocked by network
+
+**Steps**:
+1. Retry git push:
    ```bash
    cd /home/jvsete/git/ai-log-analyzer
-   grep -n "from core.teams_notifier" scripts/backfill_v6.py
-   grep -n "get_notifier" scripts/backfill_v6.py
+   git push origin main
    ```
 
-2. **Understand the problem:**
-   - Is the import at line 45 being reached?
-   - Is sys.path manipulation working?
-   - Check if sys.path fallback is catching the exception
-
-3. **Try these solutions (in order):**
-
-   **Option A: Move import to module level**
-   ```python
-   # Current (BROKEN in main):
-   def main():
-       sys.path.insert(0, '/app')
-       from core.teams_notifier import get_notifier
-   
-   # Try this (module level):
-   try:
-       from core.teams_notifier import get_notifier
-   except ImportError:
-       get_notifier = lambda: None
-   ```
-
-   **Option B: Use absolute import**
-   ```python
-   import sys
-   import os
-   sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) + '/..')
-   from core.teams_notifier import get_notifier
-   ```
-
-   **Option C: Use direct path import**
-   ```python
-   import importlib.util
-   spec = importlib.util.spec_from_file_location("teams_notifier", 
-       "/app/core/teams_notifier.py")
-   teams_notifier = importlib.util.module_from_spec(spec)
-   spec.loader.exec_module(teams_notifier)
-   get_notifier = teams_notifier.get_notifier
-   ```
-
-4. **Test solution:**
+2. Deploy CronJobs to K8s (docs/CRONJOB_SCHEDULING.md):
    ```bash
-   python3 scripts/backfill_v6.py --days 1 --workers 1 --force
-   # Look for: ✅ Backfill completed + Teams notification confirmed
-   ```
-
-5. **If all fail - disable Teams for now:**
-   ```python
-   # Wrap the get_notifier call in try/except with graceful fallback
-   notifier = None
-   try:
-       from core.teams_notifier import get_notifier
-       notifier = get_notifier()
-   except Exception as e:
-       print(f"⚠️ Teams notifier not available: {e}")
+   # Create namespace
+   kubectl create namespace ai-log-analyzer
    
-   # In main code:
-   if notifier:
-       notifier.send_backfill_completed(...)
+   # Create ConfigMap with .env
+   kubectl create configmap ai-log-analyzer-env --from-env-file=.env \
+     -n ai-log-analyzer
+   
+   # Apply CronJob manifests
+   kubectl apply -f - << 'EOF'
+   # (Contents from docs/CRONJOB_SCHEDULING.md)
+   EOF
+   
+   # Verify
+   kubectl get cronjobs -n ai-log-analyzer
    ```
 
-**Success Criteria:**
-- [ ] Backfill runs without ModuleNotFoundError
-- [ ] Teams message appears in channel after backfill completes
-- [ ] Backfill still saves to DB (with or without Teams)
+**Files to check**:
+- docs/CRONJOB_SCHEDULING.md (has K8s manifests)
+
+---
+
+### Issue #2: Verify End-to-End Workflow
+
+**Test steps**:
+```bash
+cd /home/jvsete/git/ai-log-analyzer
+
+# 1. Run backfill with force
+python3 scripts/backfill_v6.py --days 1 --force --output scripts/reports
+
+# 2. Run publish
+bash scripts/publish_daily_reports.sh
+
+# 3. Check Confluence pages
+# - page 1334314201 (Known Errors)
+# - page 1334314203 (Known Peaks)
+# - page 1334314207 (Recent Incidents with top 20 problems)
+
+# 4. Check Teams channel (if webhook configured)
+```
+
+---
+
+### Issue #3: Update Backfill Default Output Path (Optional)
+
+**Current**: `--output` flag required to save problem_report files
+
+**Suggested**: Make it default in backfill_v6.py
+
+**File**: scripts/backfill_v6.py line ~484
+```python
+# Current:
+output_dir = args.output if args.output else None
+
+# Better:
+output_dir = args.output or (SCRIPT_DIR / 'reports')
+```
+
+---
+
+## 📋 Configuration Checklist
+
+### Required Environment Variables
+```bash
+# Database
+DB_USER=ailog_analyzer_app_user_d1
+DB_PASSWORD=...
+DB_DDL_USER=ailog_analyzer_ddl_user_d1
+DB_DDL_PASSWORD=...
+DB_HOST=...
+DB_PORT=5432
+DB_NAME=ailog
+
+# Confluence
+CONFLUENCE_URL=https://wiki.kb.cz
+CONFLUENCE_USERNAME=...
+CONFLUENCE_PASSWORD=...  # Works as API token
+
+# Teams (optional)
+TEAMS_WEBHOOK_URL=https://outlook.webhook.office.com/webhookb2/...
+```
+
+### Confluence Page IDs
+```
+1334314201 - Known Errors
+1334314203 - Known Peaks
+1334314207 - Recent Incidents (FIXED ✅)
+```
+
+---
+
+## 🔄 Files Modified This Session
+
+```
+Modified:
+  scripts/recent_incidents_publisher.py (FIXED - now uses PROBLEM_ANALYSIS_REPORT V6)
+  scripts/publish_daily_reports.sh (UPDATED - calls new publisher)
+
+Created:
+  scripts/backfill_report_publisher.py (archived, not used)
+  scripts/recent_incidents_exporter.py (archived, not used)
+
+Registry:
+  registry/fingerprint_index.yaml
+  registry/known_peaks.yaml
+  registry/known_problems.yaml
+  exports/latest/*.csv, *.md
+```
+
+---
+
+## 🎯 Success Criteria
+
+- [ ] git push successful
+- [ ] E2E workflow tested (backfill → publish → Confluence updated)
+- [ ] K8s CronJobs deployed
+- [ ] All three Confluence pages auto-update daily
+- [ ] Teams notifications working (if enabled)
+- [ ] Problem Analysis report top 20 shows in Recent Incidents page
 
 **Decision Point:**
 - If fixed: Test with `--days 4 --workers 4` and verify all notifications sent
