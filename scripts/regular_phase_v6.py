@@ -82,6 +82,13 @@ except ImportError as e:
     HAS_PROBLEM_ANALYSIS = False
     print(f"⚠️ Problem Analysis import failed: {e}")
 
+# Teams Notifications
+try:
+    from core.teams_notifier import TeamsNotifier
+    HAS_TEAMS = True
+except ImportError:
+    HAS_TEAMS = False
+
 
 # =============================================================================
 # GLOBALS
@@ -95,23 +102,36 @@ _registry: Optional[ProblemRegistry] = None
 # =============================================================================
 
 def get_db_connection():
-    """Get database connection"""
+    """Get database connection - uses DDL user for write operations"""
+    # For INSERT/UPDATE/DELETE, must use DDL_USER (not APP_USER)
+    # APP_USER (DB_USER) can only read data
+    user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
+    password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
+    
     return psycopg2.connect(
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
+        user=user,
+        password=password,
         connect_timeout=30,
         options='-c statement_timeout=60000'  # 1 min
     )
 
 
 def set_db_role(cursor) -> None:
-    """Set DDL role after login (if configured)."""
-    ddl_role = os.getenv('DB_DDL_ROLE') or os.getenv('DB_DDL_USER') or 'role_ailog_analyzer_ddl'
+    """Set DDL role after login (if configured).
+    
+    After logging in as DDL_USER, set the role to group role for permissions.
+    DB_DDL_ROLE should be the group role name (e.g., 'role_ailog_analyzer_ddl')
+    """
+    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
     if ddl_role:
-        cursor.execute(f"SET ROLE {ddl_role}")
+        try:
+            cursor.execute(f"SET ROLE {ddl_role}")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+            # Continue anyway - user may have direct permissions
 
 
 def save_incidents_to_db(collection: IncidentCollection) -> int:
@@ -451,6 +471,46 @@ def run_regular_phase(
     print("\n" + "=" * 70)
     print("✅ REGULAR PHASE V6 COMPLETE")
     print("=" * 70)
+    
+    # ==========================================================================
+    # SEND TEAMS NOTIFICATION (ONLY IF CRITICAL ISSUES DETECTED)
+    # ==========================================================================
+    if HAS_TEAMS and collection.incidents:
+        try:
+            # Check if any incident has spike/burst/critical flags
+            has_critical = any(
+                inc.flags.is_spike or inc.flags.is_burst or inc.score >= 80
+                for inc in collection.incidents
+            )
+            
+            if has_critical:
+                notifier = TeamsNotifier()
+                if notifier.is_enabled():
+                    critical_count = sum(
+                        1 for inc in collection.incidents 
+                        if inc.flags.is_spike or inc.flags.is_burst or inc.score >= 80
+                    )
+                    notifier.send_message({
+                        "@type": "MessageCard",
+                        "@context": "https://schema.org/extensions",
+                        "summary": f"⚠️ Alert - {critical_count} critical issues detected",
+                        "themeColor": "ff3333",
+                        "sections": [
+                            {
+                                "activityTitle": "⚠️ CRITICAL ISSUES DETECTED",
+                                "activitySubtitle": f"Window: {window_start.strftime('%H:%M')} - {window_end.strftime('%H:%M')}",
+                                "facts": [
+                                    {"name": "Critical Issues", "value": str(critical_count)},
+                                    {"name": "Total Incidents", "value": str(collection.total_incidents)},
+                                    {"name": "Spikes", "value": str(sum(1 for inc in collection.incidents if inc.flags.is_spike))},
+                                    {"name": "Bursts", "value": str(sum(1 for inc in collection.incidents if inc.flags.is_burst))},
+                                ]
+                            }
+                        ]
+                    })
+                    print("✅ Critical alert sent to Teams")
+        except Exception as e:
+            print(f"⚠️ Teams notification failed: {e}")
     
     return result
 

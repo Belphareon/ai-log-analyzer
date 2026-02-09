@@ -104,3 +104,17 @@ echo ""
 echo "=============================================="
 echo "✅ BACKFILL complete"
 echo "=============================================="
+
+# ========================================================================
+# Publish reports to Teams and Confluence
+# ========================================================================
+echo ""
+echo "📤 Publishing reports..."
+if [ -f "./publish_daily_reports.sh" ]; then
+    bash ./publish_daily_reports.sh
+else
+    echo "⚠️ publish_daily_reports.sh not found"
+fi
+
+echo ""
+echo "✅ All done!"

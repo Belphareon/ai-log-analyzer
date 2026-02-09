@@ -332,19 +332,23 @@ class TableExporter:
         for problem_key, peak in self.registry.peaks.items():
             first_seen = self._ensure_aware(peak.first_seen)
             last_seen = self._ensure_aware(peak.last_seen)
+            
+            # Extract category from problem_key (format: "category:flow:peak_type")
+            category = problem_key.split(':')[0] if ':' in problem_key else 'unknown'
+            
             row = PeakTableRow(
                 peak_id=peak.id,
                 problem_key=problem_key,
-                category=peak.category,
+                category=category,
                 peak_type=peak.peak_type,
                 affected_apps=", ".join(sorted(peak.affected_apps)[:10]),
                 affected_namespaces=", ".join(sorted(peak.affected_namespaces)),
-                peak_count=peak.peak_count,
-                baseline_rate=peak.baseline_rate,
-                peak_ratio=peak.peak_ratio,
+                peak_count=peak.occurrences,
+                baseline_rate=peak.max_value,
+                peak_ratio=peak.max_ratio,
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
-                occurrence_count=peak.occurrence_count,
+                occurrence_count=peak.occurrences,
                 status=peak.status,
             )
             rows.append(row)

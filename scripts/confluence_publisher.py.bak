@@ -1,0 +1,426 @@
+#!/usr/bin/env python3
+"""
+Confluence Publisher - Uploads AI Log Analyzer data to Confluence
+==================================================================
+
+Uploaduje CSV tabulky do Confluence s:
+- HTML formátem
+- Barvami pro severity
+- Nadpisy a legendami
+- Automatickým updatem verze stránky
+
+Konfigurace (env vars):
+    CONFLUENCE_URL          Base URL (např. https://confluence.kb.cz)
+    CONFLUENCE_USERNAME     Jméno uživatele (nebo email pro LDAP)
+    CONFLUENCE_PASSWORD     Heslo (ne API token!)
+    
+Stránky (page IDs):
+    CONFLUENCE_DAILY_REPORT_PAGE_ID    Daily Report page
+    CONFLUENCE_KNOWN_ERRORS_PAGE_ID    Known Errors page
+    CONFLUENCE_KNOWN_PEAKS_PAGE_ID     Known Peaks page
+
+Použití:
+    python confluence_publisher.py --page-id 1234567890 \
+        --csv-file ./exports/errors_table_latest.csv \
+        --title "Known Errors" \
+        --header-rows 2
+"""
+
+import os
+import sys
+import csv
+import json
+import argparse
+import requests
+from pathlib import Path
+from datetime import datetime
+from typing import List, Dict, Tuple, Optional
+from html import escape
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    # Try to load from parent directory and config directory
+    script_dir = Path(__file__).parent
+    load_dotenv(script_dir.parent / '.env')
+    load_dotenv(script_dir.parent / 'config' / '.env')
+except ImportError:
+    pass
+
+# Barvy pro severity
+SEVERITY_COLORS = {
+    'critical': '#ff3333',  # Red
+    'high': '#ff9933',      # Orange
+    'medium': '#ffcc00',    # Yellow
+    'low': '#3399ff',       # Blue
+    'info': '#999999',      # Gray
+    'unknown': '#cccccc',   # Light Gray
+}
+
+# Klasifikace severity dle sloupců
+SEVERITY_KEYWORDS = {
+    'critical': ['critical', 'urgent', 'emergency'],
+    'high': ['high', 'severe', 'major'],
+    'medium': ['medium', 'moderate'],
+    'low': ['low', 'minor'],
+}
+
+
+def detect_severity(value: str) -> str:
+    """Detekuj severity z textu"""
+    value_lower = value.lower()
+    for severity, keywords in SEVERITY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in value_lower:
+                return severity
+    return 'unknown'
+
+
+def escape_html(s: str) -> str:
+    """Escapuj HTML znaky"""
+    return escape(str(s) if s else '')
+
+
+def get_row_color(row: List[str], header: List[str]) -> Optional[str]:
+    """
+    Určí barvu řádku na základě severity/status sloupce.
+    Hledá sloupce jako "severity", "status", "priority"
+    """
+    for i, col_name in enumerate(header):
+        col_lower = col_name.lower()
+        if any(x in col_lower for x in ['severity', 'priority', 'status']):
+            if i < len(row):
+                severity = detect_severity(row[i])
+                if severity in SEVERITY_COLORS:
+                    return SEVERITY_COLORS[severity]
+    return None
+
+
+def csv_to_confluence_html(
+    csv_file: str,
+    title: str = 'Report',
+    header_rows: int = 1,
+    add_legend: bool = True
+) -> str:
+    """
+    Konvertuj CSV na HTML tabulku s formátováním.
+    
+    Args:
+        csv_file: Cesta k CSV souboru
+        title: Nadpis tabulky
+        header_rows: Počet řádků v headeru (obvykle 1, někdy 2)
+        add_legend: Přidat legendu barev
+    """
+    
+    print(f"   📋 Converting CSV to HTML: {csv_file}")
+    
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+        print(f"   ✓ CSV loaded: {len(rows)} rows")
+    except Exception as e:
+        raise ValueError(f"Failed to read CSV: {e}")
+    
+    if not rows:
+        raise ValueError("CSV file is empty")
+    
+    # Příprava HTML
+    html_parts = []
+    
+    # Nadpis
+    html_parts.append(f'<h2>{escape_html(title)}</h2>')
+    html_parts.append(f'<p><em>Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")}</em></p>')
+    
+    # Legenda
+    if add_legend:
+        html_parts.append('<h3>Legend:</h3>')
+        html_parts.append('<ul>')
+        for severity, color in SEVERITY_COLORS.items():
+            if severity != 'unknown':
+                html_parts.append(
+                    f'<li><span style="display:inline-block; width:20px; height:20px; '
+                    f'background-color:{color}; border:1px solid #ccc; margin-right:5px;"></span>'
+                    f'{severity.upper()}</li>'
+                )
+        html_parts.append('</ul>')
+    
+    # Tabulka
+    html_parts.append('<table>')
+    
+    # Header
+    header_row = rows[0]
+    html_parts.append('<thead>')
+    html_parts.append('<tr>')
+    for col in header_row:
+        html_parts.append(f'<th><strong>{escape_html(col)}</strong></th>')
+    html_parts.append('</tr>')
+    html_parts.append('</thead>')
+    
+    # Data rows
+    html_parts.append('<tbody>')
+    for row_idx, row in enumerate(rows[header_rows:], start=header_rows):
+        # Přeskočit prázdné řádky
+        if not any(cell.strip() for cell in row):
+            continue
+        
+        # Urči barvu řádku
+        row_color = get_row_color(row, header_row)
+        
+        html_parts.append('<tr>')
+        for cell_idx, cell in enumerate(row):
+            bg_color = f' style="background-color:{row_color};"' if row_color else ''
+            html_parts.append(f'<td{bg_color}>{escape_html(cell)}</td>')
+        html_parts.append('</tr>')
+    
+    html_parts.append('</tbody>')
+    html_parts.append('</table>')
+    
+    return '\n'.join(html_parts)
+
+
+def get_confluence_page(
+    base_url: str,
+    page_id: str,
+    username: str,
+    password: str
+) -> Dict:
+    """Načti aktuální verzi stránky"""
+    print(f"   🔍 Fetching page metadata from Confluence...")
+    
+    url = f"{base_url}/rest/api/content/{page_id}?expand=body.storage,version"
+    
+    try:
+        resp = requests.get(
+            url,
+            auth=(username, password),
+            timeout=10,
+            verify=False  # Ignore SSL certificate errors
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        print(f"   ✓ Page found, current version: {data['version']['number']}")
+        return data
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch page {page_id}: {e}")
+
+
+def update_confluence_page(
+    base_url: str,
+    page_id: str,
+    title: str,
+    html_content: str,
+    username: str,
+    password: str,
+) -> bool:
+    """Update stránku v Confluence"""
+    
+    print(f"   📝 Fetching current page version...")
+    
+    # Načti aktuální verzi
+    try:
+        page = get_confluence_page(base_url, page_id, username, password)
+        print(f"   📌 Current version: {page['version']['number']}")
+    except Exception as e:
+        print(f"   ❌ Failed to fetch page: {e}")
+        return False
+    
+    # Připrav update
+    url = f"{base_url}/rest/api/content/{page_id}"
+    print(f"   🔗 API URL: {url}")
+    
+    payload = {
+        "type": "page",
+        "id": page_id,
+        "title": title,
+        "body": {
+            "storage": {
+                "value": html_content,
+                "representation": "storage"
+            }
+        },
+        "version": {
+            "number": page['version']['number'] + 1
+        }
+    }
+    
+    print(f"   📤 Uploading new version ({page['version']['number'] + 1})...")
+    
+    resp = None
+    try:
+        resp = requests.put(
+            url,
+            json=payload,
+            auth=(username, password),
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+            verify=False  # Ignore SSL certificate errors
+        )
+        resp.raise_for_status()
+        print(f"   ✅ Successfully updated page")
+        return True
+    except Exception as e:
+        print(f"   ❌ Failed to update page: {e}")
+        if resp:
+            print(f"   📋 HTTP Status: {resp.status_code}")
+            print(f"   📋 Response: {resp.text[:500]}")
+        return False
+
+
+def publish_csv_to_confluence(
+    csv_file: str,
+    page_id: str,
+    page_title: str,
+    base_url: str,
+    username: str,
+    password: str,
+    header_rows: int = 1,
+    add_legend: bool = True
+) -> bool:
+    """Publikuj CSV do Confluence stránky"""
+    
+    print(f"📤 Publishing to Confluence")
+    print(f"   Page Title: {page_title}")
+    print(f"   Page ID: {page_id}")
+    print(f"   CSV File: {csv_file}")
+    
+    # Zkontroluj CSV soubor
+    csv_path = Path(csv_file)
+    if not csv_path.exists():
+        print(f"   ❌ CSV file not found: {csv_file}")
+        return False
+    
+    file_size = csv_path.stat().st_size
+    print(f"   📊 CSV size: {file_size} bytes")
+    
+    # Konvertuj CSV na HTML
+    print(f"")
+    try:
+        html_content = csv_to_confluence_html(csv_file, page_title, header_rows, add_legend)
+        print(f"   ✅ HTML conversion successful ({len(html_content)} chars)")
+    except Exception as e:
+        print(f"   ❌ Failed to convert CSV: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+    # Upload do Confluence
+    print(f"")
+    if update_confluence_page(base_url, page_id, page_title, html_content, username, password):
+        print(f"   ✅ Successfully published to Confluence")
+        print(f"")
+        return True
+    else:
+        print(f"   ❌ Failed to publish to Confluence")
+        print(f"")
+        return False
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Publish CSV tables to Confluence',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Publish single table
+  python confluence_publisher.py --page-id 1334314201 \\
+    --csv-file ./exports/errors_table_latest.csv \\
+    --title "Known Errors"
+  
+  # Publish all tables (daily routine)
+  python confluence_publisher.py --publish-all
+        """
+    )
+    
+    parser.add_argument('--page-id', type=str, help='Confluence page ID')
+    parser.add_argument('--csv-file', type=str, help='Path to CSV file')
+    parser.add_argument('--title', type=str, help='Page title')
+    parser.add_argument('--header-rows', type=int, default=1, help='Number of header rows')
+    parser.add_argument('--no-legend', action='store_true', help='Do not add legend')
+    parser.add_argument('--publish-all', action='store_true', help='Publish all tables')
+    parser.add_argument('--exports-dir', type=str, default='./exports', help='Exports directory')
+    
+    args = parser.parse_args()
+    
+    # Načti config
+    base_url = os.getenv('CONFLUENCE_URL', 'https://confluence.kb.cz')
+    username = os.getenv('CONFLUENCE_USERNAME')
+    password = os.getenv('CONFLUENCE_PASSWORD')
+    
+    if not username or not password:
+        print("❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_PASSWORD in environment")
+        print(f"   CONFLUENCE_URL: {base_url}")
+        print(f"   CONFLUENCE_USERNAME: {username if username else 'NOT SET'}")
+        print(f"   CONFLUENCE_PASSWORD: {'SET' if password else 'NOT SET'}")
+        return 1
+    
+    # Check if operating in publish-all mode
+    if args.publish_all:
+        exports_dir = Path(args.exports_dir)
+        
+        tables = [
+            {
+                'csv': exports_dir / 'latest' / 'errors_table.csv',
+                'page_id': os.getenv('CONFLUENCE_KNOWN_ERRORS_PAGE_ID'),
+                'title': 'Known Errors - Last 24h',
+            },
+            {
+                'csv': exports_dir / 'latest' / 'peaks_table.csv',
+                'page_id': os.getenv('CONFLUENCE_KNOWN_PEAKS_PAGE_ID'),
+                'title': 'Known Peaks - Last 24h',
+            },
+        ]
+        
+        success_count = 0
+        for table in tables:
+            if not table['page_id']:
+                print(f"⚠️ Skipping {table['title']} - no page ID configured")
+                continue
+            
+            if not table['csv'].exists():
+                print(f"⚠️ Skipping {table['title']} - CSV file not found: {table['csv']}")
+                continue
+            
+            if publish_csv_to_confluence(
+                str(table['csv']),
+                table['page_id'],
+                table['title'],
+                base_url,
+                username,
+                password,
+                add_legend=not args.no_legend
+            ):
+                success_count += 1
+        
+        print(f"\n{'='*70}")
+        print(f"📊 Published {success_count}/{len(tables)} tables")
+        return 0 if success_count == len(tables) else 1
+    
+    # Publish single table
+    if not args.page_id or not args.csv_file or not args.title:
+        print("❌ Missing required arguments: --page-id, --csv-file, --title")
+        parser.print_help()
+        return 1
+    
+    if not Path(args.csv_file).exists():
+        print(f"❌ CSV file not found: {args.csv_file}")
+        return 1
+    
+    if publish_csv_to_confluence(
+        args.csv_file,
+        args.page_id,
+        args.title,
+        base_url,
+        username,
+        password,
+        args.header_rows,
+        add_legend=not args.no_legend
+    ):
+        return 0
+    else:
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

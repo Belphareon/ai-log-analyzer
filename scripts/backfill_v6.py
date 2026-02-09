@@ -99,6 +99,14 @@ except ImportError as e:
     HAS_PROBLEM_ANALYSIS = False
     print(f"⚠️ Problem Analysis import failed: {e}")
 
+# Teams Notifications
+try:
+    from core.teams_notifier import TeamsNotifier
+    HAS_TEAMS = True
+except ImportError:
+    HAS_TEAMS = False
+    print(f"⚠️ Teams notifier not available")
+
 
 # =============================================================================
 # GLOBALS
@@ -127,23 +135,36 @@ _processed_days_lock = threading.Lock()
 # =============================================================================
 
 def get_db_connection():
-    """Get database connection"""
+    """Get database connection - uses DDL user for write operations"""
+    # For INSERT/UPDATE/DELETE, must use DDL_USER (not APP_USER)
+    # APP_USER (DB_USER) can only read data
+    user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
+    password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
+    
     return psycopg2.connect(
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
+        user=user,
+        password=password,
         connect_timeout=30,
         options='-c statement_timeout=300000'  # 5 min
     )
 
 
 def set_db_role(cursor) -> None:
-    """Set DDL role after login (if configured)."""
-    ddl_role = os.getenv('DB_DDL_ROLE') or os.getenv('DB_DDL_USER') or 'role_ailog_analyzer_ddl'
+    """Set DDL role after login (if configured).
+    
+    After logging in as DDL_USER, set the role to group role for permissions.
+    DB_DDL_ROLE should be the group role name (e.g., 'role_ailog_analyzer_ddl')
+    """
+    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
     if ddl_role:
-        cursor.execute(f"SET ROLE {ddl_role}")
+        try:
+            cursor.execute(f"SET ROLE {ddl_role}")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+            # Continue anyway - user may have direct permissions
 
 
 def check_day_processed(date: datetime) -> bool:
@@ -803,6 +824,30 @@ def run_backfill(
     safe_print("\n" + "=" * 70)
     safe_print("✅ BACKFILL V6 COMPLETE")
     safe_print("=" * 70)
+    
+    # ==========================================================================
+    # SEND TEAMS NOTIFICATION
+    # ==========================================================================
+    if HAS_TEAMS:
+        try:
+            notifier = TeamsNotifier()
+            if notifier.is_enabled():
+                registry_stats = _global_registry.get_stats() if _global_registry else {}
+                notifier.send_backfill_completed(
+                    days_processed=len(results),
+                    successful_days=success_count,
+                    failed_days=error_count,
+                    total_incidents=total_incidents,
+                    saved_count=total_saved,
+                    registry_updates={
+                        'problems': registry_stats.get('new_problems_added', 0),
+                        'peaks': registry_stats.get('new_peaks_added', 0),
+                    },
+                    duration_minutes=(datetime.now(timezone.utc) - now).total_seconds() / 60.0
+                )
+                safe_print("✅ Teams notification sent")
+        except Exception as e:
+            safe_print(f"⚠️ Teams notification failed: {e}")
     
     return {
         'days_processed': len(results),
