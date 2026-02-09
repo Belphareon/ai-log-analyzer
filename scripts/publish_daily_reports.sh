@@ -136,22 +136,17 @@ else
     fi
 fi
 
-# Upload Recent Incidents (if page ID configured)
-if [ -n "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID" ] && [ -f "$ERRORS_CSV" ]; then
-    echo "   Publishing Recent Incidents..."
-    if [ -z "$DRY_RUN" ]; then
-        if "$ITO_UPLOAD" \
-            --file "$ERRORS_CSV" \
-            --page-id "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID" \
-            --title "Recent Incidents - Detailed List"; then
-            echo "   ✅ Recent Incidents published"
-        else
-            ERROR_CODE=$?
-            echo "   ❌ Failed to publish Recent Incidents (exit code: $ERROR_CODE)"
-        fi
+# Upload Recent Incidents (from daily incident analysis report)
+echo "   Publishing Recent Incidents (Daily Analysis)..."
+if [ -z "$DRY_RUN" ]; then
+    if python3 "$SCRIPT_DIR/recent_incidents_publisher.py"; then
+        echo "   ✅ Recent Incidents published"
     else
-        echo "   [DRY-RUN] Would upload: $ERRORS_CSV → Page $CONFLUENCE_RECENT_INCIDENTS_PAGE_ID"
+        ERROR_CODE=$?
+        echo "   ⚠️ Failed to publish Recent Incidents (non-critical)"
     fi
+else
+    echo "   [DRY-RUN] Would publish daily incident analysis report"
 fi
 
 echo ""

@@ -1,6 +1,6 @@
 # Error Problems Table
 
-**Generated:** 2026-02-09 13:16:24
+**Generated:** 2026-02-09 13:53:21
 **Total problems:** 310
 
 ## Summary by Category
@@ -27,7 +27,7 @@
 
 | ID | Category | Flow | Apps | Occurrences | Last Seen | Status |
 |-------|----------|------|------|-------------|-----------|--------|
-| KP-000045 | unknown | design_lifecycle | bff-pcb-ch-design-servicing-v1... | 133 | 2026-02-08 | OPEN |
+| KP-000045 | unknown | design_lifecycle | bff-pcb-ch-design-servicing-v1... | 134 | 2026-02-08 | OPEN |
 | KP-000010 | unknown | click2pay | bff-pcb-ch-click2pay-v1, bl-pc... | 691 | 2026-02-08 | OPEN |
 | KP-000015 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 504,255 | 2026-02-08 | OPEN |
 | KP-000052 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 1 | 2026-02-08 | OPEN |
@@ -344,7 +344,7 @@
 
 - **Error class:** unclassified
 - **Scope:** SYSTEMIC
-- **Occurrences:** 133
+- **Occurrences:** 134
 - **Apps:** bff-pcb-ch-design-servicing-v1, bl-pcb-design-lifecycle-v1, bl-pcb-v1, feapi-pca-v1
 - **Namespaces:** pca-dev-01-app, pcb-ch-dev-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
 - **First seen:** 2026-01-15 14:33
