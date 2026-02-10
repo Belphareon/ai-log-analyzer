@@ -157,8 +157,8 @@ _processed_days_lock = threading.Lock()
 def get_db_connection():
     """Get database connection - uses DDL user for write operations
     
-    DDL user (ailog_analyzer_ddl_user_d1) has direct INSERT/UPDATE/DELETE permissions.
-    No SET ROLE needed - user is logged in with full DDL capabilities.
+    CRITICAL: DDL user (ailog_analyzer_ddl_user_d1) must execute SET ROLE role_ailog_analyzer_ddl
+    to gain permissions on ailog_peak schema. This is mandatory.
     """
     user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
     password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
@@ -172,6 +172,11 @@ def get_db_connection():
         connect_timeout=30,
         options='-c statement_timeout=300000'  # 5 min
     )
+    
+    # MANDATORY: Set role for DDL operations
+    cursor = conn.cursor()
+    set_db_role(cursor)
+    cursor.close()
     
     return conn
 
@@ -884,7 +889,7 @@ def run_backfill(
             notifier = TeamsNotifier()
             if notifier.is_enabled():
                 registry_stats = _global_registry.get_stats() if _global_registry else {}
-                notifier.send_backfill_completed(
+                success = notifier.send_backfill_completed(
                     days_processed=len(results),
                     successful_days=success_count,
                     failed_days=error_count,
@@ -897,7 +902,10 @@ def run_backfill(
                     duration_minutes=(datetime.now(timezone.utc) - now).total_seconds() / 60.0,
                     problem_report=_global_problem_report
                 )
-                safe_print("✅ Teams notification sent")
+                if success:
+                    safe_print("✅ Teams notification sent")
+                else:
+                    safe_print("⚠️ Teams notification failed (check logs above)")
         except Exception as e:
             safe_print(f"⚠️ Teams notification failed: {e}")
     

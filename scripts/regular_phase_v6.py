@@ -102,14 +102,15 @@ _registry: Optional[ProblemRegistry] = None
 # =============================================================================
 
 def get_db_connection():
-    """Get database connection - uses DDL user for write operations"""
-    # For INSERT/UPDATE/DELETE, must use DDL_USER (not APP_USER)
-    # APP_USER (DB_USER) can only read data
-    # NOTE: DDL user has direct INSERT/UPDATE/DELETE permissions - SET ROLE not needed!
+    """Get database connection - uses DDL user for write operations
+    
+    CRITICAL: DDL user (ailog_analyzer_ddl_user_d1) must execute SET ROLE role_ailog_analyzer_ddl
+    to gain permissions on ailog_peak schema. This is mandatory.
+    """
     user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
     password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
     
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
@@ -118,6 +119,13 @@ def get_db_connection():
         connect_timeout=30,
         options='-c statement_timeout=60000'  # 1 min
     )
+    
+    # MANDATORY: Set role for DDL operations
+    cursor = conn.cursor()
+    set_db_role(cursor)
+    cursor.close()
+    
+    return conn
 
 
 def set_db_role(cursor) -> None:
