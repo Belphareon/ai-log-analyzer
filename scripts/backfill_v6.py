@@ -177,12 +177,17 @@ def get_db_connection():
 
 
 def set_db_role(cursor) -> None:
-    """DEPRECATED - not needed!
+    """Set DDL role after login - REQUIRED for schema access.
     
-    DDL user is logged in with direct INSERT/UPDATE/DELETE permissions.
-    SET ROLE to role_ailog_analyzer_ddl is redundant and causes warnings.
+    DDL user (ailog_analyzer_ddl_user_d1) must SET ROLE to role_ailog_analyzer_ddl
+    to gain USAGE/CREATE permissions on ailog_peak schema.
     """
-    pass
+    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
+    try:
+        cursor.execute(f"SET ROLE {ddl_role}")
+    except Exception as e:
+        safe_print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+        # Continue anyway - user may have direct permissions
 
 
 def check_day_processed(date: datetime) -> bool:

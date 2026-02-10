@@ -121,13 +121,17 @@ def get_db_connection():
 
 
 def set_db_role(cursor) -> None:
-    """DEPRECATED - not needed!
+    """Set DDL role after login - REQUIRED for schema access.
     
-    DDL user has direct INSERT/UPDATE/DELETE permissions.
-    SET ROLE is not needed and fails with APP user.
-    This function is kept for compatibility but does nothing.
+    DDL user (ailog_analyzer_ddl_user_d1) must SET ROLE to role_ailog_analyzer_ddl
+    to gain USAGE/CREATE permissions on ailog_peak schema.
     """
-    pass
+    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
+    try:
+        cursor.execute(f"SET ROLE {ddl_role}")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+        # Continue anyway - user may have direct permissions
 
 
 def save_incidents_to_db(collection: IncidentCollection) -> int:
