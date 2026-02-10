@@ -2,17 +2,17 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t ai-log-analyzer:r7 .
+#   docker build -t ai-log-analyzer:r8 .
 #
 # Run:
-#   docker run --env-file .env ai-log-analyzer:r7 python scripts/regular_phase_v6.py
+#   docker run --env-file .env ai-log-analyzer:r8 python scripts/regular_phase_v6.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="6.0.3"
+LABEL version="6.0.4"
 LABEL description="AI Log Analyzer - Incident Detection Pipeline"
 
 # Set working directory

@@ -155,9 +155,11 @@ _processed_days_lock = threading.Lock()
 # =============================================================================
 
 def get_db_connection():
-    """Get database connection - uses DDL user for write operations"""
-    # For INSERT/UPDATE/DELETE, must use DDL_USER (not APP_USER)
-    # APP_USER (DB_USER) can only read data
+    """Get database connection - uses DDL user for write operations
+    
+    DDL user (ailog_analyzer_ddl_user_d1) has direct INSERT/UPDATE/DELETE permissions.
+    No SET ROLE needed - user is logged in with full DDL capabilities.
+    """
     user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
     password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
     
@@ -171,42 +173,16 @@ def get_db_connection():
         options='-c statement_timeout=300000'  # 5 min
     )
     
-    # Try to set DDL role IMMEDIATELY after connection (before any transactions)
-    # If it fails, continue anyway - user may have direct permissions
-    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
-    if ddl_role:
-        try:
-            cursor = conn.cursor()
-            cursor.execute(f"SET ROLE {ddl_role}")
-            cursor.close()
-            conn.commit()  # Commit SET ROLE command
-        except Exception as e:
-            safe_print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
-            try:
-                conn.rollback()  # Rollback failed SET ROLE
-            except:
-                pass
-            # Connection is still valid, continue with default permissions
-    
     return conn
 
 
 def set_db_role(cursor) -> None:
-    """Set DDL role after login (if configured).
+    """DEPRECATED - not needed!
     
-    After logging in as DDL_USER, set the role to group role for permissions.
-    DB_DDL_ROLE should be the group role name (e.g., 'role_ailog_analyzer_ddl')
-    
-    NOTE: If this fails, we catch the error and continue anyway.
-    User permissions may be sufficient without the role.
+    DDL user is logged in with direct INSERT/UPDATE/DELETE permissions.
+    SET ROLE to role_ailog_analyzer_ddl is redundant and causes warnings.
     """
-    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
-    if ddl_role:
-        try:
-            cursor.execute(f"SET ROLE {ddl_role}")
-        except Exception as e:
-            safe_print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
-            # Continue anyway - user may have direct permissions
+    pass
 
 
 def check_day_processed(date: datetime) -> bool:

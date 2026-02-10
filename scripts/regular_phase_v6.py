@@ -105,6 +105,7 @@ def get_db_connection():
     """Get database connection - uses DDL user for write operations"""
     # For INSERT/UPDATE/DELETE, must use DDL_USER (not APP_USER)
     # APP_USER (DB_USER) can only read data
+    # NOTE: DDL user has direct INSERT/UPDATE/DELETE permissions - SET ROLE not needed!
     user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
     password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
     
@@ -120,18 +121,13 @@ def get_db_connection():
 
 
 def set_db_role(cursor) -> None:
-    """Set DDL role after login (if configured).
+    """DEPRECATED - not needed!
     
-    After logging in as DDL_USER, set the role to group role for permissions.
-    DB_DDL_ROLE should be the group role name (e.g., 'role_ailog_analyzer_ddl')
+    DDL user has direct INSERT/UPDATE/DELETE permissions.
+    SET ROLE is not needed and fails with APP user.
+    This function is kept for compatibility but does nothing.
     """
-    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
-    if ddl_role:
-        try:
-            cursor.execute(f"SET ROLE {ddl_role}")
-        except Exception as e:
-            print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
-            # Continue anyway - user may have direct permissions
+    pass
 
 
 def save_incidents_to_db(collection: IncidentCollection) -> int:
