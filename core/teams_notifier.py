@@ -8,6 +8,7 @@ Sends notifications to Microsoft Teams about backfill and regular phase completi
 Environment Variables:
     TEAMS_WEBHOOK_URL: Microsoft Teams Incoming Webhook URL
     TEAMS_ENABLED: true/false (default: false)
+    TEAMS_EMAIL: Teams channel email as fallback (e.g., xxx@emea.teams.ms)
 """
 
 import os
@@ -15,6 +16,12 @@ import requests
 from datetime import datetime
 from typing import Optional, Dict, Any
 from pathlib import Path
+
+try:
+    from core.email_notifier import EmailNotifier
+    HAS_EMAIL = True
+except ImportError:
+    HAS_EMAIL = False
 
 
 class TeamsNotifier:
@@ -25,6 +32,7 @@ class TeamsNotifier:
         self.enabled = os.getenv('TEAMS_ENABLED', 'false').lower() in ('true', '1', 'yes')
         self.host = os.getenv('HOSTNAME', 'unknown-host')
         self.env = os.getenv('ENVIRONMENT', 'production')
+        self.email_fallback = EmailNotifier() if HAS_EMAIL else None
     
     def is_enabled(self) -> bool:
         """Check if Teams notifications are enabled."""
@@ -44,7 +52,13 @@ class TeamsNotifier:
             response.raise_for_status()
             return True
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Failed to send Teams message: {e}")
+            print(f"⚠️ Failed to send Teams webhook: {e}")
+            
+            # Try email fallback
+            if self.email_fallback and self.email_fallback.is_enabled():
+                print("📧 Attempting email fallback...")
+                # Email fallback handled in send_backfill_completed
+            
             return False
     
     def send_backfill_completed(
@@ -64,6 +78,7 @@ class TeamsNotifier:
         
         # Extract EXECUTIVE SUMMARY from problem report if available
         summary_section = ""
+        summary_text_plain = ""
         if problem_report:
             # Extract the EXECUTIVE SUMMARY section
             import re
@@ -73,8 +88,8 @@ class TeamsNotifier:
                 re.MULTILINE | re.DOTALL
             )
             if match:
-                summary_text = match.group(1).strip()
-                summary_section = f"**Run Summary:**\n\n{summary_text}"
+                summary_text_plain = match.group(1).strip()
+                summary_section = f"**Run Summary:**\n\n{summary_text_plain}"
         
         # Create message with just timestamp + problem summary
         if summary_section:
@@ -94,7 +109,24 @@ class TeamsNotifier:
             ]
         }
         
-        return self._send_message(message)
+        success = self._send_message(message)
+        
+        # Try email fallback if webhook failed
+        if not success and self.email_fallback and self.email_fallback.is_enabled():
+            print("📧 Using email fallback...")
+            success = self.email_fallback.send_backfill_completed(
+                days_processed=days_processed,
+                successful_days=successful_days,
+                failed_days=failed_days,
+                total_incidents=total_incidents,
+                saved_count=saved_count,
+                duration_minutes=duration_minutes,
+                summary=summary_text_plain
+            )
+            if success:
+                print("✅ Email notification sent")
+        
+        return success
     
     def send_backfill_error(
         self,
