@@ -106,6 +106,7 @@ try:
     # Try direct import first
     from core.teams_notifier import TeamsNotifier
     HAS_TEAMS = True
+    print("✅ TeamsNotifier imported successfully")
 except ModuleNotFoundError:
     # Fallback: try adding explicit path
     try:
@@ -903,9 +904,11 @@ def run_backfill(
                     problem_report=_global_problem_report
                 )
                 if success:
-                    safe_print("✅ Teams notification sent")
+                    safe_print("✅ Notification sent (email/Teams)")
                 else:
-                    safe_print("⚠️ Teams notification failed (check logs above)")
+                    safe_print("⚠️ Notification failed")
+            else:
+                safe_print("⚠️ Teams notifier not enabled (check TEAMS_ENABLED and TEAMS_WEBHOOK_URL)")
         except Exception as e:
             safe_print(f"⚠️ Teams notification failed: {e}")
     

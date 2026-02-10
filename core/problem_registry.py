@@ -90,6 +90,10 @@ class ProblemEntry:
     # Linked fingerprints (1:N)
     fingerprints: List[str] = field(default_factory=list)
     
+    # Sample error messages - CRITICAL for understanding what the problem is!
+    sample_messages: List[str] = field(default_factory=list)
+    description: str = ""  # Human-readable description / root cause
+    
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
@@ -116,6 +120,8 @@ class ProblemEntry:
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
             'fingerprints': self.fingerprints,
+            'sample_messages': self.sample_messages[:MAX_SAMPLE_MESSAGES_PER_FP],  # Limit samples
+            'description': self.description,
             'affected_apps': sorted(self.affected_apps),
             'affected_namespaces': sorted(self.affected_namespaces),
             'deployments_seen': sorted(self.deployments_seen),
@@ -144,6 +150,8 @@ class ProblemEntry:
         
         entry.occurrences = data.get('occurrences', 0)
         entry.fingerprints = data.get('fingerprints', [])
+        entry.sample_messages = data.get('sample_messages', [])
+        entry.description = data.get('description', '')
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
         entry.deployments_seen = set(data.get('deployments_seen', []))
@@ -902,7 +910,7 @@ class ProblemRegistry:
             if problem_key in self.problems:
                 self._update_problem(
                     problem_key, fingerprint, apps, namespaces,
-                    first_ts, last_ts, count
+                    error_type, normalized_message, first_ts, last_ts, count
                 )
             else:
                 self._create_problem(
@@ -931,6 +939,8 @@ class ProblemRegistry:
         fingerprint: str,
         apps: List[str],
         namespaces: List[str],
+        error_type: str,
+        normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
         count: int
@@ -952,6 +962,12 @@ class ProblemRegistry:
             if len(problem.fingerprints) < MAX_FINGERPRINTS_PER_PROBLEM:
                 problem.fingerprints.append(fingerprint)
             # else: silently skip - fingerprint index still tracks it
+        
+        # Add sample message if unique and within limit
+        if normalized_message and normalized_message.strip():
+            msg = normalized_message.strip()[:500]
+            if msg not in problem.sample_messages and len(problem.sample_messages) < MAX_SAMPLE_MESSAGES_PER_FP:
+                problem.sample_messages.append(msg)
         
         # Update affected entities (defensive: filter None)
         safe_apps = [a for a in apps if a] if apps else []
@@ -995,6 +1011,11 @@ class ProblemRegistry:
         safe_apps = [a for a in apps if a] if apps else []
         safe_ns = [n for n in namespaces if n] if namespaces else []
         
+        # Create sample_messages from normalized_message
+        sample_messages = []
+        if normalized_message and normalized_message.strip():
+            sample_messages = [normalized_message.strip()[:500]]  # Limit message length
+        
         problem = ProblemEntry(
             id=f"KP-{self._problem_counter:06d}",
             problem_key=problem_key,
@@ -1005,6 +1026,8 @@ class ProblemRegistry:
             last_seen=last_ts,
             occurrences=count,
             fingerprints=[fingerprint],
+            sample_messages=sample_messages,
+            description=f"{error_type}: {normalized_message[:200] if normalized_message else 'N/A'}",
             affected_apps=set(safe_apps),
             affected_namespaces=set(safe_ns),
             deployments_seen={extract_deployment_label(app) for app in safe_apps},

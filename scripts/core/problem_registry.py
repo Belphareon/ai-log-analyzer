@@ -90,6 +90,10 @@ class ProblemEntry:
     # Linked fingerprints (1:N)
     fingerprints: List[str] = field(default_factory=list)
     
+    # Sample error messages - CRITICAL for understanding what the problem is!
+    sample_messages: List[str] = field(default_factory=list)
+    description: str = ""  # Human-readable description / root cause
+    
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
@@ -116,6 +120,8 @@ class ProblemEntry:
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
             'fingerprints': self.fingerprints,
+            'sample_messages': self.sample_messages[:MAX_SAMPLE_MESSAGES_PER_FP],  # Limit samples
+            'description': self.description,
             'affected_apps': sorted(self.affected_apps),
             'affected_namespaces': sorted(self.affected_namespaces),
             'deployments_seen': sorted(self.deployments_seen),
@@ -144,6 +150,8 @@ class ProblemEntry:
         
         entry.occurrences = data.get('occurrences', 0)
         entry.fingerprints = data.get('fingerprints', [])
+        entry.sample_messages = data.get('sample_messages', [])
+        entry.description = data.get('description', '')
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
         entry.deployments_seen = set(data.get('deployments_seen', []))
@@ -228,6 +236,21 @@ class PeakEntry:
         entry.notes = data.get('notes')
         
         return entry
+    
+    @property
+    def category(self) -> str:
+        """Extract category from problem_key (format: category:flow:peak_type)."""
+        if ':' in self.problem_key:
+            return self.problem_key.split(':')[0]
+        return 'UNKNOWN'
+    
+    @property
+    def flow(self) -> str:
+        """Extract flow from problem_key (format: category:flow:peak_type)."""
+        parts = self.problem_key.split(':')
+        if len(parts) >= 2:
+            return parts[1]
+        return 'UNKNOWN'
 
 
 # =============================================================================
@@ -281,19 +304,44 @@ def extract_flow(app_names: List[str], namespaces: List[str] = None) -> str:
     """
     Extrahuje business flow z názvů aplikací.
     
+    DEFENSIVE: Zvládá None, prázdné seznamy, None položky v seznamu.
+    
     Příklady:
         ['bff-pcb-ch-card-servicing-v1'] → 'card_servicing'
         ['bl-pcb-billing-v1'] → 'billing'
         ['feapi-pca-v1'] → 'pca'
+        [None, 'bff-app'] → 'app'
+        None → 'unknown'
     """
-    combined = ' '.join(app_names).lower()
+    # DEFENSIVE: Sanitize input - remove None and empty strings
+    safe_apps = []
+    if app_names:
+        safe_apps = [
+            a for a in app_names 
+            if isinstance(a, str) and a.strip()
+        ]
+    
+    # If no valid apps, try namespaces as fallback
+    if not safe_apps:
+        if namespaces:
+            safe_ns = [n for n in namespaces if isinstance(n, str) and n.strip()]
+            if safe_ns:
+                # Extract flow hint from namespace (e.g., pcb-dev-01-app → pcb)
+                for ns in safe_ns:
+                    parts = ns.lower().replace('_', '-').split('-')
+                    if parts:
+                        return parts[0]
+        return 'unknown'
+    
+    # Try pattern matching first
+    combined = ' '.join(safe_apps).lower()
     
     for pattern, flow in FLOW_PATTERNS.items():
         if re.search(pattern, combined):
             return flow
     
     # Fallback: extract from app name structure
-    for app in app_names:
+    for app in safe_apps:
         # bff-pcb-ch-card-servicing-v1 → card-servicing
         parts = app.lower().replace('_', '-').split('-')
         # Skip prefixes: bff, bl, feapi, pcb, pca, ch
@@ -339,6 +387,8 @@ def compute_problem_key(
     """
     Vytvoří stabilní problem_key.
     
+    DEFENSIVE: Zvládá None vstupy, nikdy nepadne.
+    
     Format: CATEGORY:flow:error_class
     
     Příklady:
@@ -346,8 +396,17 @@ def compute_problem_key(
         DATABASE:batch_processing:connection_pool
         AUTH:card_opening:access_denied
     """
-    flow = extract_flow(app_names, namespaces)
-    error_class = extract_error_class(error_type, normalized_message)
+    # DEFENSIVE: Sanitize all inputs
+    safe_apps = []
+    if app_names:
+        safe_apps = [a for a in app_names if isinstance(a, str) and a.strip()]
+    
+    safe_ns = []
+    if namespaces:
+        safe_ns = [n for n in namespaces if isinstance(n, str) and n.strip()]
+    
+    flow = extract_flow(safe_apps, safe_ns)
+    error_class = extract_error_class(error_type or "", normalized_message or "")
     
     # Normalize category
     cat = category.upper() if category else 'UNKNOWN'
@@ -451,7 +510,6 @@ class ProblemRegistry:
             'problems_updated': 0,
             'new_peaks_added': 0,
             'peaks_updated': 0,
-            'fingerprints_dropped': 0,  # Count of fingerprints not added due to limit
         }
     
     # =========================================================================
@@ -827,12 +885,7 @@ class ProblemRegistry:
             error_type = incident.error_type
             normalized_message = incident.normalized_message
             count = incident.stats.current_count if hasattr(incident.stats, 'current_count') else 1
-
-            # V6: Extract app_versions (ONLY semantic versions, not deployment labels!)
-            app_versions = getattr(incident, 'app_versions', []) or []
-            # Filter out None and empty values
-            app_versions = [v for v in app_versions if v and isinstance(v, str)]
-
+            
             # Get event timestamps (CRITICAL!)
             if fingerprint in event_timestamps:
                 first_ts, last_ts = event_timestamps[fingerprint]
@@ -843,7 +896,7 @@ class ProblemRegistry:
                 # Fallback - but this is NOT ideal
                 first_ts = datetime.utcnow()
                 last_ts = first_ts
-
+            
             # Compute problem_key
             problem_key = compute_problem_key(
                 category=category,
@@ -852,17 +905,17 @@ class ProblemRegistry:
                 normalized_message=normalized_message,
                 namespaces=namespaces,
             )
-
+            
             # Update or create problem
             if problem_key in self.problems:
                 self._update_problem(
                     problem_key, fingerprint, apps, namespaces,
-                    first_ts, last_ts, count, app_versions
+                    error_type, normalized_message, first_ts, last_ts, count
                 )
             else:
                 self._create_problem(
                     problem_key, fingerprint, category, apps, namespaces,
-                    error_type, normalized_message, first_ts, last_ts, count, app_versions
+                    error_type, normalized_message, first_ts, last_ts, count
                 )
             
             # Update fingerprint index
@@ -886,48 +939,50 @@ class ProblemRegistry:
         fingerprint: str,
         apps: List[str],
         namespaces: List[str],
+        error_type: str,
+        normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
-        count: int,
-        app_versions: List[str] = None
+        count: int
     ):
         """Aktualizuje existující problem."""
         problem = self.problems[problem_key]
-        app_versions = app_versions or []
-
+        
         # Update timestamps (CRITICAL: use min/max!)
         if problem.first_seen is None or first_ts < problem.first_seen:
             problem.first_seen = first_ts
         if problem.last_seen is None or last_ts > problem.last_seen:
             problem.last_seen = last_ts
-
+        
         # Update counts
         problem.occurrences += count
-
+        
         # Add fingerprint if new (with limit)
         if fingerprint not in problem.fingerprints:
             if len(problem.fingerprints) < MAX_FINGERPRINTS_PER_PROBLEM:
                 problem.fingerprints.append(fingerprint)
-            else:
-                # Silent cap - track dropped fingerprints for health metrics
-                self.stats['fingerprints_dropped'] += 1
-
-        # Update affected entities
-        problem.affected_apps.update(apps)
-        problem.affected_namespaces.update(namespaces)
-
-        # V6: Separate deployment labels from app versions
-        for app in apps:
+            # else: silently skip - fingerprint index still tracks it
+        
+        # Add sample message if unique and within limit
+        if normalized_message and normalized_message.strip():
+            msg = normalized_message.strip()[:500]
+            if msg not in problem.sample_messages and len(problem.sample_messages) < MAX_SAMPLE_MESSAGES_PER_FP:
+                problem.sample_messages.append(msg)
+        
+        # Update affected entities (defensive: filter None)
+        safe_apps = [a for a in apps if a] if apps else []
+        safe_ns = [n for n in namespaces if n] if namespaces else []
+        
+        problem.affected_apps.update(safe_apps)
+        problem.affected_namespaces.update(safe_ns)
+        
+        # Extract deployment labels vs app versions
+        for app in safe_apps:
             problem.deployments_seen.add(extract_deployment_label(app))
-
-        # V6: Add ONLY semantic versions (NEVER extract from app name!)
-        for version in app_versions:
-            if version:  # Skip None/empty
-                problem.app_versions_seen.add(version)
-
+        
         # Update scope
         problem.scope = self._compute_scope(problem)
-
+        
         self.stats['problems_updated'] += 1
     
     def _create_problem(
@@ -941,19 +996,26 @@ class ProblemRegistry:
         normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
-        count: int,
-        app_versions: List[str] = None
+        count: int
     ):
         """Vytvoří nový problem."""
         self._problem_counter += 1
-        app_versions = app_versions or []
-
+        
         # Parse problem_key parts
         parts = problem_key.split(':')
         cat = parts[0] if len(parts) > 0 else 'unknown'
         flow = parts[1] if len(parts) > 1 else 'unknown'
         error_class = parts[2] if len(parts) > 2 else 'unknown'
-
+        
+        # DEFENSIVE: filter None values
+        safe_apps = [a for a in apps if a] if apps else []
+        safe_ns = [n for n in namespaces if n] if namespaces else []
+        
+        # Create sample_messages from normalized_message
+        sample_messages = []
+        if normalized_message and normalized_message.strip():
+            sample_messages = [normalized_message.strip()[:500]]  # Limit message length
+        
         problem = ProblemEntry(
             id=f"KP-{self._problem_counter:06d}",
             problem_key=problem_key,
@@ -964,15 +1026,15 @@ class ProblemRegistry:
             last_seen=last_ts,
             occurrences=count,
             fingerprints=[fingerprint],
-            affected_apps=set(apps),
-            affected_namespaces=set(namespaces),
-            deployments_seen={extract_deployment_label(app) for app in apps},
-            # V6: ONLY semantic versions from application.version field
-            app_versions_seen=set(v for v in app_versions if v),
+            sample_messages=sample_messages,
+            description=f"{error_type}: {normalized_message[:200] if normalized_message else 'N/A'}",
+            affected_apps=set(safe_apps),
+            affected_namespaces=set(safe_ns),
+            deployments_seen={extract_deployment_label(app) for app in safe_apps},
         )
-
+        
         problem.scope = self._compute_scope(problem)
-
+        
         self.problems[problem_key] = problem
         self.stats['new_problems_added'] += 1
     
@@ -984,9 +1046,10 @@ class ProblemRegistry:
         last_ts: datetime
     ):
         """Aktualizuje nebo vytvoří peak."""
-        # Compute peak problem_key
+        # Compute peak problem_key (defensive: apps may contain None)
         category = incident.category.value if hasattr(incident.category, 'value') else 'unknown'
-        flow = extract_flow(incident.apps)
+        safe_apps = [a for a in (incident.apps or []) if a]
+        flow = extract_flow(safe_apps)
         peak_key = f"PEAK:{category}:{flow}:{peak_type.lower()}"
         
         # Get peak metrics
@@ -1107,7 +1170,6 @@ class ProblemRegistry:
             'session_new_problems': self.stats['new_problems_added'],
             'session_updated_problems': self.stats['problems_updated'],
             'session_new_peaks': self.stats['new_peaks_added'],
-            'session_fingerprints_dropped': self.stats['fingerprints_dropped'],
             
             # Health score (0-100)
             'health_score': 100,
@@ -1176,15 +1238,7 @@ class ProblemRegistry:
         if len(self.problems) > 0 and unknown_count / len(self.problems) > 0.5:
             score -= 10
             issues.append(f"High unknown category ratio: {100 * unknown_count / len(self.problems):.1f}%")
-
-        # Check for dropped fingerprints (data loss indicator)
-        dropped = self.stats['fingerprints_dropped']
-        if dropped > 0:
-            # Mild penalty - this is expected behavior, but should be visible
-            penalty = min(10, dropped // 100)  # 1 point per 100 dropped, max 10
-            score -= penalty
-            issues.append(f"Fingerprints dropped due to limit: {dropped:,}")
-
+        
         metrics['health_score'] = max(0, score)
         metrics['health_issues'] = issues
         
@@ -1278,6 +1332,8 @@ def migrate_old_registry(old_dir: str, new_dir: str) -> int:
     """
     Migruje starý formát registry (1:1 fingerprint) na nový (problem_key).
     
+    DEFENSIVE: Zvládá None, prázdné seznamy, None položky v seznamech.
+    
     Returns: počet zmigrovaných záznamů
     """
     old_path = Path(old_dir)
@@ -1293,49 +1349,64 @@ def migrate_old_registry(old_dir: str, new_dir: str) -> int:
         old_data = yaml.safe_load(f) or []
     
     migrated = 0
+    skipped = 0
     
     for item in old_data:
         fingerprint = item.get('fingerprint')
         if not fingerprint:
+            skipped += 1
             continue
         
-        category = item.get('category', 'unknown')
-        apps = item.get('affected_apps', [])
-        namespaces = item.get('affected_namespaces', [])
+        category = item.get('category', 'unknown') or 'unknown'
+        
+        # DEFENSIVE: affected_apps může být None, [], nebo obsahovat None
+        raw_apps = item.get('affected_apps')
+        apps = [a for a in (raw_apps or []) if isinstance(a, str) and a.strip()]
+        
+        raw_ns = item.get('affected_namespaces')
+        namespaces = [n for n in (raw_ns or []) if isinstance(n, str) and n.strip()]
         
         # Parse timestamps
         first_seen = None
         last_seen = None
         if item.get('first_seen'):
             try:
-                first_seen = datetime.fromisoformat(item['first_seen'].replace('Z', '+00:00'))
+                ts_str = item['first_seen'].replace('Z', '+00:00').replace('+00:00', '')
+                first_seen = datetime.fromisoformat(ts_str)
             except:
                 pass
         if item.get('last_seen'):
             try:
-                last_seen = datetime.fromisoformat(item['last_seen'].replace('Z', '+00:00'))
+                ts_str = item['last_seen'].replace('Z', '+00:00').replace('+00:00', '')
+                last_seen = datetime.fromisoformat(ts_str)
             except:
                 pass
         
-        # Compute problem_key
+        # Compute problem_key (defensivní funkce)
         problem_key = compute_problem_key(
             category=category,
             app_names=apps,
             namespaces=namespaces,
         )
         
+        # Occurrences - defensive
+        occurrences = item.get('occurrences', 1)
+        if not isinstance(occurrences, (int, float)) or occurrences < 1:
+            occurrences = 1
+        
         # Update or create
         if problem_key in new_registry.problems:
             problem = new_registry.problems[problem_key]
             if fingerprint not in problem.fingerprints:
-                problem.fingerprints.append(fingerprint)
+                if len(problem.fingerprints) < MAX_FINGERPRINTS_PER_PROBLEM:
+                    problem.fingerprints.append(fingerprint)
             if first_seen and (problem.first_seen is None or first_seen < problem.first_seen):
                 problem.first_seen = first_seen
             if last_seen and (problem.last_seen is None or last_seen > problem.last_seen):
                 problem.last_seen = last_seen
-            problem.occurrences += item.get('occurrences', 1)
-            problem.affected_apps.update(apps)
-            problem.affected_namespaces.update(namespaces)
+            problem.occurrences += int(occurrences)
+            problem.affected_apps.update(apps)  # apps is already sanitized
+            problem.affected_namespaces.update(namespaces)  # namespaces is already sanitized
         else:
             new_registry._problem_counter += 1
             parts = problem_key.split(':')
@@ -1348,10 +1419,10 @@ def migrate_old_registry(old_dir: str, new_dir: str) -> int:
                 error_class=parts[2] if len(parts) > 2 else 'unknown',
                 first_seen=first_seen,
                 last_seen=last_seen,
-                occurrences=item.get('occurrences', 1),
+                occurrences=int(occurrences),
                 fingerprints=[fingerprint],
-                affected_apps=set(apps),
-                affected_namespaces=set(namespaces),
+                affected_apps=set(apps),  # apps is already sanitized
+                affected_namespaces=set(namespaces),  # namespaces is already sanitized
                 status=item.get('status', 'OPEN'),
                 jira=item.get('jira'),
                 notes=item.get('notes'),
@@ -1366,7 +1437,9 @@ def migrate_old_registry(old_dir: str, new_dir: str) -> int:
     # Save new registry
     new_registry.save()
     
-    print(f"✅ Migrated {migrated} fingerprints into {len(new_registry.problems)} problems")
+    print(f"✅ Migrated {migrated:,} fingerprints into {len(new_registry.problems):,} problems")
+    if skipped > 0:
+        print(f"⚠️  Skipped {skipped:,} entries (missing fingerprint)")
     return migrated
 
 

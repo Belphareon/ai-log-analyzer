@@ -12,7 +12,7 @@ FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="6.0.5"
+LABEL version="6.0.8"
 LABEL description="AI Log Analyzer - Incident Detection Pipeline"
 
 # Set working directory

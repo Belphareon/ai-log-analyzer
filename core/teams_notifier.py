@@ -32,7 +32,9 @@ class TeamsNotifier:
         self.enabled = os.getenv('TEAMS_ENABLED', 'false').lower() in ('true', '1', 'yes')
         self.host = os.getenv('HOSTNAME', 'unknown-host')
         self.env = os.getenv('ENVIRONMENT', 'production')
-        self.email_fallback = EmailNotifier() if HAS_EMAIL else None
+        # Email is PRIMARY when webhook DNS fails
+        self.email_notifier = EmailNotifier() if HAS_EMAIL else None
+        self.use_email_primary = os.getenv('TEAMS_USE_EMAIL_PRIMARY', 'true').lower() in ('true', '1', 'yes')
     
     def is_enabled(self) -> bool:
         """Check if Teams notifications are enabled."""
@@ -72,15 +74,15 @@ class TeamsNotifier:
         duration_minutes: float,
         problem_report: str = None
     ) -> bool:
-        """Send completion notification for backfill."""
+        """Send completion notification for backfill.
         
-        color = "28a745" if failed_days == 0 else "ffc107"
+        Strategy: Use EMAIL as PRIMARY method (webhook DNS often fails in K8s).
+        If email succeeds, skip webhook. If email fails, try webhook as fallback.
+        """
         
         # Extract EXECUTIVE SUMMARY from problem report if available
-        summary_section = ""
         summary_text_plain = ""
         if problem_report:
-            # Extract the EXECUTIVE SUMMARY section
             import re
             match = re.search(
                 r'^-{70}\nEXECUTIVE SUMMARY\n-{70}\n(.*?)\n-{70}',
@@ -89,32 +91,11 @@ class TeamsNotifier:
             )
             if match:
                 summary_text_plain = match.group(1).strip()
-                summary_section = f"**Run Summary:**\n\n{summary_text_plain}"
         
-        # Create message with just timestamp + problem summary
-        if summary_section:
-            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\n{summary_section}"
-        else:
-            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\nBackfill completed: {successful_days}/{days_processed} days processed, {total_incidents:,} incidents saved"
-        
-        message = {
-            "@type": "MessageCard",
-            "@context": "https://schema.org/extensions",
-            "summary": "Log Analyzer - Backfill completed",
-            "themeColor": color,
-            "sections": [
-                {
-                    "text": text_content
-                }
-            ]
-        }
-        
-        success = self._send_message(message)
-        
-        # Try email fallback if webhook failed
-        if not success and self.email_fallback and self.email_fallback.is_enabled():
-            print("📧 Using email fallback...")
-            success = self.email_fallback.send_backfill_completed(
+        # === PRIMARY: Try email first (more reliable in K8s) ===
+        if self.use_email_primary and self.email_notifier and self.email_notifier.is_enabled():
+            print("📧 Using email as primary notification method...")
+            success = self.email_notifier.send_backfill_completed(
                 days_processed=days_processed,
                 successful_days=successful_days,
                 failed_days=failed_days,
@@ -124,9 +105,27 @@ class TeamsNotifier:
                 summary=summary_text_plain
             )
             if success:
-                print("✅ Email notification sent")
+                print("✅ Email notification sent successfully")
+                return True
+            else:
+                print("⚠️ Email notification failed, trying webhook as fallback...")
         
-        return success
+        # === FALLBACK: Try webhook ===
+        color = "28a745" if failed_days == 0 else "ffc107"
+        if summary_text_plain:
+            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\n**Run Summary:**\n\n{summary_text_plain}"
+        else:
+            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\nBackfill completed: {successful_days}/{days_processed} days processed, {total_incidents:,} incidents saved"
+        
+        message = {
+            "@type": "MessageCard",
+            "@context": "https://schema.org/extensions",
+            "summary": "Log Analyzer - Backfill completed",
+            "themeColor": color,
+            "sections": [{"text": text_content}]
+        }
+        
+        return self._send_message(message)
     
     def send_backfill_error(
         self,
