@@ -179,8 +179,13 @@ def get_db_connection():
             cursor = conn.cursor()
             cursor.execute(f"SET ROLE {ddl_role}")
             cursor.close()
+            conn.commit()  # Commit SET ROLE command
         except Exception as e:
             safe_print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+            try:
+                conn.rollback()  # Rollback failed SET ROLE
+            except:
+                pass
             # Connection is still valid, continue with default permissions
     
     return conn
