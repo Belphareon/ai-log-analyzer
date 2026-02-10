@@ -1,83 +1,280 @@
 # 🕐 AI Log Analyzer - K8s CronJob Scheduling
-## Timing, Fallback Strategie, a Orchestration
+## Timing, Deployment Status, a Monitoring
 
 ---
 
-## 📋 OVERVIEW
+## 📋 CURRENT DEPLOYMENT STATUS (Feb 10, 2026)
 
-Máme 3 hlavní cronjobs:
-1. **Backfill** - 1x denně, procesuje včerajší data (historické)
-2. **Regular Phase** - Každých 15 minut, zpracuje poslední 15 minut
-3. **Publish Reports** - Po backfilu, publikuje do Teams + Confluence
+### ✅ Configured & Ready
+- **Two CronJobs** deployed in K8s manifests
+- **Docker image**: r4 (174 MB) pushed to dockerhub.kb.cz
+- **Teams integration**: ENABLED (TEAMS_ENABLED=true)
+- **Confluence integration**: Ready (page 1334314207)
+
+### 🚀 Next: `kubectl apply -f k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/`
 
 ---
 
-## 🕐 DOPORUČENÝ SCHEDULE
+## 🕐 CURRENT SCHEDULE
 
-### 1️⃣ **BACKFILL** - Jednou denně ráno
+### 1️⃣ **REGULAR PHASE** - Každých 15 minut
 ```yaml
-# CronJob: ai-log-analyzer-backfill
-schedule: "0 9 * * *"  # 09:00 UTC (11:00 CET) = dopoledne v Praze
-# NEBO pokud chceš večer:
-# schedule: "0 22 * * *"  # 22:00 UTC (00:00 CET) = polnoc v Praze
-```
-
-**Důvody pro 02:00 UTC (ráno):**
-- ✅ Data z včerejšího dne jsou completní
-- ✅ Nejedou přes noc (nižší load)
-- ✅ Report je hotový na začátku pracovního dne
-- ✅ Teams & Confluence updaty ráno
-
-**Alternativa - 22:00 UTC (večer):**
-- Report se publikuje večer/v noci
-- Data jsou available hned (ne až další den)
-
----
-
-### 2️⃣ **REGULAR PHASE** - Každých 15 minut
-```yaml
-# CronJob: ai-log-analyzer-regular
-schedule: "*/15 * * * *"  # Každých 15 minut
-# Běží 24/7 - sleduje real-time incidenty
+# CronJob: log-analyzer
+schedule: "*/15 * * * *"  # 24/7,每 15 分钟
+command: python3 /app/scripts/regular_phase_v6.py
 ```
 
 **Co dělá:**
-- Zpracuje poslední 15 minut dat
-- Detekuje spikes/bursts
-- POUZE pokud je critical issue → Teams alert
-- Updatuje DB a registry
+- Zpracuje poslední 15 minut dat z Elasticsearch
+- Detekuje spikes/bursts/cross-namespace issues
+- Ukládá incidenty do PostgreSQL
+- Updatuje registry (problémy + peaks)
+- POUZE na kritické problémy → Teams alert
+
+**Expected output:**
+```
+✅ Fetched X incidents from ES
+✅ Saved Y incidents to PostgreSQL
+Registry updated: P problems, K peaks
+[No Teams message unless critical]
+```
 
 ---
 
-### 3️⃣ **PUBLISH REPORTS** - Automaticky po backfilu
+### 2️⃣ **BACKFILL PHASE** - Jednou denně ráno
 ```yaml
-# Nespouští se samostatně!
-# Volá se z run_backfill.sh na konci
-# Pokud chceš samostatný cronjob:
-schedule: "0 9 30 * * *"  # 09:30 UTC = 30 minut po backfilu
-# (jakmile je backfil hotový)
+# CronJob: log-analyzer-backfill
+schedule: "0 9 * * *"  # 09:00 UTC (11:00 CET Praha)
+command: python3 /app/scripts/backfill_v6.py --days 1 --output /app/scripts/reports
+```
+
+**Co dělá:**
+- Zpracuje VČERAJŠÍ DEN (kompletní 24h data)
+- Generuje podrobný problem report (JSON, TXT, CSV)
+- Publikuje do Confluence (page 1334314207)
+- Odesílá Teams notifikaci s EXECUTIVE SUMMARY
+- Updatuje registry s novými problémy/peaks
+
+**Expected output:**
+```
+✅ Backfill processing started for N days
+✅ Total incidents fetched: X
+✅ Saved to PostgreSQL: Y
+✅ Problem reports generated:
+   - problem_report_TIMESTAMP.txt
+   - problem_report_TIMESTAMP.json
+   - problem_report_TIMESTAMP.csv
+✅ Published to Confluence
+✅ Teams notification sent
+```
+
+**Teams message format:**
+```
+Log Analyzer run at 2026-02-10 09:15:32 UTC
+
+Run Summary:
+[TOP 3-5 Problems from EXECUTIVE SUMMARY]
+- Problem 1: X occurrences
+- Problem 2: Y severity
+- ...
+```
+
+---
+
+## 📊 FLOW DIAGRAM
+
+```
+Every 15 min (Regular Phase):
+┌─────────────────────────────────┐
+│ Regular Phase CronJob (*/15)    │
+│ python3 regular_phase_v6.py     │
+└────────┬────────────────────────┘
+         │
+         ├─→ Fetch last 15 min from ES
+         ├─→ Pipeline: detect → classify → propagate
+         ├─→ Save to PostgreSQL
+         ├─→ Update registry
+         └─→ IF critical → Teams alert
+
+Daily at 09:00 UTC (Backfill Phase):
+┌─────────────────────────────────┐
+│ Backfill CronJob (0 9 * * *)    │
+│ python3 backfill_v6.py          │
+└────────┬────────────────────────┘
+         │
+         ├─→ Fetch YESTERDAY'S data from ES
+         ├─→ Pipeline: detect → classify → propagate
+         ├─→ Save to PostgreSQL
+         ├─→ Aggregate problems
+         ├─→ Generate reports
+         │  ├─ problem_report_*.txt (human-readable)
+         │  ├─ problem_report_*.json (machine-readable)
+         │  └─ errors/peaks CSVs
+         │
+         ├─→ Publish to Confluence (API)
+         └─→ Send Teams notification (webhook)
 ```
 
 ---
 
 ## 📊 PUBLIKOVÁNÍ DO CONFLUENCE & TEAMS
 
-### Backfill Flow:
+### Backfill Output Files
 ```
-Backfill (02:00)
-    ↓
-Generates reports (problem_report_*.json)
-    ↓
-Exports CSV (errors_table_latest.csv, peaks_table_latest.csv)
-    ↓
-publish_daily_reports.sh
-    ├─ Daily Report → Teams (top 5 issues)
-    ├─ Known Errors CSV → Confluence (page 1334314201)
-    └─ Known Peaks CSV → Confluence (page 1334314203)
+/app/scripts/reports/
+├── problem_report_2026-02-10T091532.txt     ← Human-readable summary
+├── problem_report_2026-02-10T091532.json    ← Structured data
+├── problem_report_2026-02-10T091532.csv     ← Table format
+├── errors_table_latest.csv                  ← All errors
+└── peaks_table_latest.csv                   ← All peaks
 ```
 
-### Regular Phase Flow:
+### Confluence Updates
+**Page:** 1334314207 (Recent Incidents - Problem Analysis)
+
+**Content:** PROBLEM_ANALYSIS_REPORT V6
 ```
+═══════════════════════════════════════════
+PROBLEM_ANALYSIS_REPORT V6
+Backfill Analysis: 2026-02-09
+
+EXECUTIVE SUMMARY
+─────────────────
+[Top 3-5 problems with occurrence count]
+
+PROBLEM DETAILS (Top 20)
+───────────────────────
+For each problem:
+  - ID: CATEGORY:flow:error_class
+  - Count: X occurrences
+  - First: timestamp
+  - Last: timestamp
+  - Services: [service1, service2, ...]
+  - Sample: [sample error message]
+═══════════════════════════════════════════
+```
+
+### Teams Integration
+**Webhook:** `TEAMS_WEBHOOK_URL` from values.yaml
+**Trigger:** At end of backfill (around 09:15 UTC)
+**Message Format:**
+```
+Log Analyzer run at 2026-02-10 09:15:32 UTC
+
+Run Summary:
+BUSINESS:card_servicing:validation_error (245 occurrences)
+DATABASE:batch_processing:connection_pool (128 occurrences)
+AUTH:card_opening:access_denied (89 occurrences)
+```
+
+---
+
+## ⚙️ CONFIGURATION (K8s values.yaml)
+
+```yaml
+# Image
+app:
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r4
+  imagePullPolicy: IfNotPresent
+
+# Schedules are hardcoded in templates/cronjob.yaml
+# Do NOT use {{ .Values.schedule }} - each job has own schedule
+
+# Environment
+env:
+  DB_HOST: P050TD01.DEV.KB.CZ
+  DB_NAME: ailog_analyzer
+  ES_HOST: https://elasticsearch-test.kb.cz:9500
+  REGISTRY_DIR: /data/registry
+  EXPORT_DIR: /data/exports
+
+# Teams & Confluence
+teams:
+  webhook_url: "https://sgcz.webhook.office.com/webhookb2/..."
+
+# (TEAMS_ENABLED=true is set in cronjob.yaml)
+# (CONFLUENCE_URL/PAGE_ID only used by backfill)
+```
+
+---
+
+## 🔍 MONITORING
+
+### Check CronJob Status
+```bash
+kubectl get cronjobs -n ai-log-analyzer
+kubectl get cronjob log-analyzer-backfill -n ai-log-analyzer -o wide
+```
+
+### Check Next Scheduled Run
+```bash
+kubectl get cronjob log-analyzer-backfill -n ai-log-analyzer \
+  -o jsonpath='{.status.lastSuccessfulTime}'
+```
+
+### Monitor Logs
+```bash
+# Regular phase (last 15 min)
+kubectl logs -n ai-log-analyzer -l job-type=regular --tail=50 -f
+
+# Backfill (today's run)
+kubectl logs -n ai-log-analyzer -l job-type=backfill --tail=200
+```
+
+### Verify Output
+```bash
+# Check if problem reports generated
+kubectl exec -it POD_NAME -n ai-log-analyzer -- \
+  ls -lah /app/scripts/reports/
+
+# Check Confluence updated
+curl -s https://confluence.kb.cz/pages/api/page/1334314207 \
+  | grep -o "problem_report"
+
+# Check Teams integration
+# (Look at Teams channel for notifications)
+```
+
+---
+
+## ⚠️ TROUBLESHOOTING
+
+### Backfill Not Running
+```bash
+# Check CronJob exists
+kubectl describe cronjob log-analyzer-backfill -n ai-log-analyzer
+
+# Check if pod created
+kubectl get pods -n ai-log-analyzer --sort-by=.status.startTime
+
+# Check pod logs
+kubectl logs POD_NAME -n ai-log-analyzer
+```
+
+### Teams Notification Not Received
+1. Verify webhook URL in values.yaml
+2. Verify `TEAMS_ENABLED=true` in pod env:
+   ```bash
+   kubectl exec POD_NAME -n ai-log-analyzer -- \
+     env | grep TEAMS
+   ```
+3. Check backfill logs for "Teams notification sent"
+
+### Problem Reports Not Generated
+1. Check `/app/scripts/reports/` directory exists
+2. Verify output directory has write permissions
+3. Check backfill logs for report generation step
+4. Verify `--output /app/scripts/reports` argument in backfill command
+
+### Confluence Not Updated
+1. Verify page ID = 1334314207
+2. Check Confluence credentials in pod
+3. Verify `CONFLUENCE_URL=https://confluence.kb.cz`
+4. Check logs for "Published to Confluence" message
+
+---
+
+## 📋 MANUAL TESTING
 Regular Phase (každých 15 minut)
     ↓
 Detects critical issues?
