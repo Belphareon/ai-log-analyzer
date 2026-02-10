@@ -34,8 +34,8 @@ class EmailNotifier:
         """Check if email notifications are configured."""
         return self.enabled
     
-    def _send_email(self, subject: str, body: str) -> bool:
-        """Send email via SMTP."""
+    def _send_email(self, subject: str, body: str, html_body: str = None) -> bool:
+        """Send email via SMTP with optional HTML version."""
         if not self.is_enabled():
             return False
         
@@ -45,9 +45,14 @@ class EmailNotifier:
             msg['From'] = self.from_email
             msg['To'] = self.teams_email
             
-            # Plain text version
+            # Plain text version (required)
             text_part = MIMEText(body, 'plain', 'utf-8')
             msg.attach(text_part)
+            
+            # HTML version (if provided)
+            if html_body:
+                html_part = MIMEText(html_body, 'html', 'utf-8')
+                msg.attach(html_part)
             
             # Send via SMTP
             with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as smtp:
@@ -93,5 +98,41 @@ Results:
             body += f"\nExecutive Summary:\n{'-'*70}\n{summary}\n"
         
         body += f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        body += "\nDetailed analysis: See wiki for details\n"
         
-        return self._send_email(subject, body)
+        # HTML version with clickable link
+        wiki_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333;">
+            <h2>AI Log Analyzer - Backfill V6 Completed</h2>
+            <hr style="border: 1px solid #ddd;">
+            
+            <p><strong>Status:</strong> {status}</p>
+            <p><strong>Duration:</strong> {duration_minutes:.1f} minutes</p>
+            
+            <h3>Results:</h3>
+            <ul>
+                <li>Days processed: {days_processed}</li>
+                <li>Successful: {successful_days}</li>
+                <li>Failed: {failed_days}</li>
+                <li>Total incidents: {total_incidents:,}</li>
+                <li>Saved to DB: {saved_count:,}</li>
+            </ul>
+            
+            {f'<h3>Executive Summary:</h3><pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">{summary}</pre>' if summary else ''}
+            
+            <p style="margin-top: 20px;">
+                <a href="{wiki_url}" style="background: #0066cc; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                    📖 View Detailed Analysis
+                </a>
+            </p>
+            
+            <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            </p>
+        </body>
+        </html>
+        """
+        
+        return self._send_email(subject, body, html_body)

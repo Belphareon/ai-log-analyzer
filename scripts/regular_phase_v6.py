@@ -519,6 +519,37 @@ def run_regular_phase(
                     print("✅ Critical alert sent to Teams")
         except Exception as e:
             print(f"⚠️ Teams notification failed: {e}")
+            # Fallback to email for critical alerts
+            try:
+                from core.email_notifier import EmailNotifier
+                email_notifier = EmailNotifier()
+                if email_notifier.is_enabled():
+                    critical_count = sum(
+                        1 for inc in collection.incidents 
+                        if inc.flags.is_spike or inc.flags.is_burst or inc.score >= 80
+                    )
+                    email_body = f"""AI Log Analyzer - CRITICAL ALERT
+
+Window: {window_start.strftime('%H:%M')} - {window_end.strftime('%H:%M')}
+
+⚠️ CRITICAL ISSUES DETECTED
+
+  • Critical Issues: {critical_count}
+  • Total Incidents: {collection.total_incidents}
+  • Spikes: {sum(1 for inc in collection.incidents if inc.flags.is_spike)}
+  • Bursts: {sum(1 for inc in collection.incidents if inc.flags.is_burst)}
+
+Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+See wiki for details: https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis
+"""
+                    email_notifier._send_email(
+                        f"[AI Log Analyzer] ⚠️ CRITICAL ALERT - {critical_count} issues detected",
+                        email_body
+                    )
+                    print("📧 Critical alert sent via email")
+            except Exception as email_err:
+                print(f"⚠️ Email fallback also failed: {email_err}")
     
     return result
 
