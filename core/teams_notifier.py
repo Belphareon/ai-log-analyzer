@@ -93,6 +93,7 @@ class TeamsNotifier:
                 summary_text_plain = match.group(1).strip()
         
         # === PRIMARY: Try email first (more reliable in K8s) ===
+        print(f"🔧 DEBUG: use_email_primary={self.use_email_primary}, email_notifier={self.email_notifier is not None}, is_enabled={self.email_notifier.is_enabled() if self.email_notifier else 'N/A'}")
         if self.use_email_primary and self.email_notifier and self.email_notifier.is_enabled():
             print("📧 Using email as primary notification method...")
             success = self.email_notifier.send_backfill_completed(
