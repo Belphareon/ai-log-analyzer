@@ -2,10 +2,10 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t ai-log-analyzer:r9 .
+#   docker build -t ai-log-analyzer:r10 .
 #
 # Run:
-#   docker run --env-file .env ai-log-analyzer:r9 python scripts/regular_phase_v6.py
+#   docker run --env-file .env ai-log-analyzer:r10 python scripts/regular_phase_v6.py
 # ============================================================================
 
 FROM python:3.11-slim
