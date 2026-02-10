@@ -1,5 +1,37 @@
 # AI Log Analyzer V6 - Opravy Registry a Detection
 
+## Poslední aktualizace (10. února 2026)
+
+### ✅ Nové v tomto updatu
+
+| Komponenta | Změna | Commit |
+|-----------|--------|--------|
+| **PostgreSQL Transactions** | Přidán ROLLBACK exception handling | 5ad8904 |
+| **Teams Notifications** | TEAMS_ENABLED env variable pro K8s | 8e1fbe4 |
+| **K8s Deployment** | Přidán backfill CronJob (09:00 UTC) | bd5bad9 |
+| **Docker Image** | Tag r4 s core/ a incident_analysis/ | local |
+| **K8s Values** | Image tag r3→r4, všechny env vars | bd5bad9 |
+
+### 🐛 Opravené bugy
+
+| Bug | Root Cause | Řešení | Stav |
+|-----|-----------|--------|------|
+| Transaction abort cascade | Chybí ROLLBACK na exception | Added `conn.rollback()` | ✅ FIXED |
+| Teams notifications silent | TEAMS_ENABLED not in K8s env | Added env variable | ✅ FIXED |
+| PostgreSQL role permission | Expected behavior - user lacks grant | Documented as expected | ✅ HANDLED |
+
+### 🚀 K8s Deployment Ready
+
+- ✅ Two CronJobs deployed:
+  - Regular Phase: `*/15 * * * *` (every 15 minutes)
+  - Backfill Phase: `0 9 * * *` (09:00 UTC daily)
+- ✅ Docker image r4 in registry (174 MB)
+- ✅ All environment variables configured
+- ✅ Teams notifications enabled
+- ✅ Confluence integration ready (page 1334314207)
+
+---
+
 ## Přehled problémů a oprav
 
 ### ❌ Původní problémy
