@@ -17,7 +17,7 @@ Máme 3 hlavní cronjobs:
 ### 1️⃣ **BACKFILL** - Jednou denně ráno
 ```yaml
 # CronJob: ai-log-analyzer-backfill
-schedule: "0 2 * * *"  # 02:00 UTC (4:00 CET) = ráno v Praze
+schedule: "0 9 * * *"  # 09:00 UTC (11:00 CET) = dopoledne v Praze
 # NEBO pokud chceš večer:
 # schedule: "0 22 * * *"  # 22:00 UTC (00:00 CET) = polnoc v Praze
 ```
@@ -54,7 +54,7 @@ schedule: "*/15 * * * *"  # Každých 15 minut
 # Nespouští se samostatně!
 # Volá se z run_backfill.sh na konci
 # Pokud chceš samostatný cronjob:
-schedule: "0 2 30 * * *"  # 02:30 UTC = 30 minut po backfilu
+schedule: "0 9 30 * * *"  # 09:30 UTC = 30 minut po backfilu
 # (jakmile je backfil hotový)
 ```
 
@@ -218,7 +218,7 @@ metadata:
   name: ai-log-analyzer-backfill
   namespace: ai-log-analyzer
 spec:
-  schedule: "0 2 * * *"  # 02:00 UTC
+  schedule: "0 9 * * *"  # 09:00 UTC
   jobTemplate:
     spec:
       template:

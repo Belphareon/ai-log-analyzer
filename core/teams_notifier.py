@@ -55,32 +55,41 @@ class TeamsNotifier:
         total_incidents: int,
         saved_count: int,
         registry_updates: Dict[str, int],
-        duration_minutes: float
+        duration_minutes: float,
+        problem_report: str = None
     ) -> bool:
         """Send completion notification for backfill."""
         
         color = "28a745" if failed_days == 0 else "ffc107"
         
+        # Extract EXECUTIVE SUMMARY from problem report if available
+        summary_section = ""
+        if problem_report:
+            # Extract the EXECUTIVE SUMMARY section
+            import re
+            match = re.search(
+                r'^-{70}\nEXECUTIVE SUMMARY\n-{70}\n(.*?)\n-{70}',
+                problem_report,
+                re.MULTILINE | re.DOTALL
+            )
+            if match:
+                summary_text = match.group(1).strip()
+                summary_section = f"**Run Summary:**\n\n{summary_text}"
+        
+        # Create message with just timestamp + problem summary
+        if summary_section:
+            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\n{summary_section}"
+        else:
+            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\nBackfill completed: {successful_days}/{days_processed} days processed, {total_incidents:,} incidents saved"
+        
         message = {
             "@type": "MessageCard",
             "@context": "https://schema.org/extensions",
-            "summary": f"Backfill completed on {self.host}",
+            "summary": "Log Analyzer - Backfill completed",
             "themeColor": color,
             "sections": [
                 {
-                    "activityTitle": "✅ Backfill Completed",
-                    "activitySubtitle": f"Host: {self.host} | Environment: {self.env}",
-                    "facts": [
-                        {"name": "Days Processed", "value": str(days_processed)},
-                        {"name": "Successful Days", "value": str(successful_days)},
-                        {"name": "Failed Days", "value": str(failed_days)},
-                        {"name": "Total Incidents", "value": f"{total_incidents:,}"},
-                        {"name": "Saved to DB", "value": f"{saved_count:,}"},
-                        {"name": "Problems Updated", "value": str(registry_updates.get('problems', 0))},
-                        {"name": "Peaks Detected", "value": str(registry_updates.get('peaks', 0))},
-                        {"name": "Duration", "value": f"{duration_minutes:.1f} minutes"},
-                        {"name": "Timestamp", "value": datetime.now().isoformat()},
-                    ]
+                    "text": text_content
                 }
             ]
         }

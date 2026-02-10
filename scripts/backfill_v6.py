@@ -128,8 +128,12 @@ except Exception as e:
 # GLOBALS
 # =============================================================================
 
+_global_registry = None
+_global_problem_report = None  # Store problem report for Teams notification
+
 # Thread-safe print
 _print_lock = threading.Lock()
+_global_problem_report = None  # Store problem report for Teams notification
 
 def safe_print(*args, **kwargs):
     """Thread-safe print with flush"""
@@ -758,6 +762,10 @@ def run_backfill(
         # Textový report
         problem_report = generator.generate_text_report(max_problems=20)
         safe_print(problem_report)
+        
+        # Store for Teams notification
+        global _global_problem_report
+        _global_problem_report = problem_report
 
         # Ulož reporty
         if output_dir:
@@ -859,7 +867,8 @@ def run_backfill(
                         'problems': registry_stats.get('new_problems_added', 0),
                         'peaks': registry_stats.get('new_peaks_added', 0),
                     },
-                    duration_minutes=(datetime.now(timezone.utc) - now).total_seconds() / 60.0
+                    duration_minutes=(datetime.now(timezone.utc) - now).total_seconds() / 60.0,
+                    problem_report=_global_problem_report
                 )
                 safe_print("✅ Teams notification sent")
         except Exception as e:
