@@ -161,7 +161,7 @@ def get_db_connection():
     user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
     password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
     
-    return psycopg2.connect(
+    conn = psycopg2.connect(
         host=os.getenv('DB_HOST'),
         port=int(os.getenv('DB_PORT', 5432)),
         database=os.getenv('DB_NAME'),
@@ -170,6 +170,20 @@ def get_db_connection():
         connect_timeout=30,
         options='-c statement_timeout=300000'  # 5 min
     )
+    
+    # Try to set DDL role IMMEDIATELY after connection (before any transactions)
+    # If it fails, continue anyway - user may have direct permissions
+    ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
+    if ddl_role:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(f"SET ROLE {ddl_role}")
+            cursor.close()
+        except Exception as e:
+            safe_print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+            # Connection is still valid, continue with default permissions
+    
+    return conn
 
 
 def set_db_role(cursor) -> None:
@@ -177,13 +191,16 @@ def set_db_role(cursor) -> None:
     
     After logging in as DDL_USER, set the role to group role for permissions.
     DB_DDL_ROLE should be the group role name (e.g., 'role_ailog_analyzer_ddl')
+    
+    NOTE: If this fails, we catch the error and continue anyway.
+    User permissions may be sufficient without the role.
     """
     ddl_role = os.getenv('DB_DDL_ROLE') or 'role_ailog_analyzer_ddl'
     if ddl_role:
         try:
             cursor.execute(f"SET ROLE {ddl_role}")
         except Exception as e:
-            print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
+            safe_print(f"⚠️ Warning: Could not set role {ddl_role}: {e}")
             # Continue anyway - user may have direct permissions
 
 
@@ -199,7 +216,7 @@ def check_day_processed(date: datetime) -> bool:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        set_db_role(cursor)
+        # NOTE: set_db_role is now called in get_db_connection() before transaction starts
         
         date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
         date_end = date.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -233,7 +250,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        set_db_role(cursor)
+        # NOTE: set_db_role is now called in get_db_connection() before transaction starts
         
         data = []
         for incident in collection.incidents:
