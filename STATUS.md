@@ -6,30 +6,42 @@
 - **Backfill Phase**: ✅ Generates problem reports, publishes to Confluence, sends Teams notifications
 - **Regular Phase**: ✅ Real-time incident analysis every 15 minutes
 - **Registry System**: ✅ Problem-centric append-only tracking (problems, peaks, fingerprints)
-- **Database Storage**: ✅ PostgreSQL integration with proper transaction handling
+- **Database Storage**: ✅ PostgreSQL integration with proper transaction handling + SET ROLE
 - **Teams Integration**: ✅ Problem analysis summaries sent to Teams webhook
-- **Confluence Integration**: ✅ Problem analysis reports published to page 1334314207
-- **Docker Image**: ✅ v2 (r4 tag in registry)
+- **Confluence Integration**: ✅ Problem analysis reports auto-published to page 1334314207
+- **Docker Image**: ✅ v3 (r5 tag in registry)
 
 ### K8s Deployment: ✅ READY TO DEPLOY
 - **CronJob 1 - Regular Phase**: `*/15 * * * *` (every 15 minutes) → `regular_phase_v6.py`
 - **CronJob 2 - Backfill Phase**: `0 9 * * *` (09:00 UTC daily) → `backfill_v6.py --days 1 --output /app/scripts/reports`
-- **Image Tag**: r4 (dockerhub.kb.cz/pccm-sq016/ai-log-analyzer)
+- **Image Tag**: r5 (dockerhub.kb.cz/pccm-sq016/ai-log-analyzer)
 - **Teams Notifications**: ✅ ENABLED (TEAMS_ENABLED=true, TEAMS_WEBHOOK_URL configured)
+- **Confluence Publishing**: ✅ AUTOMATIC (runs after backfill completes)
 - **Persistent Storage**: ✅ /data PVC with registry/, exports/, reports/ subpaths
 - **Helm Values**: ✅ Updated with all required env variables
 
 ---
 
-## ✅ RECENTLY FIXED (Session Feb 10, 2026)
+## ✅ RECENTLY FIXED (Session Feb 10, 2026 - Extended)
+
+### PostgreSQL SET ROLE Transaction Handling
+| Fix | Details | Status |
+|-----|---------|--------|
+| SET ROLE abort cascade | Move SET ROLE to get_db_connection() before transaction starts | ✅ COMPLETE |
+| Error handling | Connection still valid after SET ROLE permission denied | ✅ HANDLED |
+
+### Confluence Auto-Publishing
+| Fix | Details | Status |
+|-----|---------|--------|
+| Recent Incidents page | Auto-publish problem reports after backfill | ✅ COMPLETE |
+| Dynamic import | Load recent_incidents_publisher.py at runtime to avoid startup dependency | ✅ COMPLETE |
 
 ### Docker & Deployment
 | Fix | Details | Status |
 |-----|---------|--------|
-| Docker image v2 | Added missing core/ and incident_analysis/ directories | ✅ COMPLETE |
-| Push to registry | Tagged as r4 and pushed to dockerhub.kb.cz | ✅ COMPLETE |
-| K8s manifests | Added backfill CronJob with schedule 0 9 * * * | ✅ COMPLETE |
-| K8s image tag | Updated from r3 to r4 | ✅ COMPLETE |
+| Docker image v3 | New fixes + Confluence publishing | ✅ COMPLETE |
+| Push to registry | Tagged as r5 and pushed to dockerhub.kb.cz | ✅ COMPLETE |
+| K8s values | Updated image tag r4 → r5 | ✅ COMPLETE |
 
 ### Teams Notifications
 | Fix | Details | Status |
@@ -47,6 +59,21 @@
 ---
 
 ## 📋 RECENT ISSUES & RESOLUTIONS
+
+### Issue: "current transaction is aborted" cascade (✅ FIXED v2)
+**Root Cause:** SET ROLE was called DURING transaction. When it failed (permission denied), entire transaction was aborted.
+**Solution:** Move SET ROLE to `get_db_connection()` to execute it IMMEDIATELY after connection, before any transactions start.
+**Commit:** `ba4a6a4` - "fix: move SET ROLE to get_db_connection before transaction starts"
+
+### Issue: Confluence page not auto-updating
+**Root Cause:** Backfill was not calling recent_incidents_publisher to publish to Confluence
+**Solution:** Added automatic call to publish_recent_incidents() at end of backfill (before Teams notification)
+**Commit:** `195f4d0` - "feat: auto-publish Recent Incidents to Confluence after backfill"
+
+### Issue: Teams notifications not sending
+**Root Cause:** `TEAMS_ENABLED` environment variable not set in K8s manifests
+**Solution:** Added `TEAMS_ENABLED=true` to both CronJobs in K8s manifest
+**Commits:** `8e1fbe4` (K8s) - "fix: enable Teams notifications in K8s"
 
 ### Issue: "current transaction is aborted" cascade
 **Root Cause:** When DB error occurred, transaction remained in failed state. All subsequent commands failed.
