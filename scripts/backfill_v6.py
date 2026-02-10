@@ -274,6 +274,10 @@ def save_incidents_to_db(collection, date_str: str) -> int:
     except Exception as e:
         safe_print(f" ⚠️ {date_str} - DB error: {e}")
         if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
             conn.close()
         return 0
 
