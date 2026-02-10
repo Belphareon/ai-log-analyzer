@@ -871,6 +871,26 @@ def run_backfill(
     safe_print("=" * 70)
     
     # ==========================================================================
+    # PUBLISH TO CONFLUENCE
+    # ==========================================================================
+    if _global_problem_report and output_dir:
+        try:
+            safe_print("\n📋 Publishing to Confluence...")
+            # Dynamic import to avoid requiring recent_incidents_publisher at startup
+            import importlib.util
+            pub_path = SCRIPT_DIR / 'recent_incidents_publisher.py'
+            spec = importlib.util.spec_from_file_location("recent_incidents_publisher", str(pub_path))
+            pub_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(pub_module)
+            
+            if pub_module.main():
+                safe_print("✅ Confluence published successfully")
+            else:
+                safe_print("⚠️ Confluence publication skipped or failed")
+        except Exception as e:
+            safe_print(f"⚠️ Confluence publication failed: {e}")
+    
+    # ==========================================================================
     # SEND TEAMS NOTIFICATION
     # ==========================================================================
     if HAS_TEAMS:
