@@ -57,7 +57,7 @@ class TeamsNotifier:
             print(f"⚠️ Failed to send Teams webhook: {e}")
             
             # Try email fallback
-            if self.email_fallback and self.email_fallback.is_enabled():
+            if self.email_notifier and self.email_notifier.is_enabled():
                 print("📧 Attempting email fallback...")
                 # Email fallback handled in send_backfill_completed
             
