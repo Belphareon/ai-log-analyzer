@@ -8,17 +8,22 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
+import urllib.request
 
 # Configuration
 CONFLUENCE_URL = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
+if 'confluence.kb.cz' in CONFLUENCE_URL:
+    print(f"⚠️ CONFLUENCE_URL overridden: {CONFLUENCE_URL} -> https://wiki.kb.cz")
+    CONFLUENCE_URL = 'https://wiki.kb.cz'
 CONFLUENCE_USERNAME = os.getenv('CONFLUENCE_USERNAME')
 CONFLUENCE_PASSWORD = os.getenv('CONFLUENCE_PASSWORD')
 CONFLUENCE_PAGE_ID = '1334314207'  # Recent Incidents page
 REPORTS_DIR = Path(__file__).parent / 'reports'
 
-def get_latest_problem_report():
+def get_latest_problem_report(reports_dir: Path = REPORTS_DIR):
     """Get the most recent problem analysis report"""
-    reports = sorted(REPORTS_DIR.glob('problem_report_*.txt'), reverse=True)
+    reports = sorted(reports_dir.glob('problem_report_*.txt'), reverse=True)
     if not reports:
         print("❌ No problem analysis reports found")
         return None
@@ -125,16 +130,18 @@ def upload_via_confluence_api(html_content):
     
     import base64
     import json
-    import urllib.request
     import urllib.error
     import ssl
     
+    # Confluence authentication - supports both Basic Auth and Bearer Token
+    # Wiki.kb.cz requires OAuth token (Personal Access Token)
+    # Token should be stored in CyberArk as CONFLUENCE_PASSWORD
     auth_header = base64.b64encode(
         f"{CONFLUENCE_USERNAME}:{CONFLUENCE_PASSWORD}".encode()
     ).decode()
     
     headers = {
-        'Authorization': f'Basic {auth_header}',
+        'Authorization': f'Bearer {CONFLUENCE_PASSWORD}',
         'Content-Type': 'application/json',
         'Accept': 'application/json'
     }
@@ -143,16 +150,40 @@ def upload_via_confluence_api(html_content):
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
+
+    # Proxy support (CONFLUENCE_PROXY overrides HTTPS_PROXY/HTTP_PROXY)
+    proxies = urllib.request.getproxies()
+    confluence_proxy = os.getenv('CONFLUENCE_PROXY')
+    if confluence_proxy:
+        proxies['https'] = confluence_proxy
+        proxies['http'] = confluence_proxy
+
+    print(f"🔧 Confluence URL: {CONFLUENCE_URL}")
+    print(f"🔧 Confluence page: {CONFLUENCE_PAGE_ID}")
+    print(f"🔧 Proxy (https): {proxies.get('https')}")
+
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler(proxies),
+        urllib.request.HTTPSHandler(context=ssl_context)
+    )
     
     # Step 1: Get current page version
     try:
         url = f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}?expand=version,body.storage"
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, context=ssl_context) as response:
+        with opener.open(req) as response:
             page_data = json.loads(response.read().decode())
         current_version = page_data['version']['number']
     except urllib.error.HTTPError as e:
         print(f"❌ Failed to get page version: {e.code} {e.reason}")
+        try:
+            error_body = e.read().decode()
+            print(f"   Details: {error_body}")
+        except Exception:
+            pass
+        return False
+    except urllib.error.URLError as e:
+        print(f"❌ Failed to get page version: {e}")
         return False
     except Exception as e:
         print(f"❌ Error getting page: {e}")
@@ -181,7 +212,7 @@ def upload_via_confluence_api(html_content):
             headers=headers,
             method='PUT'
         )
-        with urllib.request.urlopen(req, context=ssl_context) as response:
+        with opener.open(req) as response:
             result = json.loads(response.read().decode())
         print(f"✅ Successfully uploaded Recent Incidents (version {result['version']['number']})")
         return True
@@ -194,12 +225,19 @@ def upload_via_confluence_api(html_content):
         print(f"❌ Error uploading to Confluence: {e}")
         return False
 
-def main():
+def main(report_path: Optional[str] = None, reports_dir: Optional[str] = None):
     """Main workflow"""
     print("📋 Publishing Recent Incidents Report to Confluence...")
-    
-    # Get latest report
-    report_path = get_latest_problem_report()
+
+    # Get report
+    if report_path:
+        report_path = Path(report_path)
+        if not report_path.exists():
+            print(f"❌ Report file not found: {report_path}")
+            return False
+    else:
+        reports_root = Path(reports_dir) if reports_dir else REPORTS_DIR
+        report_path = get_latest_problem_report(reports_root)
     if not report_path:
         return False
     
@@ -230,6 +268,7 @@ def main():
     
     # Upload to Confluence
     if upload_via_confluence_api(html_content):
+        print("✅ Confluence upload confirmed")
         print("✅ Recent Incidents published successfully!")
         return True
     else:
@@ -237,5 +276,12 @@ def main():
         return False
 
 if __name__ == '__main__':
-    success = main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Publish Recent Incidents report to Confluence')
+    parser.add_argument('--report', type=str, help='Path to problem report file')
+    parser.add_argument('--reports-dir', type=str, help='Directory with problem_report_*.txt files')
+    args = parser.parse_args()
+
+    success = main(report_path=args.report, reports_dir=args.reports_dir)
     exit(0 if success else 1)
