@@ -79,60 +79,76 @@ class EmailNotifier:
         
         subject = f"[AI Log Analyzer] {status} - Backfill Complete ({days_processed} days)"
         
-        body = f"""AI Log Analyzer - Backfill V6 Completed
+                if summary:
+                    body = f"{summary.strip()}\n"
+                else:
+                        body = f"""AI Log Analyzer - Backfill V6 Completed
 {'='*70}
 
 Status: {status}
 Duration: {duration_minutes:.1f} minutes
 
 Results:
-  • Days processed: {days_processed}
-  • Successful: {successful_days}
-  • Failed: {failed_days}
-  • Total incidents: {total_incidents:,}
-  • Saved to DB: {saved_count:,}
+    • Days processed: {days_processed}
+    • Successful: {successful_days}
+    • Failed: {failed_days}
+    • Total incidents: {total_incidents:,}
+    • Saved to DB: {saved_count:,}
 
 """
         
+                # Wiki link
+                wiki_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
+
+                body += f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                body += f"\nDetaily ZDE: {wiki_url}\n"
+
+                # HTML version with clickable link
         if summary:
-            body += f"\nExecutive Summary:\n{'-'*70}\n{summary}\n"
-        
-        body += f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        body += "\nDetailed analysis: See wiki for details\n"
-        
-        # HTML version with clickable link
-        wiki_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; color: #333;">
-            <h2>AI Log Analyzer - Backfill V6 Completed</h2>
-            <hr style="border: 1px solid #ddd;">
-            
-            <p><strong>Status:</strong> {status}</p>
-            <p><strong>Duration:</strong> {duration_minutes:.1f} minutes</p>
-            
-            <h3>Results:</h3>
-            <ul>
-                <li>Days processed: {days_processed}</li>
-                <li>Successful: {successful_days}</li>
-                <li>Failed: {failed_days}</li>
-                <li>Total incidents: {total_incidents:,}</li>
-                <li>Saved to DB: {saved_count:,}</li>
-            </ul>
-            
-            {f'<h3>Executive Summary:</h3><pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">{summary}</pre>' if summary else ''}
-            
-            <p style="margin-top: 20px;">
-                <a href="{wiki_url}" style="background: #0066cc; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">
-                    📖 View Detailed Analysis
-                </a>
-            </p>
-            
-            <p style="color: #666; font-size: 12px; margin-top: 20px;">
-                Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            </p>
-        </body>
-        </html>
-        """
+            html_summary = f'<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">{summary}</pre>'
+            html_body = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; color: #333;">
+                <h2>AI Log Analyzer - Backfill V6 Completed</h2>
+                <hr style="border: 1px solid #ddd;">
+                {html_summary}
+                <p style="margin-top: 20px;">
+                    <a href="{wiki_url}" style="background: #0066cc; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                        📖 View Detailed Analysis
+                    </a>
+                </p>
+                <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                    Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                </p>
+            </body>
+            </html>
+            """
+        else:
+            html_body = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; color: #333;">
+                <h2>AI Log Analyzer - Backfill V6 Completed</h2>
+                <hr style="border: 1px solid #ddd;">
+                <p><strong>Status:</strong> {status}</p>
+                <p><strong>Duration:</strong> {duration_minutes:.1f} minutes</p>
+                <h3>Results:</h3>
+                <ul>
+                    <li>Days processed: {days_processed}</li>
+                    <li>Successful: {successful_days}</li>
+                    <li>Failed: {failed_days}</li>
+                    <li>Total incidents: {total_incidents:,}</li>
+                    <li>Saved to DB: {saved_count:,}</li>
+                </ul>
+                <p style="margin-top: 20px;">
+                    <a href="{wiki_url}" style="background: #0066cc; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                        📖 View Detailed Analysis
+                    </a>
+                </p>
+                <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                    Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                </p>
+            </body>
+            </html>
+            """
         
         return self._send_email(subject, body, html_body)

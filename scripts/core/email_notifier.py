@@ -74,24 +74,26 @@ class EmailNotifier:
         
         subject = f"[AI Log Analyzer] {status} - Backfill Complete ({days_processed} days)"
         
-        body = f"""AI Log Analyzer - Backfill V6 Completed
+        if summary:
+            body = f"{summary.strip()}\n"
+        else:
+            body = f"""AI Log Analyzer - Backfill V6 Completed
 {'='*70}
 
 Status: {status}
 Duration: {duration_minutes:.1f} minutes
 
 Results:
-  • Days processed: {days_processed}
-  • Successful: {successful_days}
-  • Failed: {failed_days}
-  • Total incidents: {total_incidents:,}
-  • Saved to DB: {saved_count:,}
+    • Days processed: {days_processed}
+    • Successful: {successful_days}
+    • Failed: {failed_days}
+    • Total incidents: {total_incidents:,}
+    • Saved to DB: {saved_count:,}
 
 """
         
-        if summary:
-            body += f"\nExecutive Summary:\n{'-'*70}\n{summary}\n"
-        
+        wiki_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
         body += f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        body += f"\nDetaily ZDE: {wiki_url}\n"
         
         return self._send_email(subject, body)

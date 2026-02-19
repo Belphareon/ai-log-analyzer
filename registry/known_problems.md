@@ -1,23 +1,23 @@
 # Known Problems Registry
 
-_Last updated: 2026-02-10 09:29:43_
-_Total problems: 312_
-_Total fingerprints: 21846_
+_Last updated: 2026-02-12 15:38:01_
+_Total problems: 325_
+_Total fingerprints: 126981_
 
 ---
 
-## AUTH (61 problems)
+## AUTH (62 problems)
 
-### KP-000058 – card_servicing/forbidden 🔀 🔴
+### KP-000115 – unknown/unauthorized_error 🌐 🔴
 
-**Problem Key:** `AUTH:card_servicing:forbidden`
-**First seen:** 2026-01-13 09:05
-**Last seen:** 2026-02-09 23:30
+**Problem Key:** `AUTH:unknown:unauthorized_error`
+**First seen:** 2026-01-15 19:10
+**Last seen:** 2026-02-11 23:37
 **Occurrences:** 0
-**Fingerprints:** 177
+**Fingerprints:** 136
 
-**Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2...
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 
 ---
@@ -26,12 +26,26 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:card_servicing:unclassified`
 **First seen:** 2026-01-14 06:01
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 411
-**Fingerprints:** 112
+**Fingerprints:** 114
 
 **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
 **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000058 – card_servicing/forbidden 🔀 🔴
+
+**Problem Key:** `AUTH:card_servicing:forbidden`
+**First seen:** 2026-01-13 09:05
+**Last seen:** 2026-02-11 23:30
+**Occurrences:** 0
+**Fingerprints:** 183
+
+**Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2...
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
 
 
 ---
@@ -40,7 +54,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:card_servicing:server_error`
 **First seen:** 2026-01-26 04:25
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -50,27 +64,27 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000161 – unknown/forbidden 🌐 🔴
+### KP-000061 – card_servicing/forbidden_error 🌐 🔴
 
-**Problem Key:** `AUTH:unknown:forbidden`
-**First seen:** 2026-01-15 04:54
-**Last seen:** 2026-02-09 23:26
-**Occurrences:** 48
-**Fingerprints:** 500
+**Problem Key:** `AUTH:card_servicing:forbidden_error`
+**First seen:** 2026-01-13 17:10
+**Last seen:** 2026-02-11 23:30
+**Occurrences:** 0
+**Fingerprints:** 24
 
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-dev-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
 
 
 ---
 
-### KP-000062 – card_servicing/unauthorized_error 🌐 🔴
+### KP-000063 – card_servicing/not_found_error 🌐 🔴
 
-**Problem Key:** `AUTH:card_servicing:unauthorized_error`
-**First seen:** 2026-01-13 23:08
-**Last seen:** 2026-02-09 23:25
-**Occurrences:** 0
-**Fingerprints:** 24
+**Problem Key:** `AUTH:card_servicing:not_found_error`
+**First seen:** 2026-01-26 04:25
+**Last seen:** 2026-02-11 23:30
+**Occurrences:** 1
+**Fingerprints:** 2
 
 **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
@@ -82,9 +96,9 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:unknown:not_found`
 **First seen:** 2026-01-15 19:36
-**Last seen:** 2026-02-09 23:07
+**Last seen:** 2026-02-11 23:04
 **Occurrences:** 0
-**Fingerprints:** 54
+**Fingerprints:** 58
 
 **Apps:** bl-pcb-v1
 **Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
@@ -96,12 +110,26 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:unknown:forbidden_error`
 **First seen:** 2026-01-14 19:28
-**Last seen:** 2026-02-09 23:05
+**Last seen:** 2026-02-11 22:37
 **Occurrences:** 0
-**Fingerprints:** 143
+**Fingerprints:** 148
 
 **Apps:** bl-pcb-v1, feapi-pca-v1
 **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000062 – card_servicing/unauthorized_error 🌐 🔴
+
+**Problem Key:** `AUTH:card_servicing:unauthorized_error`
+**First seen:** 2026-01-13 23:08
+**Last seen:** 2026-02-11 22:30
+**Occurrences:** 0
+**Fingerprints:** 24
+
+**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
 
 
 ---
@@ -110,12 +138,12 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:click2pay:forbidden`
 **First seen:** 2026-01-26 06:01
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
-**Fingerprints:** 9
+**Fingerprints:** 10
 
-**Apps:** bff-pcb-ch-click2pay-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-sit-01-app
 
 
 ---
@@ -124,7 +152,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:card_validation:forbidden`
 **First seen:** 2026-01-26 06:01
-**Last seen:** 2026-02-09 21:48
+**Last seen:** 2026-02-11 21:47
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -134,11 +162,25 @@ _Total fingerprints: 21846_
 
 ---
 
+### KP-000161 – unknown/forbidden 🌐 🔴
+
+**Problem Key:** `AUTH:unknown:forbidden`
+**First seen:** 2026-01-15 04:54
+**Last seen:** 2026-02-11 21:36
+**Occurrences:** 48
+**Fingerprints:** 500
+
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
 ### KP-000046 – unknown/unclassified 🌐 🔴
 
 **Problem Key:** `AUTH:unknown:unclassified`
 **First seen:** 2026-01-20 13:52
-**Last seen:** 2026-02-09 21:35
+**Last seen:** 2026-02-11 21:36
 **Occurrences:** 8
 **Fingerprints:** 14
 
@@ -152,7 +194,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:unknown:gateway_error`
 **First seen:** 2026-01-15 19:36
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:33
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -166,7 +208,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:unknown:internal_error`
 **First seen:** 2026-01-26 21:33
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:33
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -176,25 +218,11 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000063 – card_servicing/not_found_error 🌐 🔴
-
-**Problem Key:** `AUTH:card_servicing:not_found_error`
-**First seen:** 2026-01-26 04:25
-**Last seen:** 2026-02-09 21:33
-**Occurrences:** 1
-**Fingerprints:** 2
-
-**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
-
-
----
-
 ### KP-000067 – card_opening/forbidden 🌐 🔴
 
 **Problem Key:** `AUTH:card_opening:forbidden`
 **First seen:** 2026-01-19 19:32
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
 **Fingerprints:** 47
 
@@ -208,7 +236,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:unknown:authorization_denied_exception`
 **First seen:** 2026-01-26 10:07
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -222,7 +250,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:unknown:business_exception`
 **First seen:** 2026-01-16 13:17
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
 **Fingerprints:** 7
 
@@ -236,7 +264,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:card_sensitive:forbidden`
 **First seen:** 2026-01-26 06:01
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 6
 
@@ -246,44 +274,16 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000115 – unknown/unauthorized_error 🌐 🔴
-
-**Problem Key:** `AUTH:unknown:unauthorized_error`
-**First seen:** 2026-01-15 19:10
-**Last seen:** 2026-02-09 21:28
-**Occurrences:** 0
-**Fingerprints:** 131
-
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000227 – notification/unauthorized 🔀 🔴
 
 **Problem Key:** `AUTH:notification:unauthorized`
 **First seen:** 2026-01-16 18:01
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
-**Fingerprints:** 387
+**Fingerprints:** 423
 
 **Apps:** bl-pcb-notification-v1
 **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000208 – card_opening/unauthorized_error 🔀 🔴
-
-**Problem Key:** `AUTH:card_opening:unauthorized_error`
-**First seen:** 2026-01-16 06:00
-**Last seen:** 2026-02-09 19:53
-**Occurrences:** 0
-**Fingerprints:** 26
-
-**Apps:** bff-pcb-ch-card-opening-v2
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
 
 
 ---
@@ -292,7 +292,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:card_opening:access_denied`
 **First seen:** 2026-01-26 19:32
-**Last seen:** 2026-02-09 19:32
+**Last seen:** 2026-02-11 19:32
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -302,16 +302,16 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000061 – card_servicing/forbidden_error 🌐 🔴
+### KP-000248 – georisk/forbidden_error 🔀 🔴
 
-**Problem Key:** `AUTH:card_servicing:forbidden_error`
-**First seen:** 2026-01-13 17:10
-**Last seen:** 2026-02-09 19:30
+**Problem Key:** `AUTH:georisk:forbidden_error`
+**First seen:** 2026-01-19 18:22
+**Last seen:** 2026-02-11 18:22
 **Occurrences:** 0
-**Fingerprints:** 23
+**Fingerprints:** 4
 
-**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+**Apps:** bl-pcb-card-georisk-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -320,12 +320,180 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `AUTH:client_segment:unauthorized_error`
 **First seen:** 2026-01-14 20:17
-**Last seen:** 2026-02-09 18:19
+**Last seen:** 2026-02-11 18:19
 **Occurrences:** 0
 **Fingerprints:** 8
 
 **Apps:** bl-pcb-card-client-segment-v1
 **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000160 – unknown/unauthorized 🔀 🔴
+
+**Problem Key:** `AUTH:unknown:unauthorized`
+**First seen:** 2026-01-15 04:54
+**Last seen:** 2026-02-11 16:08
+**Occurrences:** 51
+**Fingerprints:** 500
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000208 – card_opening/unauthorized_error 🔀 🔴
+
+**Problem Key:** `AUTH:card_opening:unauthorized_error`
+**First seen:** 2026-01-16 06:00
+**Last seen:** 2026-02-11 12:28
+**Occurrences:** 0
+**Fingerprints:** 26
+
+**Apps:** bff-pcb-ch-card-opening-v2
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+
+
+---
+
+### KP-000319 – design_lifecycle/unauthorized 📍 🔴
+
+**Problem Key:** `AUTH:design_lifecycle:unauthorized`
+**First seen:** 2026-02-11 10:45
+**Last seen:** 2026-02-11 10:45
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000174 – design_lifecycle/unauthorized_error 📍 🔴
+
+**Problem Key:** `AUTH:design_lifecycle:unauthorized_error`
+**First seen:** 2026-01-26 04:08
+**Last seen:** 2026-02-11 06:13
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000060 – card_servicing/access_denied 🌐 🔴
+
+**Problem Key:** `AUTH:card_servicing:access_denied`
+**First seen:** 2026-01-26 06:00
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1...
+**Namespaces:** pcb-ch-sit-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000059 – card_servicing/unauthorized 🌐 🔴
+
+**Problem Key:** `AUTH:card_servicing:unauthorized`
+**First seen:** 2026-01-13 10:27
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 0
+**Fingerprints:** 5
+
+**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1...
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000108 – document_signing/forbidden 🌐 🔴
+
+**Problem Key:** `AUTH:document_signing:forbidden`
+**First seen:** 2026-01-19 13:19
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 0
+**Fingerprints:** 5
+
+**Apps:** bff-pcb-ch-document-signing-v1, bl-pcb-document-signing-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000188 – click2pay/forbidden_error 🌐 🔴
+
+**Problem Key:** `AUTH:click2pay:forbidden_error`
+**First seen:** 2026-01-21 06:01
+**Last seen:** 2026-02-10 19:54
+**Occurrences:** 0
+**Fingerprints:** 9
+
+**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000206 – card_opening/unauthorized 🌐 🔴
+
+**Problem Key:** `AUTH:card_opening:unauthorized`
+**First seen:** 2026-01-18 19:41
+**Last seen:** 2026-02-10 19:30
+**Occurrences:** 0
+**Fingerprints:** 14
+
+**Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000220 – event_processing/not_found 🌐 🔴
+
+**Problem Key:** `AUTH:event_processing:not_found`
+**First seen:** 2026-01-16 14:33
+**Last seen:** 2026-02-10 14:33
+**Occurrences:** 0
+**Fingerprints:** 82
+
+**Apps:** bl-pcb-event-processor-relay-v1
+**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000207 – design_lifecycle/forbidden_error 📍 🔴
+
+**Problem Key:** `AUTH:design_lifecycle:forbidden_error`
+**First seen:** 2026-01-26 08:46
+**Last seen:** 2026-02-10 12:08
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000198 – document_signing/unauthorized_error 🔀 🔴
+
+**Problem Key:** `AUTH:document_signing:unauthorized_error`
+**First seen:** 2026-01-26 09:37
+**Last seen:** 2026-02-10 02:17
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-document-signing-v1, bl-pcb-v1
+**Namespaces:** pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 
 ---
@@ -344,20 +512,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000220 – event_processing/not_found 🌐 🔴
-
-**Problem Key:** `AUTH:event_processing:not_found`
-**First seen:** 2026-01-16 14:33
-**Last seen:** 2026-02-09 14:32
-**Occurrences:** 0
-**Fingerprints:** 70
-
-**Apps:** bl-pcb-event-processor-relay-v1
-**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000187 – card_opening/forbidden_error 🔀 🔴
 
 **Problem Key:** `AUTH:card_opening:forbidden_error`
@@ -368,48 +522,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bff-pcb-ch-card-opening-v2
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
-
-
----
-
-### KP-000060 – card_servicing/access_denied 🌐 🔴
-
-**Problem Key:** `AUTH:card_servicing:access_denied`
-**First seen:** 2026-01-26 06:00
-**Last seen:** 2026-02-09 06:01
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1...
-**Namespaces:** pcb-ch-sit-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000059 – card_servicing/unauthorized 🌐 🔴
-
-**Problem Key:** `AUTH:card_servicing:unauthorized`
-**First seen:** 2026-01-13 10:27
-**Last seen:** 2026-02-09 06:01
-**Occurrences:** 0
-**Fingerprints:** 5
-
-**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1...
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000108 – document_signing/forbidden 🌐 🔴
-
-**Problem Key:** `AUTH:document_signing:forbidden`
-**First seen:** 2026-01-19 13:19
-**Last seen:** 2026-02-09 06:01
-**Occurrences:** 0
-**Fingerprints:** 5
-
-**Apps:** bff-pcb-ch-document-signing-v1, bl-pcb-document-signing-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -456,20 +568,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000160 – unknown/unauthorized 🔀 🔴
-
-**Problem Key:** `AUTH:unknown:unauthorized`
-**First seen:** 2026-01-15 04:54
-**Last seen:** 2026-02-08 00:27
-**Occurrences:** 51
-**Fingerprints:** 500
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000202 – notification/unauthorized_error 🔀 🔴
 
 **Problem Key:** `AUTH:notification:unauthorized_error`
@@ -493,20 +591,6 @@ _Total fingerprints: 21846_
 **Fingerprints:** 10
 
 **Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000206 – card_opening/unauthorized 🌐 🔴
-
-**Problem Key:** `AUTH:card_opening:unauthorized`
-**First seen:** 2026-01-18 19:41
-**Last seen:** 2026-02-05 19:31
-**Occurrences:** 0
-**Fingerprints:** 14
-
-**Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
 
@@ -540,34 +624,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000174 – design_lifecycle/unauthorized_error 📍 🔴
-
-**Problem Key:** `AUTH:design_lifecycle:unauthorized_error`
-**First seen:** 2026-01-26 04:08
-**Last seen:** 2026-02-05 06:46
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000248 – georisk/forbidden_error 🔀 🔴
-
-**Problem Key:** `AUTH:georisk:forbidden_error`
-**First seen:** 2026-01-19 18:22
-**Last seen:** 2026-02-04 20:18
-**Occurrences:** 0
-**Fingerprints:** 4
-
-**Apps:** bl-pcb-card-georisk-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000236 – notification/not_found 📍 🔴
 
 **Problem Key:** `AUTH:notification:not_found`
@@ -596,20 +652,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000188 – click2pay/forbidden_error 🌐 🔴
-
-**Problem Key:** `AUTH:click2pay:forbidden_error`
-**First seen:** 2026-01-21 06:01
-**Last seen:** 2026-02-03 12:53
-**Occurrences:** 0
-**Fingerprints:** 8
-
-**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000186 – click2pay/not_found 🔀 🔴
 
 **Problem Key:** `AUTH:click2pay:not_found`
@@ -634,34 +676,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bl-pcb-document-signing-v1
 **Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000207 – design_lifecycle/forbidden_error 📍 🔴
-
-**Problem Key:** `AUTH:design_lifecycle:forbidden_error`
-**First seen:** 2026-01-26 08:46
-**Last seen:** 2026-02-02 19:08
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000198 – document_signing/unauthorized_error 🔀 🔴
-
-**Problem Key:** `AUTH:document_signing:unauthorized_error`
-**First seen:** 2026-01-26 09:37
-**Last seen:** 2026-02-02 10:17
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-document-signing-v1, bl-pcb-v1
-**Namespaces:** pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 
 ---
@@ -862,15 +876,15 @@ _Total fingerprints: 21846_
 
 ---
 
-## BUSINESS (62 problems)
+## BUSINESS (63 problems)
 
 ### KP-000052 – unknown/business_exception 🌐 🔴
 
 **Problem Key:** `BUSINESS:unknown:business_exception`
 **First seen:** 2026-01-13 19:38
-**Last seen:** 2026-02-09 23:37
+**Last seen:** 2026-02-11 23:44
 **Occurrences:** 1
-**Fingerprints:** 300
+**Fingerprints:** 339
 
 **Apps:** bl-pcb-v1, feapi-pca-v1
 **Namespaces:** pca-dev-01-app, pca-sit-01-app, pca-uat-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
@@ -882,7 +896,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_servicing:business_exception`
 **First seen:** 2026-01-26 00:05
-**Last seen:** 2026-02-09 23:37
+**Last seen:** 2026-02-11 23:44
 **Occurrences:** 1
 **Fingerprints:** 4
 
@@ -896,7 +910,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:unknown:not_found`
 **First seen:** 2026-01-15 04:54
-**Last seen:** 2026-02-09 23:37
+**Last seen:** 2026-02-11 23:35
 **Occurrences:** 30
 **Fingerprints:** 500
 
@@ -910,7 +924,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:event_processing:not_found`
 **First seen:** 2026-01-15 14:33
-**Last seen:** 2026-02-09 23:36
+**Last seen:** 2026-02-11 23:04
 **Occurrences:** 0
 **Fingerprints:** 500
 
@@ -924,7 +938,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:document_signing:unclassified`
 **First seen:** 2026-01-23 15:55
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 6
 **Fingerprints:** 2
 
@@ -938,9 +952,9 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:click2pay:not_found`
 **First seen:** 2026-01-23 18:27
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
-**Fingerprints:** 19
+**Fingerprints:** 20
 
 **Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1, bl-pcb-design-v1, bl-pcb-notification-v1, bl-pcb-v1...
 **Namespaces:** pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
@@ -952,7 +966,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:click2pay:business_exception`
 **First seen:** 2026-01-20 20:25
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
 **Fingerprints:** 15
 
@@ -966,11 +980,11 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_opening:not_found`
 **First seen:** 2026-01-13 19:30
-**Last seen:** 2026-02-09 21:35
+**Last seen:** 2026-02-11 21:34
 **Occurrences:** 0
-**Fingerprints:** 11
+**Fingerprints:** 14
 
-**Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-atm-locator-v1
+**Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-atm-locator-v1, bl-pcb-click2pay-v1, bl-pcb-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
 
@@ -980,7 +994,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_opening:business_exception`
 **First seen:** 2026-01-18 21:28
-**Last seen:** 2026-02-09 21:34
+**Last seen:** 2026-02-11 21:34
 **Occurrences:** 0
 **Fingerprints:** 9
 
@@ -994,7 +1008,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:unknown:unclassified`
 **First seen:** 2026-01-16 05:00
-**Last seen:** 2026-02-09 21:34
+**Last seen:** 2026-02-11 21:34
 **Occurrences:** 1,419
 **Fingerprints:** 500
 
@@ -1008,7 +1022,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_servicing:not_found`
 **First seen:** 2026-01-13 10:27
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:33
 **Occurrences:** 0
 **Fingerprints:** 18
 
@@ -1022,7 +1036,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_servicing:invalid_argument`
 **First seen:** 2026-01-26 18:09
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:33
 **Occurrences:** 0
 **Fingerprints:** 5
 
@@ -1036,7 +1050,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_opening:invalid_argument`
 **First seen:** 2026-01-13 21:32
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
 **Fingerprints:** 6
 
@@ -1050,7 +1064,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:click2pay:not_found_exception`
 **First seen:** 2026-01-26 06:02
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -1064,7 +1078,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:unknown:invalid_argument`
 **First seen:** 2026-01-17 19:34
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 17
 
@@ -1078,7 +1092,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:atm_locator:invalid_argument`
 **First seen:** 2026-01-26 18:09
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 4
 
@@ -1092,7 +1106,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:card_sensitive:not_found`
 **First seen:** 2026-01-26 19:32
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -1106,7 +1120,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:client_segment:business_exception`
 **First seen:** 2026-01-14 18:20
-**Last seen:** 2026-02-09 21:27
+**Last seen:** 2026-02-11 21:27
 **Occurrences:** 0
 **Fingerprints:** 12
 
@@ -1120,7 +1134,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:token:business_exception`
 **First seen:** 2026-01-26 19:03
-**Last seen:** 2026-02-09 21:01
+**Last seen:** 2026-02-11 21:00
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -1134,9 +1148,9 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:notification:not_found`
 **First seen:** 2026-01-21 08:08
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
-**Fingerprints:** 6
+**Fingerprints:** 7
 
 **Apps:** bl-pcb-notification-v1
 **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
@@ -1148,7 +1162,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:notification:business_exception`
 **First seen:** 2026-01-21 08:08
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -1162,7 +1176,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:notification:param_exception`
 **First seen:** 2026-01-21 08:08
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -1176,7 +1190,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:georisk:not_found`
 **First seen:** 2026-01-26 18:22
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
 **Fingerprints:** 4
 
@@ -1190,7 +1204,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:codelist:invalid_argument`
 **First seen:** 2026-01-26 18:09
-**Last seen:** 2026-02-09 20:30
+**Last seen:** 2026-02-11 20:30
 **Occurrences:** 0
 **Fingerprints:** 7
 
@@ -1204,7 +1218,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:codelist:not_found`
 **First seen:** 2026-01-19 00:05
-**Last seen:** 2026-02-09 20:30
+**Last seen:** 2026-02-11 20:30
 **Occurrences:** 0
 **Fingerprints:** 6
 
@@ -1218,7 +1232,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:codelist:business_exception`
 **First seen:** 2026-01-21 10:11
-**Last seen:** 2026-02-09 20:30
+**Last seen:** 2026-02-11 20:30
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -1232,7 +1246,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:click2pay:param_exception`
 **First seen:** 2026-01-26 18:28
-**Last seen:** 2026-02-09 20:25
+**Last seen:** 2026-02-11 20:25
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -1246,7 +1260,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:georisk:business_exception`
 **First seen:** 2026-01-26 18:22
-**Last seen:** 2026-02-09 20:19
+**Last seen:** 2026-02-11 20:19
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -1260,7 +1274,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:client_segment:not_found`
 **First seen:** 2026-01-26 12:15
-**Last seen:** 2026-02-09 20:16
+**Last seen:** 2026-02-11 20:16
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -1274,7 +1288,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:client_segment:unclassified`
 **First seen:** 2026-01-26 12:15
-**Last seen:** 2026-02-09 20:16
+**Last seen:** 2026-02-11 20:16
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -1288,7 +1302,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:atm_locator:not_found`
 **First seen:** 2026-01-26 10:47
-**Last seen:** 2026-02-09 20:06
+**Last seen:** 2026-02-11 20:07
 **Occurrences:** 0
 **Fingerprints:** 4
 
@@ -1302,7 +1316,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:click2pay:unclassified`
 **First seen:** 2026-01-23 15:55
-**Last seen:** 2026-02-09 19:56
+**Last seen:** 2026-02-11 19:54
 **Occurrences:** 108
 **Fingerprints:** 55
 
@@ -1316,11 +1330,81 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `BUSINESS:unknown:param_exception`
 **First seen:** 2026-01-26 19:32
-**Last seen:** 2026-02-09 19:33
+**Last seen:** 2026-02-11 19:33
 **Occurrences:** 0
 **Fingerprints:** 2
 
 **Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000253 – batch_processing/not_found 🔀 🔴
+
+**Problem Key:** `BUSINESS:batch_processing:not_found`
+**First seen:** 2026-01-26 06:31
+**Last seen:** 2026-02-11 16:07
+**Occurrences:** 0
+**Fingerprints:** 4
+
+**Apps:** bl-pcb-batch-processor-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000216 – design_lifecycle/business_exception 📍 🔴
+
+**Problem Key:** `BUSINESS:design_lifecycle:business_exception`
+**First seen:** 2026-01-16 06:55
+**Last seen:** 2026-02-11 11:07
+**Occurrences:** 0
+**Fingerprints:** 8
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000304 – atm_locator/business_exception 🔀 🔴
+
+**Problem Key:** `BUSINESS:atm_locator:business_exception`
+**First seen:** 2026-02-03 16:16
+**Last seen:** 2026-02-11 01:21
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-atm-locator-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000320 – card_opening/not_found_exception 🔀 🔴
+
+**Problem Key:** `BUSINESS:card_opening:not_found_exception`
+**First seen:** 2026-02-10 06:02
+**Last seen:** 2026-02-10 21:26
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-click2pay-v1, bl-pcb-v1
+**Namespaces:** pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000267 – design_lifecycle/not_found 📍 🔴
+
+**Problem Key:** `BUSINESS:design_lifecycle:not_found`
+**First seen:** 2026-01-20 15:30
+**Last seen:** 2026-02-10 12:27
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-design-lifecycle-v1
 **Namespaces:** pcb-dev-01-app
 
 
@@ -1382,20 +1466,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000253 – batch_processing/not_found 🔀 🔴
-
-**Problem Key:** `BUSINESS:batch_processing:not_found`
-**First seen:** 2026-01-26 06:31
-**Last seen:** 2026-02-05 14:24
-**Occurrences:** 0
-**Fingerprints:** 4
-
-**Apps:** bl-pcb-batch-processor-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000239 – billing/not_found 🔀 🔴
 
 **Problem Key:** `BUSINESS:billing:not_found`
@@ -1433,20 +1503,6 @@ _Total fingerprints: 21846_
 **Fingerprints:** 1
 
 **Apps:** bl-pcb-design-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000304 – atm_locator/business_exception 📍 🔴
-
-**Problem Key:** `BUSINESS:atm_locator:business_exception`
-**First seen:** 2026-02-03 16:16
-**Last seen:** 2026-02-03 16:16
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-atm-locator-v1
 **Namespaces:** pcb-dev-01-app
 
 
@@ -1690,34 +1746,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000267 – design_lifecycle/not_found 📍 🔴
-
-**Problem Key:** `BUSINESS:design_lifecycle:not_found`
-**First seen:** 2026-01-20 15:30
-**Last seen:** 2026-01-20 15:30
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000216 – design_lifecycle/business_exception 📍 🔴
-
-**Problem Key:** `BUSINESS:design_lifecycle:business_exception`
-**First seen:** 2026-01-16 06:55
-**Last seen:** 2026-01-20 15:30
-**Occurrences:** 0
-**Fingerprints:** 4
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
 ### KP-000233 – codelist/message_body_provider_not_found_exception 📍 🔴
 
 **Problem Key:** `BUSINESS:codelist:message_body_provider_not_found_exception`
@@ -1732,13 +1760,13 @@ _Total fingerprints: 21846_
 
 ---
 
-## DATABASE (20 problems)
+## DATABASE (21 problems)
 
 ### KP-000042 – token/unclassified 🔀 🔴
 
 **Problem Key:** `DATABASE:token:unclassified`
 **First seen:** 2026-01-26 10:32
-**Last seen:** 2026-02-09 21:01
+**Last seen:** 2026-02-11 21:00
 **Occurrences:** 1
 **Fingerprints:** 4
 
@@ -1752,7 +1780,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `DATABASE:notification:unclassified`
 **First seen:** 2026-01-21 08:15
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -1762,16 +1790,58 @@ _Total fingerprints: 21846_
 
 ---
 
+### KP-000314 – design_lifecycle/connection_error 📍 🔴
+
+**Problem Key:** `DATABASE:design_lifecycle:connection_error`
+**First seen:** 2026-02-11 10:18
+**Last seen:** 2026-02-11 11:06
+**Occurrences:** 0
+**Fingerprints:** 43
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
 ### KP-000197 – unknown/timeout 🔀 🔴
 
 **Problem Key:** `DATABASE:unknown:timeout`
 **First seen:** 2026-01-16 05:02
-**Last seen:** 2026-02-09 05:01
+**Last seen:** 2026-02-11 05:01
 **Occurrences:** 0
-**Fingerprints:** 57
+**Fingerprints:** 62
 
 **Apps:** bl-pcb-v1
 **Namespaces:** pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000048 – click2pay/unclassified 🔀 🔴
+
+**Problem Key:** `DATABASE:click2pay:unclassified`
+**First seen:** 2026-01-18 18:28
+**Last seen:** 2026-02-10 20:24
+**Occurrences:** 1
+**Fingerprints:** 20
+
+**Apps:** bl-pcb-click2pay-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000177 – token/not_found_error 🔀 🔴
+
+**Problem Key:** `DATABASE:token:not_found_error`
+**First seen:** 2026-01-15 19:03
+**Last seen:** 2026-02-10 19:03
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-token-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -1814,20 +1884,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bl-pcb-notification-v1
 **Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000048 – click2pay/unclassified 🔀 🔴
-
-**Problem Key:** `DATABASE:click2pay:unclassified`
-**First seen:** 2026-01-18 18:28
-**Last seen:** 2026-01-26 20:25
-**Occurrences:** 1
-**Fingerprints:** 19
-
-**Apps:** bl-pcb-click2pay-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -1944,20 +2000,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000177 – token/not_found_error 🔀 🔴
-
-**Problem Key:** `DATABASE:token:not_found_error`
-**First seen:** 2026-01-15 19:03
-**Last seen:** 2026-01-23 21:01
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-token-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000111 – unknown/connection_error 🔀 🔴
 
 **Problem Key:** `DATABASE:unknown:connection_error`
@@ -2020,7 +2062,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:unknown:gateway_error`
 **First seen:** 2026-01-14 16:38
-**Last seen:** 2026-02-09 23:37
+**Last seen:** 2026-02-11 23:15
 **Occurrences:** 33
 **Fingerprints:** 500
 
@@ -2034,7 +2076,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:card_servicing:internal_error`
 **First seen:** 2026-01-19 13:17
-**Last seen:** 2026-02-09 21:35
+**Last seen:** 2026-02-11 21:36
 **Occurrences:** 0
 **Fingerprints:** 31
 
@@ -2048,7 +2090,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:unknown:internal_error`
 **First seen:** 2026-01-14 20:37
-**Last seen:** 2026-02-09 21:35
+**Last seen:** 2026-02-11 21:36
 **Occurrences:** 32
 **Fingerprints:** 500
 
@@ -2062,12 +2104,26 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:card_opening:gateway_error`
 **First seen:** 2026-01-23 07:16
-**Last seen:** 2026-02-09 21:32
+**Last seen:** 2026-02-11 21:34
 **Occurrences:** 0
-**Fingerprints:** 16
+**Fingerprints:** 20
 
 **Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-notification-v1, bl-pcb-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000269 – card_servicing/gateway_error 📍 🔴
+
+**Problem Key:** `EXTERNAL:card_servicing:gateway_error`
+**First seen:** 2026-01-22 09:16
+**Last seen:** 2026-02-11 21:33
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bff-pcb-ch-card-servicing-admin-v1
+**Namespaces:** pcb-ch-sit-01-app
 
 
 ---
@@ -2076,7 +2132,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:unknown:constraint_violation`
 **First seen:** 2026-01-21 12:09
-**Last seen:** 2026-02-09 21:32
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
 **Fingerprints:** 4
 
@@ -2090,7 +2146,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:card_opening:internal_error`
 **First seen:** 2026-01-19 19:33
-**Last seen:** 2026-02-09 21:31
+**Last seen:** 2026-02-11 21:31
 **Occurrences:** 0
 **Fingerprints:** 33
 
@@ -2104,7 +2160,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:notification:internal_error`
 **First seen:** 2026-01-21 08:09
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -2118,7 +2174,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:card_sensitive:internal_error`
 **First seen:** 2026-01-19 13:21
-**Last seen:** 2026-02-09 19:33
+**Last seen:** 2026-02-11 19:33
 **Occurrences:** 0
 **Fingerprints:** 17
 
@@ -2132,7 +2188,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:card_sensitive:unclassified`
 **First seen:** 2026-01-26 19:32
-**Last seen:** 2026-02-09 19:33
+**Last seen:** 2026-02-11 19:33
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -2146,7 +2202,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `EXTERNAL:card_opening:access_denied`
 **First seen:** 2026-01-26 19:32
-**Last seen:** 2026-02-09 19:32
+**Last seen:** 2026-02-11 19:32
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -2156,16 +2212,30 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000269 – card_servicing/gateway_error 📍 🔴
+### KP-000255 – token/internal_error 🌐 🔴
 
-**Problem Key:** `EXTERNAL:card_servicing:gateway_error`
-**First seen:** 2026-01-22 09:16
-**Last seen:** 2026-02-09 14:22
+**Problem Key:** `EXTERNAL:token:internal_error`
+**First seen:** 2026-01-24 13:02
+**Last seen:** 2026-02-11 13:21
+**Occurrences:** 10
+**Fingerprints:** 284
+
+**Apps:** bl-pcb-token-v1
+**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000217 – design_lifecycle/internal_error 📍 🔴
+
+**Problem Key:** `EXTERNAL:design_lifecycle:internal_error`
+**First seen:** 2026-01-16 07:00
+**Last seen:** 2026-02-11 11:06
 **Occurrences:** 0
-**Fingerprints:** 3
+**Fingerprints:** 4
 
-**Apps:** bff-pcb-ch-card-servicing-admin-v1
-**Namespaces:** pcb-ch-sit-01-app
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
 
 
 ---
@@ -2222,20 +2292,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bl-pcb-billing-v1, bl-pcb-click2pay-v1, bl-pcb-event-processor-relay-v1, bl-pcb-v1, feapi-pca-v1
 **Namespaces:** pca-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000255 – token/internal_error 🌐 🔴
-
-**Problem Key:** `EXTERNAL:token:internal_error`
-**First seen:** 2026-01-24 13:02
-**Last seen:** 2026-02-04 12:04
-**Occurrences:** 10
-**Fingerprints:** 275
-
-**Apps:** bl-pcb-token-v1
-**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 
 ---
@@ -2520,20 +2576,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000217 – design_lifecycle/internal_error 📍 🔴
-
-**Problem Key:** `EXTERNAL:design_lifecycle:internal_error`
-**First seen:** 2026-01-16 07:00
-**Last seen:** 2026-01-16 08:21
-**Occurrences:** 0
-**Fingerprints:** 4
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
 ### KP-000113 – georisk/internal_error 🔀 🔴
 
 **Problem Key:** `EXTERNAL:georisk:internal_error`
@@ -2592,32 +2634,60 @@ _Total fingerprints: 21846_
 
 ---
 
-## TIMEOUT (11 problems)
-
-### KP-000054 – unknown/timeout 🔀 🔴
-
-**Problem Key:** `TIMEOUT:unknown:timeout`
-**First seen:** 2026-01-15 00:15
-**Last seen:** 2026-02-09 23:37
-**Occurrences:** 0
-**Fingerprints:** 7
-
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-sit-01-app
-
-
----
+## TIMEOUT (12 problems)
 
 ### KP-000073 – card_servicing/timeout 🔀 🔴
 
 **Problem Key:** `TIMEOUT:card_servicing:timeout`
 **First seen:** 2026-01-21 05:08
-**Last seen:** 2026-02-09 21:36
+**Last seen:** 2026-02-11 21:37
 **Occurrences:** 0
 **Fingerprints:** 3
 
 **Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+
+
+---
+
+### KP-000257 – design_lifecycle/unclassified 📍 🔴
+
+**Problem Key:** `TIMEOUT:design_lifecycle:unclassified`
+**First seen:** 2026-01-24 14:14
+**Last seen:** 2026-02-11 11:06
+**Occurrences:** 0
+**Fingerprints:** 58
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000316 – design_lifecycle/gateway_error 📍 🔴
+
+**Problem Key:** `TIMEOUT:design_lifecycle:gateway_error`
+**First seen:** 2026-02-11 10:23
+**Last seen:** 2026-02-11 10:47
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000054 – unknown/timeout 🔀 🔴
+
+**Problem Key:** `TIMEOUT:unknown:timeout`
+**First seen:** 2026-01-15 00:15
+**Last seen:** 2026-02-10 23:07
+**Occurrences:** 0
+**Fingerprints:** 7
+
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-sit-01-app
 
 
 ---
@@ -2678,20 +2748,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000257 – design_lifecycle/unclassified 📍 🔴
-
-**Problem Key:** `TIMEOUT:design_lifecycle:unclassified`
-**First seen:** 2026-01-24 14:14
-**Last seen:** 2026-01-24 14:14
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
 ### KP-000050 – card_opening/unclassified 📍 🔴
 
 **Problem Key:** `TIMEOUT:card_opening:unclassified`
@@ -2748,15 +2804,15 @@ _Total fingerprints: 21846_
 
 ---
 
-## UNKNOWN (117 problems)
+## UNKNOWN (126 problems)
 
 ### KP-000045 – design_lifecycle/unclassified 🌐 🔴
 
 **Problem Key:** `UNKNOWN:design_lifecycle:unclassified`
 **First seen:** 2026-01-15 14:33
-**Last seen:** 2026-02-09 23:46
-**Occurrences:** 143
-**Fingerprints:** 118
+**Last seen:** 2026-02-11 23:46
+**Occurrences:** 148
+**Fingerprints:** 462
 
 **Apps:** bff-pcb-ch-design-servicing-v1, bl-pcb-design-lifecycle-v1, bl-pcb-v1, feapi-pca-v1
 **Namespaces:** pca-dev-01-app, pcb-ch-dev-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
@@ -2764,16 +2820,16 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000010 – click2pay/unclassified 🌐 🔴
+### KP-000011 – pilot_context/unclassified 🌐 🔴
 
-**Problem Key:** `UNKNOWN:click2pay:unclassified`
-**First seen:** 2026-01-13 19:54
-**Last seen:** 2026-02-09 23:44
-**Occurrences:** 691
-**Fingerprints:** 500
+**Problem Key:** `UNKNOWN:pilot_context:unclassified`
+**First seen:** 2026-01-22 15:25
+**Last seen:** 2026-02-11 23:44
+**Occurrences:** 36
+**Fingerprints:** 24
 
-**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-billing-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-card-read-model-v1...
-**Namespaces:** pca-dev-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+**Apps:** bl-pcb-pilot-context-v1, bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 
 ---
@@ -2782,7 +2838,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:unknown:unclassified`
 **First seen:** 2026-01-14 10:01
-**Last seen:** 2026-02-09 23:38
+**Last seen:** 2026-02-11 23:44
 **Occurrences:** 504,255
 **Fingerprints:** 500
 
@@ -2792,16 +2848,16 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000069 – unknown/not_found_error 🌐 🔴
+### KP-000010 – click2pay/unclassified 🌐 🔴
 
-**Problem Key:** `UNKNOWN:unknown:not_found_error`
-**First seen:** 2026-01-14 22:06
-**Last seen:** 2026-02-09 23:37
-**Occurrences:** 0
-**Fingerprints:** 141
+**Problem Key:** `UNKNOWN:click2pay:unclassified`
+**First seen:** 2026-01-13 19:54
+**Last seen:** 2026-02-11 23:44
+**Occurrences:** 691
+**Fingerprints:** 500
 
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-billing-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-card-read-model-v1...
+**Namespaces:** pca-dev-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 
 ---
@@ -2810,7 +2866,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_opening:unclassified`
 **First seen:** 2026-01-13 19:30
-**Last seen:** 2026-02-09 23:35
+**Last seen:** 2026-02-11 23:35
 **Occurrences:** 53,120
 **Fingerprints:** 500
 
@@ -2824,7 +2880,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_servicing:unclassified`
 **First seen:** 2026-01-13 09:00
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 89,298
 **Fingerprints:** 500
 
@@ -2838,7 +2894,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_servicing:constraint_violation`
 **First seen:** 2026-01-19 13:19
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 4
 **Fingerprints:** 73
 
@@ -2852,9 +2908,9 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_servicing:access_denied`
 **First seen:** 2026-01-21 10:56
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 22
-**Fingerprints:** 14
+**Fingerprints:** 16
 
 **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1...
 **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
@@ -2866,7 +2922,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_servicing:json_parse_exception`
 **First seen:** 2026-01-26 00:25
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 12
 **Fingerprints:** 8
 
@@ -2880,7 +2936,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:client_status:unclassified`
 **First seen:** 2026-01-16 07:35
-**Last seen:** 2026-02-09 23:30
+**Last seen:** 2026-02-11 23:30
 **Occurrences:** 4,420
 **Fingerprints:** 500
 
@@ -2890,41 +2946,13 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000024 – document_signing/unclassified 🌐 🔴
-
-**Problem Key:** `UNKNOWN:document_signing:unclassified`
-**First seen:** 2026-01-15 19:30
-**Last seen:** 2026-02-09 23:26
-**Occurrences:** 127
-**Fingerprints:** 500
-
-**Apps:** bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-design-servicing-v1, bff-pcb-ch-document-signing-v1, bl-pcb-atm-locator-v1, bl-pcb-card-client-segment-v1...
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
-### KP-000169 – unknown/access_denied 🌐 🔴
-
-**Problem Key:** `UNKNOWN:unknown:access_denied`
-**First seen:** 2026-01-19 13:17
-**Last seen:** 2026-02-09 23:26
-**Occurrences:** 0
-**Fingerprints:** 6
-
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000119 – atm_locator/unclassified 🔀 🔴
 
 **Problem Key:** `UNKNOWN:atm_locator:unclassified`
 **First seen:** 2026-01-26 00:16
-**Last seen:** 2026-02-09 23:23
+**Last seen:** 2026-02-11 23:21
 **Occurrences:** 0
-**Fingerprints:** 4
+**Fingerprints:** 9
 
 **Apps:** bl-pcb-atm-locator-v1, bl-pcb-v1
 **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
@@ -2936,7 +2964,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:georisk:unclassified`
 **First seen:** 2026-01-15 20:19
-**Last seen:** 2026-02-09 23:20
+**Last seen:** 2026-02-11 23:20
 **Occurrences:** 0
 **Fingerprints:** 28
 
@@ -2946,13 +2974,55 @@ _Total fingerprints: 21846_
 
 ---
 
+### KP-000024 – document_signing/unclassified 🌐 🔴
+
+**Problem Key:** `UNKNOWN:document_signing:unclassified`
+**First seen:** 2026-01-15 19:30
+**Last seen:** 2026-02-11 23:17
+**Occurrences:** 127
+**Fingerprints:** 500
+
+**Apps:** bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-design-servicing-v1, bff-pcb-ch-document-signing-v1, bl-pcb-atm-locator-v1, bl-pcb-card-client-segment-v1...
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000034 – notification/unclassified 🌐 🔴
+
+**Problem Key:** `UNKNOWN:notification:unclassified`
+**First seen:** 2026-01-16 14:03
+**Last seen:** 2026-02-11 23:15
+**Occurrences:** 23
+**Fingerprints:** 94
+
+**Apps:** bl-pcb-notification-v1, bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000069 – unknown/not_found_error 🌐 🔴
+
+**Problem Key:** `UNKNOWN:unknown:not_found_error`
+**First seen:** 2026-01-14 22:06
+**Last seen:** 2026-02-11 23:07
+**Occurrences:** 0
+**Fingerprints:** 146
+
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
 ### KP-000101 – unknown/server_error 🌐 🔴
 
 **Problem Key:** `UNKNOWN:unknown:server_error`
 **First seen:** 2026-01-14 16:38
-**Last seen:** 2026-02-09 23:07
+**Last seen:** 2026-02-11 22:43
 **Occurrences:** 0
-**Fingerprints:** 148
+**Fingerprints:** 154
 
 **Apps:** bl-pcb-v1, feapi-pca-v1
 **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
@@ -2964,7 +3034,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:billing:unclassified`
 **First seen:** 2026-01-16 00:10
-**Last seen:** 2026-02-09 23:07
+**Last seen:** 2026-02-11 22:07
 **Occurrences:** 3,360
 **Fingerprints:** 500
 
@@ -2974,41 +3044,13 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000121 – unknown/constraint_violation 🔀 🔴
-
-**Problem Key:** `UNKNOWN:unknown:constraint_violation`
-**First seen:** 2026-01-14 21:22
-**Last seen:** 2026-02-09 23:05
-**Occurrences:** 0
-**Fingerprints:** 239
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000097 – click2pay/constraint_violation 🌐 🔴
 
 **Problem Key:** `UNKNOWN:click2pay:constraint_violation`
 **First seen:** 2026-01-21 09:30
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
 **Fingerprints:** 32
-
-**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000234 – click2pay/server_error 🌐 🔴
-
-**Problem Key:** `UNKNOWN:click2pay:server_error`
-**First seen:** 2026-01-19 19:54
-**Last seen:** 2026-02-09 21:51
-**Occurrences:** 0
-**Fingerprints:** 9
 
 **Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
@@ -3020,7 +3062,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_validation:access_denied`
 **First seen:** 2026-01-26 06:01
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
 **Fingerprints:** 4
 
@@ -3034,7 +3076,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:click2pay:invalid_format_exception`
 **First seen:** 2026-01-23 19:53
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
 **Fingerprints:** 4
 
@@ -3048,12 +3090,54 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_servicing:invalid_format_exception`
 **First seen:** 2026-01-21 19:36
-**Last seen:** 2026-02-09 21:51
+**Last seen:** 2026-02-11 21:51
 **Occurrences:** 0
-**Fingerprints:** 16
+**Fingerprints:** 17
 
 **Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-click2pay-v1, bl-pcb-card-client-segment-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000017 – batch_processing/unclassified 🌐 🔴
+
+**Problem Key:** `UNKNOWN:batch_processing:unclassified`
+**First seen:** 2026-01-14 17:00
+**Last seen:** 2026-02-11 21:50
+**Occurrences:** 150,201
+**Fingerprints:** 500
+
+**Apps:** bff-pcb-ch-design-servicing-v1, bl-pcb-batch-processor-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-client-rainbow-status-v1...
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000169 – unknown/access_denied 🌐 🔴
+
+**Problem Key:** `UNKNOWN:unknown:access_denied`
+**First seen:** 2026-01-19 13:17
+**Last seen:** 2026-02-11 21:36
+**Occurrences:** 0
+**Fingerprints:** 6
+
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000121 – unknown/constraint_violation 🔀 🔴
+
+**Problem Key:** `UNKNOWN:unknown:constraint_violation`
+**First seen:** 2026-01-14 21:22
+**Last seen:** 2026-02-11 21:36
+**Occurrences:** 0
+**Fingerprints:** 247
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -3062,7 +3146,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_servicing:value_instantiation_exception`
 **First seen:** 2026-01-19 13:19
-**Last seen:** 2026-02-09 21:35
+**Last seen:** 2026-02-11 21:36
 **Occurrences:** 0
 **Fingerprints:** 5
 
@@ -3072,39 +3156,11 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000228 – notification/data_integrity_violation_exception 🔀 🔴
-
-**Problem Key:** `UNKNOWN:notification:data_integrity_violation_exception`
-**First seen:** 2026-01-26 21:33
-**Last seen:** 2026-02-09 21:33
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-notification-v1, bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000191 – unknown/data_integrity_violation_exception 🔀 🔴
-
-**Problem Key:** `UNKNOWN:unknown:data_integrity_violation_exception`
-**First seen:** 2026-01-26 21:33
-**Last seen:** 2026-02-09 21:33
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000089 – card_servicing/gateway_error 🔀 🔴
 
 **Problem Key:** `UNKNOWN:card_servicing:gateway_error`
 **First seen:** 2026-01-26 19:36
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:33
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -3118,7 +3174,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:unknown:gateway_error`
 **First seen:** 2026-01-14 15:37
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:33
 **Occurrences:** 95
 **Fingerprints:** 500
 
@@ -3128,11 +3184,39 @@ _Total fingerprints: 21846_
 
 ---
 
+### KP-000228 – notification/data_integrity_violation_exception 🔀 🔴
+
+**Problem Key:** `UNKNOWN:notification:data_integrity_violation_exception`
+**First seen:** 2026-01-26 21:33
+**Last seen:** 2026-02-11 21:33
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-notification-v1, bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000191 – unknown/data_integrity_violation_exception 🔀 🔴
+
+**Problem Key:** `UNKNOWN:unknown:data_integrity_violation_exception`
+**First seen:** 2026-01-26 21:33
+**Last seen:** 2026-02-11 21:33
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
 ### KP-000084 – card_opening/query_param_exception 🌐 🔴
 
 **Problem Key:** `UNKNOWN:card_opening:query_param_exception`
 **First seen:** 2026-01-26 10:47
-**Last seen:** 2026-02-09 21:33
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -3146,9 +3230,9 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_opening:access_denied`
 **First seen:** 2026-01-26 06:00
-**Last seen:** 2026-02-09 21:32
+**Last seen:** 2026-02-11 21:32
 **Occurrences:** 0
-**Fingerprints:** 10
+**Fingerprints:** 11
 
 **Apps:** bff-pcb-ch-card-opening-v2, bl-pcb-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-sit-01-app
@@ -3160,7 +3244,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_opening:constraint_violation`
 **First seen:** 2026-01-16 06:00
-**Last seen:** 2026-02-09 21:31
+**Last seen:** 2026-02-11 21:31
 **Occurrences:** 0
 **Fingerprints:** 76
 
@@ -3174,9 +3258,9 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_opening:server_error`
 **First seen:** 2026-01-17 19:39
-**Last seen:** 2026-02-09 21:31
+**Last seen:** 2026-02-11 21:31
 **Occurrences:** 0
-**Fingerprints:** 28
+**Fingerprints:** 29
 
 **Apps:** bff-pcb-ch-card-opening-v2
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
@@ -3188,7 +3272,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:unknown:path_param_exception`
 **First seen:** 2026-01-26 10:08
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 1
 
@@ -3202,7 +3286,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:card_sensitive:unclassified`
 **First seen:** 2026-01-19 13:21
-**Last seen:** 2026-02-09 21:30
+**Last seen:** 2026-02-11 21:30
 **Occurrences:** 0
 **Fingerprints:** 39
 
@@ -3212,25 +3296,11 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000103 – card_opening/not_found_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:card_opening:not_found_error`
-**First seen:** 2026-01-13 21:29
-**Last seen:** 2026-02-09 21:29
-**Occurrences:** 0
-**Fingerprints:** 21
-
-**Apps:** bff-pcb-ch-card-opening-v2
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
-
-
----
-
 ### KP-000030 – client_segment/unclassified 🔀 🔴
 
 **Problem Key:** `UNKNOWN:client_segment:unclassified`
 **First seen:** 2026-01-17 18:19
-**Last seen:** 2026-02-09 21:27
+**Last seen:** 2026-02-11 21:27
 **Occurrences:** 30
 **Fingerprints:** 53
 
@@ -3244,7 +3314,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:token:unclassified`
 **First seen:** 2026-01-21 10:11
-**Last seen:** 2026-02-09 21:01
+**Last seen:** 2026-02-11 21:00
 **Occurrences:** 3,160
 **Fingerprints:** 57
 
@@ -3258,7 +3328,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:token:constraint_violation`
 **First seen:** 2026-01-26 19:03
-**Last seen:** 2026-02-09 21:01
+**Last seen:** 2026-02-11 21:00
 **Occurrences:** 0
 **Fingerprints:** 3
 
@@ -3268,25 +3338,11 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000034 – notification/unclassified 🌐 🔴
-
-**Problem Key:** `UNKNOWN:notification:unclassified`
-**First seen:** 2026-01-16 14:03
-**Last seen:** 2026-02-09 20:57
-**Occurrences:** 23
-**Fingerprints:** 91
-
-**Apps:** bl-pcb-notification-v1, bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000223 – notification/constraint_violation 🔀 🔴
 
 **Problem Key:** `UNKNOWN:notification:constraint_violation`
 **First seen:** 2026-01-21 08:09
-**Last seen:** 2026-02-09 20:57
+**Last seen:** 2026-02-11 20:55
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -3300,7 +3356,7 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:codelist:unclassified`
 **First seen:** 2026-01-26 18:33
-**Last seen:** 2026-02-09 20:30
+**Last seen:** 2026-02-11 20:30
 **Occurrences:** 0
 **Fingerprints:** 2
 
@@ -3314,12 +3370,516 @@ _Total fingerprints: 21846_
 
 **Problem Key:** `UNKNOWN:codelist:constraint_violation`
 **First seen:** 2026-01-26 18:33
-**Last seen:** 2026-02-09 20:30
+**Last seen:** 2026-02-11 20:30
 **Occurrences:** 0
 **Fingerprints:** 2
 
 **Apps:** bl-pcb-codelist-v1
 **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000135 – georisk/constraint_violation 🔀 🔴
+
+**Problem Key:** `UNKNOWN:georisk:constraint_violation`
+**First seen:** 2026-01-26 18:22
+**Last seen:** 2026-02-11 20:19
+**Occurrences:** 0
+**Fingerprints:** 6
+
+**Apps:** bl-pcb-card-georisk-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000136 – georisk/not_supported_exception 🔀 🔴
+
+**Problem Key:** `UNKNOWN:georisk:not_supported_exception`
+**First seen:** 2026-01-26 18:22
+**Last seen:** 2026-02-11 20:19
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-card-georisk-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000127 – client_segment/constraint_violation 🔀 🔴
+
+**Problem Key:** `UNKNOWN:client_segment:constraint_violation`
+**First seen:** 2026-01-26 12:14
+**Last seen:** 2026-02-11 20:16
+**Occurrences:** 0
+**Fingerprints:** 7
+
+**Apps:** bl-pcb-card-client-segment-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000128 – client_segment/invalid_format_exception 🔀 🔴
+
+**Problem Key:** `UNKNOWN:client_segment:invalid_format_exception`
+**First seen:** 2026-01-21 18:19
+**Last seen:** 2026-02-11 20:16
+**Occurrences:** 0
+**Fingerprints:** 10
+
+**Apps:** bl-pcb-card-client-segment-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000072 – card_servicing/server_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:card_servicing:server_error`
+**First seen:** 2026-01-13 18:09
+**Last seen:** 2026-02-11 19:36
+**Occurrences:** 0
+**Fingerprints:** 25
+
+**Apps:** bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1...
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+
+
+---
+
+### KP-000183 – unknown/validation_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:unknown:validation_error`
+**First seen:** 2026-01-26 09:09
+**Last seen:** 2026-02-11 19:33
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000180 – unknown/marshal_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:unknown:marshal_exception`
+**First seen:** 2026-01-26 19:12
+**Last seen:** 2026-02-11 19:32
+**Occurrences:** 0
+**Fingerprints:** 4
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000126 – notification/server_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:notification:server_error`
+**First seen:** 2026-01-21 13:15
+**Last seen:** 2026-02-11 18:15
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-notification-v1
+**Namespaces:** pcb-fat-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000235 – unknown/simple_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:unknown:simple_error`
+**First seen:** 2026-01-20 14:00
+**Last seen:** 2026-02-11 16:08
+**Occurrences:** 0
+**Fingerprints:** 500
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000215 – design_lifecycle/server_error 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:server_error`
+**First seen:** 2026-01-21 11:08
+**Last seen:** 2026-02-11 16:08
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000070 – card_servicing/not_found_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:card_servicing:not_found_error`
+**First seen:** 2026-01-13 16:30
+**Last seen:** 2026-02-11 14:30
+**Occurrences:** 0
+**Fingerprints:** 23
+
+**Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-click2pay-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+
+
+---
+
+### KP-000170 – unknown/null_pointer 🔀 🔴
+
+**Problem Key:** `UNKNOWN:unknown:null_pointer`
+**First seen:** 2026-01-15 14:33
+**Last seen:** 2026-02-11 13:11
+**Occurrences:** 0
+**Fingerprints:** 10
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000031 – event_processing/unclassified 🌐 🔴
+
+**Problem Key:** `UNKNOWN:event_processing:unclassified`
+**First seen:** 2026-01-15 00:37
+**Last seen:** 2026-02-11 13:01
+**Occurrences:** 25,528
+**Fingerprints:** 500
+
+**Apps:** bl-pcb-card-georisk-v1, bl-pcb-design-lifecycle-v1, bl-pcb-event-processor-relay-v1, bl-pcb-notification-v1, bl-pcb-token-v1...
+**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000103 – card_opening/not_found_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:card_opening:not_found_error`
+**First seen:** 2026-01-13 21:29
+**Last seen:** 2026-02-11 12:24
+**Occurrences:** 0
+**Fingerprints:** 21
+
+**Apps:** bff-pcb-ch-card-opening-v2
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+
+
+---
+
+### KP-000313 – design_lifecycle/cannot_create_transaction_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:cannot_create_transaction_exception`
+**First seen:** 2026-02-11 10:18
+**Last seen:** 2026-02-11 11:06
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000318 – design_lifecycle/eof_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:eof_exception`
+**First seen:** 2026-02-10 11:20
+**Last seen:** 2026-02-11 11:01
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000317 – design_lifecycle/client_abort_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:client_abort_exception`
+**First seen:** 2026-02-10 11:20
+**Last seen:** 2026-02-11 11:01
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000315 – design_lifecycle/gateway_error 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:gateway_error`
+**First seen:** 2026-02-11 10:23
+**Last seen:** 2026-02-11 10:47
+**Occurrences:** 0
+**Fingerprints:** 5
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000147 – design_lifecycle/not_found_error 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:not_found_error`
+**First seen:** 2026-01-23 01:46
+**Last seen:** 2026-02-11 06:13
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000105 – card_servicing/mismatched_input_exception 🔀 🔴
+
+**Problem Key:** `UNKNOWN:card_servicing:mismatched_input_exception`
+**First seen:** 2026-01-23 06:00
+**Last seen:** 2026-02-11 06:02
+**Occurrences:** 0
+**Fingerprints:** 20
+
+**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1...
+**Namespaces:** pcb-ch-sit-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000199 – unknown/mismatched_input_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:unknown:mismatched_input_exception`
+**First seen:** 2026-01-26 06:02
+**Last seen:** 2026-02-11 06:02
+**Occurrences:** 0
+**Fingerprints:** 22
+
+**Apps:** bl-pcb-v1
+**Namespaces:** pcb-sit-01-app
+
+
+---
+
+### KP-000013 – card_validation/unclassified 🔀 🔴
+
+**Problem Key:** `UNKNOWN:card_validation:unclassified`
+**First seen:** 2026-01-23 15:55
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 436
+**Fingerprints:** 34
+
+**Apps:** bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1, bl-pcb-document-signing-v1, bl-pcb-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app
+
+
+---
+
+### KP-000110 – card_validation/mismatched_input_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:card_validation:mismatched_input_exception`
+**First seen:** 2026-01-26 06:01
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bff-pcb-ch-card-validation-v1
+**Namespaces:** pcb-ch-sit-01-app
+
+
+---
+
+### KP-000109 – document_signing/constraint_violation 📍 🔴
+
+**Problem Key:** `UNKNOWN:document_signing:constraint_violation`
+**First seen:** 2026-01-26 06:01
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bff-pcb-ch-document-signing-v1
+**Namespaces:** pcb-ch-sit-01-app
+
+
+---
+
+### KP-000168 – document_signing/access_denied 🔀 🔴
+
+**Problem Key:** `UNKNOWN:document_signing:access_denied`
+**First seen:** 2026-01-19 13:19
+**Last seen:** 2026-02-11 06:01
+**Occurrences:** 0
+**Fingerprints:** 5
+
+**Apps:** bl-pcb-document-signing-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000106 – card_opening/mismatched_input_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:card_opening:mismatched_input_exception`
+**First seen:** 2026-01-26 06:00
+**Last seen:** 2026-02-11 06:00
+**Occurrences:** 0
+**Fingerprints:** 6
+
+**Apps:** bff-pcb-ch-card-opening-v2
+**Namespaces:** pcb-ch-sit-01-app
+
+
+---
+
+### KP-000209 – document_signing/server_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:document_signing:server_error`
+**First seen:** 2026-01-21 13:11
+**Last seen:** 2026-02-11 04:17
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-document-signing-v1, bl-pcb-v1
+**Namespaces:** pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000165 – notification/not_found_error 🌐 🔴
+
+**Problem Key:** `UNKNOWN:notification:not_found_error`
+**First seen:** 2026-01-15 08:16
+**Last seen:** 2026-02-10 20:54
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-notification-v1
+**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+
+---
+
+### KP-000325 – click2pay/validation_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:click2pay:validation_error`
+**First seen:** 2026-02-10 19:10
+**Last seen:** 2026-02-10 20:24
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-click2pay-v1, bl-pcb-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000322 – design_lifecycle/not_supported_exception 🔀 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:not_supported_exception`
+**First seen:** 2026-02-10 09:38
+**Last seen:** 2026-02-10 20:18
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-card-georisk-v1, bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000203 – client_segment/server_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:client_segment:server_error`
+**First seen:** 2026-01-18 18:19
+**Last seen:** 2026-02-10 20:16
+**Occurrences:** 0
+**Fingerprints:** 9
+
+**Apps:** bl-pcb-card-client-segment-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000234 – click2pay/server_error 🌐 🔴
+
+**Problem Key:** `UNKNOWN:click2pay:server_error`
+**First seen:** 2026-01-19 19:54
+**Last seen:** 2026-02-10 19:53
+**Occurrences:** 0
+**Fingerprints:** 9
+
+**Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1
+**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000301 – georisk/not_found_error 🔀 🔴
+
+**Problem Key:** `UNKNOWN:georisk:not_found_error`
+**First seen:** 2026-02-03 11:24
+**Last seen:** 2026-02-10 18:21
+**Occurrences:** 0
+**Fingerprints:** 3
+
+**Apps:** bl-pcb-card-georisk-v1
+**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+
+
+---
+
+### KP-000323 – design_lifecycle/bad_request_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:bad_request_exception`
+**First seen:** 2026-02-10 13:10
+**Last seen:** 2026-02-10 13:39
+**Occurrences:** 0
+**Fingerprints:** 2
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000324 – design_lifecycle/mime_parsing_exception 📍 🔴
+
+**Problem Key:** `UNKNOWN:design_lifecycle:mime_parsing_exception`
+**First seen:** 2026-02-10 13:10
+**Last seen:** 2026-02-10 13:39
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bl-pcb-design-lifecycle-v1
+**Namespaces:** pcb-dev-01-app
+
+
+---
+
+### KP-000321 – card_opening/user_error 📍 🔴
+
+**Problem Key:** `UNKNOWN:card_opening:user_error`
+**First seen:** 2026-02-10 08:43
+**Last seen:** 2026-02-10 08:43
+**Occurrences:** 0
+**Fingerprints:** 1
+
+**Apps:** bff-pcb-ch-card-opening-v2
+**Namespaces:** pcb-ch-sit-01-app
 
 
 ---
@@ -3338,118 +3898,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000135 – georisk/constraint_violation 🔀 🔴
-
-**Problem Key:** `UNKNOWN:georisk:constraint_violation`
-**First seen:** 2026-01-26 18:22
-**Last seen:** 2026-02-09 20:19
-**Occurrences:** 0
-**Fingerprints:** 6
-
-**Apps:** bl-pcb-card-georisk-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000136 – georisk/not_supported_exception 🔀 🔴
-
-**Problem Key:** `UNKNOWN:georisk:not_supported_exception`
-**First seen:** 2026-01-26 18:22
-**Last seen:** 2026-02-09 20:19
-**Occurrences:** 0
-**Fingerprints:** 3
-
-**Apps:** bl-pcb-card-georisk-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000127 – client_segment/constraint_violation 🔀 🔴
-
-**Problem Key:** `UNKNOWN:client_segment:constraint_violation`
-**First seen:** 2026-01-26 12:14
-**Last seen:** 2026-02-09 20:16
-**Occurrences:** 0
-**Fingerprints:** 7
-
-**Apps:** bl-pcb-card-client-segment-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000128 – client_segment/invalid_format_exception 🔀 🔴
-
-**Problem Key:** `UNKNOWN:client_segment:invalid_format_exception`
-**First seen:** 2026-01-21 18:19
-**Last seen:** 2026-02-09 20:16
-**Occurrences:** 0
-**Fingerprints:** 10
-
-**Apps:** bl-pcb-card-client-segment-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000072 – card_servicing/server_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:card_servicing:server_error`
-**First seen:** 2026-01-13 18:09
-**Last seen:** 2026-02-09 19:36
-**Occurrences:** 0
-**Fingerprints:** 24
-
-**Apps:** bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1...
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
-
-
----
-
-### KP-000183 – unknown/validation_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:unknown:validation_error`
-**First seen:** 2026-01-26 09:09
-**Last seen:** 2026-02-09 19:33
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000180 – unknown/marshal_exception 📍 🔴
-
-**Problem Key:** `UNKNOWN:unknown:marshal_exception`
-**First seen:** 2026-01-26 19:12
-**Last seen:** 2026-02-09 19:31
-**Occurrences:** 0
-**Fingerprints:** 4
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
-### KP-000209 – document_signing/server_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:document_signing:server_error`
-**First seen:** 2026-01-21 13:11
-**Last seen:** 2026-02-09 18:17
-**Occurrences:** 0
-**Fingerprints:** 3
-
-**Apps:** bl-pcb-document-signing-v1, bl-pcb-v1
-**Namespaces:** pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000280 – event_p/unclassified 🔀 🔴
 
 **Problem Key:** `UNKNOWN:event_p:unclassified`
@@ -3460,34 +3908,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bl-pcb-event-p-authorizations-v1
 **Namespaces:** pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
-### KP-000017 – batch_processing/unclassified 🌐 🔴
-
-**Problem Key:** `UNKNOWN:batch_processing:unclassified`
-**First seen:** 2026-01-14 17:00
-**Last seen:** 2026-02-09 11:25
-**Occurrences:** 150,201
-**Fingerprints:** 500
-
-**Apps:** bff-pcb-ch-design-servicing-v1, bl-pcb-batch-processor-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-client-rainbow-status-v1...
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
-### KP-000070 – card_servicing/not_found_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:card_servicing:not_found_error`
-**First seen:** 2026-01-13 16:30
-**Last seen:** 2026-02-09 08:25
-**Occurrences:** 0
-**Fingerprints:** 22
-
-**Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-click2pay-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
 
 
 ---
@@ -3506,20 +3926,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000105 – card_servicing/mismatched_input_exception 🔀 🔴
-
-**Problem Key:** `UNKNOWN:card_servicing:mismatched_input_exception`
-**First seen:** 2026-01-23 06:00
-**Last seen:** 2026-02-09 07:47
-**Occurrences:** 0
-**Fingerprints:** 20
-
-**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1...
-**Namespaces:** pcb-ch-sit-01-app, pcb-sit-01-app
-
-
----
-
 ### KP-000306 – click2pay/sun_cert_path_builder_exception 🔀 🔴
 
 **Problem Key:** `UNKNOWN:click2pay:sun_cert_path_builder_exception`
@@ -3530,90 +3936,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bl-pcb-click2pay-v1
 **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000199 – unknown/mismatched_input_exception 📍 🔴
-
-**Problem Key:** `UNKNOWN:unknown:mismatched_input_exception`
-**First seen:** 2026-01-26 06:02
-**Last seen:** 2026-02-09 06:02
-**Occurrences:** 0
-**Fingerprints:** 22
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-sit-01-app
-
-
----
-
-### KP-000013 – card_validation/unclassified 🔀 🔴
-
-**Problem Key:** `UNKNOWN:card_validation:unclassified`
-**First seen:** 2026-01-23 15:55
-**Last seen:** 2026-02-09 06:02
-**Occurrences:** 436
-**Fingerprints:** 34
-
-**Apps:** bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1, bl-pcb-click2pay-v1, bl-pcb-document-signing-v1, bl-pcb-v1
-**Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app
-
-
----
-
-### KP-000110 – card_validation/mismatched_input_exception 📍 🔴
-
-**Problem Key:** `UNKNOWN:card_validation:mismatched_input_exception`
-**First seen:** 2026-01-26 06:01
-**Last seen:** 2026-02-09 06:02
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bff-pcb-ch-card-validation-v1
-**Namespaces:** pcb-ch-sit-01-app
-
-
----
-
-### KP-000109 – document_signing/constraint_violation 📍 🔴
-
-**Problem Key:** `UNKNOWN:document_signing:constraint_violation`
-**First seen:** 2026-01-26 06:01
-**Last seen:** 2026-02-09 06:01
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bff-pcb-ch-document-signing-v1
-**Namespaces:** pcb-ch-sit-01-app
-
-
----
-
-### KP-000168 – document_signing/access_denied 🔀 🔴
-
-**Problem Key:** `UNKNOWN:document_signing:access_denied`
-**First seen:** 2026-01-19 13:19
-**Last seen:** 2026-02-09 06:01
-**Occurrences:** 0
-**Fingerprints:** 5
-
-**Apps:** bl-pcb-document-signing-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000106 – card_opening/mismatched_input_exception 📍 🔴
-
-**Problem Key:** `UNKNOWN:card_opening:mismatched_input_exception`
-**First seen:** 2026-01-26 06:00
-**Last seen:** 2026-02-09 06:00
-**Occurrences:** 0
-**Fingerprints:** 6
-
-**Apps:** bff-pcb-ch-card-opening-v2
-**Namespaces:** pcb-ch-sit-01-app
 
 
 ---
@@ -3632,20 +3954,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000011 – pilot_context/unclassified 🌐 🔴
-
-**Problem Key:** `UNKNOWN:pilot_context:unclassified`
-**First seen:** 2026-01-22 15:25
-**Last seen:** 2026-02-08 15:39
-**Occurrences:** 36
-**Fingerprints:** 23
-
-**Apps:** bl-pcb-pilot-context-v1, bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000309 – card_servicing/query_param_exception 🌐 🔴
 
 **Problem Key:** `UNKNOWN:card_servicing:query_param_exception`
@@ -3656,20 +3964,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-v3, bl-pcb-atm-locator-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000203 – client_segment/server_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:client_segment:server_error`
-**First seen:** 2026-01-18 18:19
-**Last seen:** 2026-02-05 18:19
-**Occurrences:** 0
-**Fingerprints:** 8
-
-**Apps:** bl-pcb-card-client-segment-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -3697,48 +3991,6 @@ _Total fingerprints: 21846_
 **Fingerprints:** 2
 
 **Apps:** bl-pcb-card-client-segment-v1
-**Namespaces:** pcb-sit-01-app
-
-
----
-
-### KP-000235 – unknown/simple_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:unknown:simple_error`
-**First seen:** 2026-01-20 14:00
-**Last seen:** 2026-02-05 14:25
-**Occurrences:** 0
-**Fingerprints:** 500
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
-### KP-000126 – notification/server_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:notification:server_error`
-**First seen:** 2026-01-21 13:15
-**Last seen:** 2026-02-05 00:15
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-notification-v1
-**Namespaces:** pcb-fat-01-app, pcb-uat-01-app
-
-
----
-
-### KP-000301 – georisk/not_found_error 📍 🔴
-
-**Problem Key:** `UNKNOWN:georisk:not_found_error`
-**First seen:** 2026-02-03 11:24
-**Last seen:** 2026-02-04 20:18
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-card-georisk-v1
 **Namespaces:** pcb-sit-01-app
 
 
@@ -3800,20 +4052,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000215 – design_lifecycle/server_error 📍 🔴
-
-**Problem Key:** `UNKNOWN:design_lifecycle:server_error`
-**First seen:** 2026-01-21 11:08
-**Last seen:** 2026-02-04 04:46
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
-
-
----
-
 ### KP-000303 – codelist/mismatched_input_exception 🔀 🔴
 
 **Problem Key:** `UNKNOWN:codelist:mismatched_input_exception`
@@ -3870,20 +4108,6 @@ _Total fingerprints: 21846_
 
 ---
 
-### KP-000165 – notification/not_found_error 🔀 🔴
-
-**Problem Key:** `UNKNOWN:notification:not_found_error`
-**First seen:** 2026-01-15 08:16
-**Last seen:** 2026-01-31 22:15
-**Occurrences:** 0
-**Fingerprints:** 2
-
-**Apps:** bl-pcb-notification-v1
-**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-uat-01-app
-
-
----
-
 ### KP-000130 – client_segment/not_found_error 🔀 🔴
 
 **Problem Key:** `UNKNOWN:client_segment:not_found_error`
@@ -3908,34 +4132,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bff-pcb-ch-card-servicing-v1, bl-pcb-v1
 **Namespaces:** pcb-ch-sit-01-app, pcb-sit-01-app
-
-
----
-
-### KP-000031 – event_processing/unclassified 🌐 🔴
-
-**Problem Key:** `UNKNOWN:event_processing:unclassified`
-**First seen:** 2026-01-15 00:37
-**Last seen:** 2026-01-30 11:17
-**Occurrences:** 25,528
-**Fingerprints:** 500
-
-**Apps:** bl-pcb-card-georisk-v1, bl-pcb-design-lifecycle-v1, bl-pcb-event-processor-relay-v1, bl-pcb-notification-v1, bl-pcb-token-v1...
-**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
-
----
-
-### KP-000170 – unknown/null_pointer 🔀 🔴
-
-**Problem Key:** `UNKNOWN:unknown:null_pointer`
-**First seen:** 2026-01-15 14:33
-**Last seen:** 2026-01-30 09:58
-**Occurrences:** 0
-**Fingerprints:** 10
-
-**Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-sit-01-app
 
 
 ---
@@ -4230,20 +4426,6 @@ _Total fingerprints: 21846_
 
 **Apps:** bl-pcb-card-georisk-v1, bl-pcb-client-rainbow-status-v1, bl-pcb-design-lifecycle-v1, bl-pcb-document-signing-v1
 **Namespaces:** pcb-dev-01-app, pcb-fat-01-app
-
-
----
-
-### KP-000147 – design_lifecycle/not_found_error 📍 🔴
-
-**Problem Key:** `UNKNOWN:design_lifecycle:not_found_error`
-**First seen:** 2026-01-23 01:46
-**Last seen:** 2026-01-23 01:46
-**Occurrences:** 0
-**Fingerprints:** 1
-
-**Apps:** bl-pcb-design-lifecycle-v1
-**Namespaces:** pcb-dev-01-app
 
 
 ---

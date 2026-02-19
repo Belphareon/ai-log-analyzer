@@ -21,9 +21,10 @@ import argparse
 import json
 import atexit
 import signal
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Tuple, Optional, Any
+from typing import Dict, Tuple, Optional, Any, List
 
 # Add paths
 SCRIPT_DIR = Path(__file__).parent
@@ -33,6 +34,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry
+from core.baseline_loader import BaselineLoader
 from pipeline import PipelineV6
 from pipeline.incident import IncidentCollection
 
@@ -95,6 +97,194 @@ except ImportError:
 # =============================================================================
 
 _registry: Optional[ProblemRegistry] = None
+
+
+def _floor_to_window(ts: datetime, window_minutes: int) -> datetime:
+    if not ts:
+        return ts
+    minute = (ts.minute // window_minutes) * window_minutes
+    return ts.replace(minute=minute, second=0, microsecond=0)
+
+
+def _normalize_message_for_dedup(message: str) -> str:
+    if not message:
+        return ""
+    normalized = message
+    normalized = re.sub(r'[0-9a-fA-F]{8,}', '<ID>', normalized)
+    normalized = re.sub(r'\d+', '<ID>', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return normalized.lower()
+
+
+def _select_trace_steps(flow, max_steps: int = 7, min_steps: int = 5) -> List[Any]:
+    if not flow or not getattr(flow, 'steps', None):
+        return []
+
+    unique_steps = []
+    seen = set()
+    for step in flow.steps:
+        app = getattr(step, 'app', '?')
+        msg = getattr(step, 'message', '')
+        key = (app, _normalize_message_for_dedup(msg))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_steps.append(step)
+
+    if len(unique_steps) <= max_steps:
+        return unique_steps
+
+    head_count = max_steps - 1
+    selected = unique_steps[:head_count]
+    last = unique_steps[-1]
+    if last not in selected:
+        selected.append(last)
+    return selected
+
+
+def _severity_icon_for_peak(score: float, ratio: Optional[float]) -> str:
+    if ratio is not None:
+        if ratio >= 100:
+            return '🔴'
+        if ratio >= 10:
+            return '🟠'
+        if ratio >= 3:
+            return '🟡'
+        return '⚪'
+
+    if score >= 80:
+        return '🔴'
+    if score >= 60:
+        return '🟠'
+    if score >= 40:
+        return '🟡'
+    return '⚪'
+
+
+def _select_peak_problem(problems: Dict[str, Any]) -> Optional[Any]:
+    if not problems:
+        return None
+
+    peak_problems = [p for p in problems.values() if p.has_spike or p.has_burst]
+    if not peak_problems:
+        return None
+
+    peak_problems.sort(key=lambda p: (p.max_score, p.total_occurrences), reverse=True)
+    return peak_problems[0]
+
+
+def _build_peak_notification(
+    problem: Any,
+    trace_flows: Dict[str, List[Any]],
+    known_peaks: Dict[str, Any],
+    window_start: datetime,
+    window_end: datetime,
+    window_minutes: int
+) -> Optional[str]:
+    if not problem:
+        return None
+
+    peak_type = 'SPIKE' if problem.has_spike else 'BURST'
+    peak_key = f"PEAK:{problem.category}:{problem.flow}:{peak_type.lower()}"
+
+    known_peak = known_peaks.get(peak_key)
+    is_known = known_peak is not None
+    is_continues = False
+    if known_peak and known_peak.last_seen:
+        is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes))
+
+    known_label = "NEW"
+    if is_known:
+        known_label = f"KNOWN ({known_peak.id})"
+
+    peak_window_start = _floor_to_window(known_peak.first_seen, window_minutes) if (is_continues and known_peak and known_peak.first_seen) else window_start
+    peak_window_start_text = peak_window_start.strftime('%Y-%m-%d %H:%M') if peak_window_start else window_start.strftime('%Y-%m-%d %H:%M')
+    peak_window_end_text = window_end.strftime('%Y-%m-%d %H:%M') if window_end else ""
+
+    ratio = None
+    ratio_incident = None
+    for inc in problem.incidents:
+        if not (inc.flags.is_spike or inc.flags.is_burst):
+            continue
+        if inc.stats.baseline_rate > 0:
+            r = inc.stats.current_rate / inc.stats.baseline_rate
+            if ratio is None or r > ratio:
+                ratio = r
+                ratio_incident = inc
+
+    icon = _severity_icon_for_peak(problem.max_score, ratio)
+
+    header_title = "Peak CONTINUES" if is_continues else "Peak"
+    lines = [
+        "─" * 50,
+        f"{icon} {header_title}: {problem.category} / {problem.error_class} — {known_label}",
+        "─" * 50,
+    ]
+
+    lines.append(f"Severity: {problem.max_severity.upper()} (score: {problem.max_score:.0f})")
+    lines.append(f"Occurrences: {problem.total_occurrences:,} across {problem.incident_count} incidents")
+
+    if is_continues:
+        lines.append(f"Window: {peak_window_start_text}")
+    else:
+        lines.append(f"Window: {peak_window_start_text} - {peak_window_end_text}")
+
+    if problem.first_seen and problem.last_seen:
+        duration_sec = int((problem.last_seen - problem.first_seen).total_seconds())
+        lines.append(
+            f"Event time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - "
+            f"{problem.last_seen.strftime('%H:%M')} ({duration_sec}s)"
+        )
+
+    ns_count = len(problem.namespaces)
+    if ns_count <= 1:
+        lines.append(f"Scope: {len(problem.apps)} apps")
+    else:
+        lines.append(f"Scope: {len(problem.apps)} apps, {ns_count} namespaces")
+    if problem.apps:
+        lines.append(f"  Apps: {', '.join(sorted(problem.apps)[:5])}")
+    if problem.namespaces:
+        if ns_count <= 1:
+            lines.append(f"  Namespace: {', '.join(sorted(problem.namespaces)[:1])}")
+        else:
+            lines.append(f"  Namespaces: {', '.join(sorted(problem.namespaces)[:5])}")
+
+    flow_list = trace_flows.get(problem.problem_key, []) if trace_flows else []
+    flow = flow_list[0] if flow_list else None
+
+    if flow and getattr(flow, 'steps', None):
+        lines.append("")
+        lines.append(f"Behavior (trace flow): {len(flow.steps)} messages")
+        lines.append(f"TraceID: {flow.trace_id}")
+        lines.append("")
+
+        steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
+        for step in steps:
+            app = getattr(step, 'app', '?')
+            msg = getattr(step, 'message', '')
+            lines.append(f"{app}")
+            lines.append(f"\"{msg}\"")
+
+    if not is_continues and getattr(problem, 'trace_root_cause', None):
+        rc = problem.trace_root_cause
+        confidence = rc.get('confidence', 'unknown')
+        lines.append("")
+        lines.append(f"Inferred root cause [{confidence}]:")
+        lines.append(f"  - {rc.get('service', '?')}: {rc.get('message', '')}")
+
+    if not is_continues:
+        propagation = getattr(problem, 'propagation_result', None)
+        if propagation and propagation.service_count > 1:
+            lines.append("")
+            lines.append(f"Propagation [{propagation.propagation_type}]:")
+            lines.append(f"  {propagation.to_short_string()}")
+            if propagation.propagation_time_ms > 0:
+                total_sec = int(propagation.propagation_time_ms / 1000)
+                minutes = total_sec // 60
+                seconds = total_sec % 60
+                lines.append(f"  Duration: {minutes}m {seconds}s")
+
+    return "\n".join(lines)
 
 
 # =============================================================================
@@ -208,7 +398,9 @@ def init_registry() -> Optional[ProblemRegistry]:
     """Initialize registry"""
     global _registry
     
-    registry_dir = SCRIPT_DIR.parent / 'registry'
+    # IMPORTANT: Registry MUST be on persistence volume!
+    registry_base = os.getenv('REGISTRY_DIR') or '/app/data/registry'
+    registry_dir = Path(registry_base)
     _registry = ProblemRegistry(str(registry_dir))
     _registry.load()
     
@@ -353,6 +545,42 @@ def run_regular_phase(
     result['error_count'] = len(errors)
     print(f"   📥 Fetched {len(errors):,} errors")
     
+    known_peaks_snapshot = dict(registry.peaks) if registry else {}
+
+    # ==========================================================================
+    # LOAD HISTORICAL BASELINE FROM DB
+    # ==========================================================================
+    historical_baseline = {}
+    try:
+        db_conn = get_db_connection()
+        baseline_loader = BaselineLoader(db_conn)
+        
+        # Zjisti jaké error_types jsou v aktuálním okně
+        if errors:
+            # Zjisti error_type z normalizace
+            from pipeline.phase_a_parse import PhaseA_Parser
+            parser = PhaseA_Parser()
+            sample_error_types = set()
+            for error in errors[:1000]:  # Sample prvních 1000
+                msg = error.get('message', '')
+                error_type = parser.extract_error_type(msg)
+                if error_type and error_type != 'Unknown':
+                    sample_error_types.add(error_type)
+            
+            # Načti baseline pro tyto error_types
+            if sample_error_types:
+                historical_baseline = baseline_loader.load_historical_rates(
+                    error_types=list(sample_error_types),
+                    lookback_days=7,
+                    min_samples=3
+                )
+                print(f"   📊 Loaded baseline for {len(historical_baseline)} error types")
+        
+        db_conn.close()
+    except Exception as e:
+        print(f"   ⚠️ Baseline loading failed (non-blocking): {e}")
+        historical_baseline = {}
+
     # ==========================================================================
     # RUN PIPELINE
     # ==========================================================================
@@ -360,6 +588,9 @@ def run_regular_phase(
         spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
         ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
     )
+    
+    # ← NOVÉ: Injektuj historické baseline do Phase B
+    pipeline.phase_b.historical_baseline = historical_baseline
     
     # Inject known fingerprints from registry
     pipeline.phase_c.known_fingerprints = registry.get_all_known_fingerprints().copy()
@@ -408,6 +639,10 @@ def run_regular_phase(
         print(f"   New problems: {stats['new_problems_added']}")
         print(f"   New peaks: {stats['new_peaks_added']}")
     
+    problem_report_text = None
+    enriched_problems = None
+    peak_trace_flows = None
+
     # ==========================================================================
     # PROBLEM-CENTRIC ANALYSIS (V6.1)
     # ==========================================================================
@@ -420,6 +655,7 @@ def run_regular_phase(
 
         # 2. Získej reprezentativní traces
         trace_flows = get_representative_traces(problems)
+        peak_trace_flows = trace_flows
 
         # 3. Generuj problem-centric report
         report_dir = output_dir or str(SCRIPT_DIR / 'reports')
@@ -431,9 +667,11 @@ def run_regular_phase(
             analysis_end=window_end,
             run_id=run_id,
         )
+        enriched_problems = generator.problems
 
         # Textový report (zkrácený pro 15-min okno)
         problem_report = generator.generate_text_report(max_problems=10)
+        problem_report_text = problem_report
 
         # Print jen summary pro 15-min
         lines = problem_report.split('\n')
@@ -481,42 +719,47 @@ def run_regular_phase(
     print("=" * 70)
     
     # ==========================================================================
-    # SEND TEAMS NOTIFICATION (ONLY IF CRITICAL ISSUES DETECTED)
+    # SEND PEAKS NOTIFICATION (EMAIL ONLY)
     # ==========================================================================
     if HAS_TEAMS and collection.incidents:
         try:
-            # Check if any incident has spike/burst/critical flags
-            has_critical = any(
-                inc.flags.is_spike or inc.flags.is_burst or inc.score >= 80
-                for inc in collection.incidents
+            peaks_detected = sum(
+                1 for inc in collection.incidents
+                if inc.flags.is_spike or inc.flags.is_burst
             )
-            
-            if has_critical:
+            spikes_count = sum(1 for inc in collection.incidents if inc.flags.is_spike)
+            bursts_count = sum(1 for inc in collection.incidents if inc.flags.is_burst)
+
+            if peaks_detected > 0 and enriched_problems:
+                peak_problem = _select_peak_problem(enriched_problems)
+                peak_message = _build_peak_notification(
+                    peak_problem,
+                    peak_trace_flows or {},
+                    known_peaks_snapshot,
+                    window_start,
+                    window_end,
+                    window_minutes
+                )
                 notifier = TeamsNotifier()
                 if notifier.is_enabled():
-                    critical_count = sum(
-                        1 for inc in collection.incidents 
-                        if inc.flags.is_spike or inc.flags.is_burst or inc.score >= 80
+                    registry_stats = _registry.get_stats() if _registry else {}
+                    notifier.send_regular_phase_completed(
+                        new_incidents=result.get('incidents', 0),
+                        total_processed=collection.total_incidents,
+                        peaks_detected=peaks_detected,
+                        errors=result.get('error_count', 0),
+                        registry_updated=bool(collection.incidents),
+                        duration_seconds=(datetime.now(timezone.utc) - now).total_seconds(),
+                        problem_report=None,
+                        peaks_info={
+                            'total': peaks_detected,
+                            'new': registry_stats.get('new_peaks_added', 0),
+                            'spikes': spikes_count,
+                            'bursts': bursts_count
+                        },
+                        summary_override=peak_message
                     )
-                    notifier.send_message({
-                        "@type": "MessageCard",
-                        "@context": "https://schema.org/extensions",
-                        "summary": f"⚠️ Alert - {critical_count} critical issues detected",
-                        "themeColor": "ff3333",
-                        "sections": [
-                            {
-                                "activityTitle": "⚠️ CRITICAL ISSUES DETECTED",
-                                "activitySubtitle": f"Window: {window_start.strftime('%H:%M')} - {window_end.strftime('%H:%M')}",
-                                "facts": [
-                                    {"name": "Critical Issues", "value": str(critical_count)},
-                                    {"name": "Total Incidents", "value": str(collection.total_incidents)},
-                                    {"name": "Spikes", "value": str(sum(1 for inc in collection.incidents if inc.flags.is_spike))},
-                                    {"name": "Bursts", "value": str(sum(1 for inc in collection.incidents if inc.flags.is_burst))},
-                                ]
-                            }
-                        ]
-                    })
-                    print("✅ Critical alert sent to Teams")
+                    print("✅ Peaks notification sent")
         except Exception as e:
             print(f"⚠️ Teams notification failed: {e}")
             # Fallback to email for critical alerts

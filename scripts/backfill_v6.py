@@ -216,6 +216,7 @@ def check_day_processed(date: datetime) -> bool:
         cursor.execute("""
             SELECT COUNT(*) FROM ailog_peak.peak_investigation
             WHERE timestamp >= %s AND timestamp <= %s
+              AND detection_method = 'v6_backfill'
         """, (date_start, date_end))
         
         count = cursor.fetchone()[0]
@@ -587,7 +588,10 @@ def run_backfill(
     # ==========================================================================
     # LOAD REGISTRY (CRITICAL!)
     # ==========================================================================
-    registry_dir = SCRIPT_DIR.parent / 'registry'
+    # IMPORTANT: Registry MUST be on persistence volume!
+    # Use REGISTRY_DIR env var if set, otherwise default to /app/data/registry
+    registry_base = os.getenv('REGISTRY_DIR') or '/app/data/registry'
+    registry_dir = Path(registry_base)
     init_registry(str(registry_dir))
     
     # ==========================================================================
@@ -743,6 +747,8 @@ def run_backfill(
             incidents = r.get('incidents', 0)
             safe_print(f" {status_icon} {r['date']}: {incidents} incidents, {saved} saved")
     
+    last_report_path = None
+
     # ==========================================================================
     # PROBLEM-CENTRIC ANALYSIS REPORT (V6)
     # ==========================================================================
@@ -781,22 +787,22 @@ def run_backfill(
         _global_problem_report = problem_report
 
         # Ulož reporty
-        if output_dir:
-            report_files = generator.save_reports(output_dir, prefix="problem_report")
-            safe_print(f"\n📄 Problem reports saved:")
-            safe_print(f"   Text: {report_files.get('text')}")
-            safe_print(f"   JSON: {report_files.get('json')}")
+        report_files = generator.save_reports(reports_dir, prefix="problem_report")
+        last_report_path = report_files.get('text')
+        safe_print(f"\n📄 Problem reports saved:")
+        safe_print(f"   Text: {report_files.get('text')}")
+        safe_print(f"   JSON: {report_files.get('json')}")
 
-            # CSV exporty
-            exporter = ProblemExporter(
-                problems=problems,
-                run_id=all_incidents_collection.run_id,
-                analysis_date=datetime.now(timezone.utc),
-            )
-            csv_files = exporter.export_all(output_dir)
-            safe_print(f"\n📊 CSV exports saved:")
-            for name, path in csv_files.items():
-                safe_print(f"   {name}: {path}")
+        # CSV exporty
+        exporter = ProblemExporter(
+            problems=problems,
+            run_id=all_incidents_collection.run_id,
+            analysis_date=datetime.now(timezone.utc),
+        )
+        csv_files = exporter.export_all(reports_dir)
+        safe_print(f"\n📊 CSV exports saved:")
+        for name, path in csv_files.items():
+            safe_print(f"   {name}: {path}")
 
     elif all_incidents_collection.total_incidents > 0:
         # Fallback: Legacy incident report
@@ -847,7 +853,9 @@ def run_backfill(
     # EXPORT TABLES (CSV, MD, JSON)
     # ==========================================================================
     if HAS_EXPORTS and _global_registry is not None:
-        exports_dir = output_dir or (SCRIPT_DIR / 'exports')
+        # CRITICAL: Always export to SCRIPT_DIR/exports, NOT to --output dir
+        # CSV uploader expects files in /app/scripts/exports/latest/
+        exports_dir = SCRIPT_DIR / 'exports'
         safe_print(f"\n📊 Exporting tables to {exports_dir}...")
 
         try:
@@ -865,7 +873,7 @@ def run_backfill(
     # ==========================================================================
     # PUBLISH TO CONFLUENCE
     # ==========================================================================
-    if _global_problem_report and output_dir:
+    if _global_problem_report:
         try:
             safe_print("\n📋 Publishing to Confluence...")
             # Dynamic import to avoid requiring recent_incidents_publisher at startup
@@ -875,7 +883,7 @@ def run_backfill(
             pub_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(pub_module)
             
-            if pub_module.main():
+            if pub_module.main(report_path=last_report_path):
                 safe_print("✅ Confluence published successfully")
             else:
                 safe_print("⚠️ Confluence publication skipped or failed")
@@ -898,7 +906,8 @@ def run_backfill(
                     saved_count=total_saved,
                     registry_updates={
                         'problems': registry_stats.get('new_problems_added', 0),
-                        'peaks': registry_stats.get('new_peaks_added', 0),
+                        'total_peaks': registry_stats.get('total_peaks', 0),
+                        'new_peaks': registry_stats.get('new_peaks_added', 0),
                     },
                     duration_minutes=(datetime.now(timezone.utc) - now).total_seconds() / 60.0,
                     problem_report=_global_problem_report

@@ -75,25 +75,45 @@ class PhaseA_Parser:
     """
     
     # Patterns pro normalizaci (odstranění variabilních částí)
+    # DŮLEŽITÉ: Pořadí je důležité - specifičtější patterns musí být první!
     NORMALIZE_PATTERNS = [
         # UUIDs
         (r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<UUID>'),
-        # Long numbers (IDs)
-        (r'\b\d{10,}\b', '<ID>'),
-        # Short IDs in context
-        (r'(?:id|Id|ID)[=:\s]+\d+', 'id=<ID>'),
+        
+        # BUSINESS IDs v kontextu (Account, Card, Case, etc.)
+        # "Account 100245451 (in CMS)" → "Account <ID> (in CMS)"
+        (r'(?:Account|account)\s+\d{5,}', 'Account <ID>'),
+        (r'(?:Card|card)\s+\d{5,}', 'Card <ID>'),
+        (r'(?:case|Case)\s+\d{5,}', 'case <ID>'),
+        (r'(?:request|Request|RequestId)\s+\d{5,}', 'Request <ID>'),
+        (r'(?:transaction|Transaction|TxId)\s+\d{5,}', 'Transaction <ID>'),
+        (r'(?:order|Order|OrderId)\s+\d{5,}', 'Order <ID>'),
+        (r'(?:document|Document|DocId)\s+\d{5,}', 'Document <ID>'),
+        
         # IP addresses
         (r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}', '<IP>'),
+        
         # Timestamps in message
         (r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?', '<TS>'),
+        
         # Hex strings
         (r'0x[0-9a-fA-F]+', '<HEX>'),
+        
         # Port numbers
         (r':(\d{4,5})\b', ':<PORT>'),
+        
         # Memory addresses
         (r'@[0-9a-f]{6,}', '@<ADDR>'),
+        
         # File paths with numbers
         (r'/\d+/', '/<NUM>/'),
+        
+        # Generic large numbers (IDs) - min 5 číslic v běžném kontextu
+        (r'\b\d{5,}\b', '<ID>'),
+        
+        # Short IDs in context (id=123, Id:456)
+        (r'(?:id|Id|ID)[=:\s]+\d+', 'id=<ID>'),
+        
         # Query parameters
         (r'\?\S+', '?<PARAMS>'),
     ]
@@ -135,6 +155,8 @@ class PhaseA_Parser:
         
         Vstup: "java.lang.NullPointerException: ..."
         Výstup: "NullPointerException"
+        
+        NOTE: Tato metoda se nyní volá z extract_error_type_rich() která zkouší více zdrojů
         """
         for pattern in self._error_type_compiled:
             match = pattern.search(msg)
@@ -155,6 +177,58 @@ class PhaseA_Parser:
         if 'connection' in msg.lower() and ('refused' in msg.lower() or 'failed' in msg.lower()):
             return 'ConnectionError'
         
+        return 'UnknownError'
+    
+    def extract_error_type_rich(self, error: dict) -> str:
+        """
+        Extrahuje error type z více zdrojů s fallback logikou.
+        
+        Zkouší v pořadí:
+        1. exception.type field (když je k dispozici)
+        2. error.type nebo error_type field
+        3. Parse z message (původní logika)
+        4. HTTP status code
+        5. Fallback: 'UnknownError'
+        """
+        # 1. Try exception.type field (best source if available)
+        exception_type = error.get('exception.type') or error.get('exception', {}).get('type') if isinstance(error.get('exception'), dict) else None
+        if exception_type:
+            return str(exception_type).split('.')[-1]  # Get just the class name without package
+        
+        # 2. Try structured error type fields
+        for field in ['error.type', 'error_type', 'errorType', 'error_class']:
+            value = error.get(field)
+            if value and isinstance(value, str):
+                return value
+        
+        # 3. Try to extract from stack_trace if present
+        stack_trace = error.get('stack_trace') or error.get('stackTrace')
+        if stack_trace and isinstance(stack_trace, str):
+            match = re.search(r'(\w+(?:Exception|Error))', stack_trace)
+            if match:
+                return match.group(1)
+        
+        # 4. Parse from message (original logic)
+        msg = error.get('message', '')
+        if msg:
+            error_type = self.extract_error_type(msg)
+            if error_type != 'UnknownError':
+                return error_type
+        
+        # 5. HTTP status code fallback
+        http_code = error.get('http.status_code')
+        if http_code:
+            code = int(http_code) if isinstance(http_code, str) else http_code
+            if code == 404:
+                return 'NotFoundError'
+            if code in (500, 503):
+                return 'ServerError'
+            if code == 401:
+                return 'UnauthorizedError'
+            if code == 403:
+                return 'ForbiddenError'
+        
+        # 6. Default fallback
         return 'UnknownError'
     
     def generate_fingerprint(self, normalized_message: str, error_type: str) -> str:
@@ -256,8 +330,8 @@ class PhaseA_Parser:
         # Normalize message
         normalized_message = self.normalize_message(raw_message)
 
-        # Extract error type
-        error_type = self.extract_error_type(raw_message)
+        # Extract error type (RICH version that tries multiple sources)
+        error_type = self.extract_error_type_rich(error)
 
         # Generate fingerprint
         fingerprint = self.generate_fingerprint(normalized_message, error_type)

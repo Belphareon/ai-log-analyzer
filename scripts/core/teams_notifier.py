@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 """
-Teams Webhook Integration
-=========================
+Teams Notification (Email Only)
+===============================
 
-Sends notifications to Microsoft Teams about backfill and regular phase completion.
+Sends notifications about backfill and regular phase completion.
+Teams webhook is disabled (CNTLM required in pod).
 
 Environment Variables:
-    TEAMS_WEBHOOK_URL: Microsoft Teams Incoming Webhook URL
     TEAMS_ENABLED: true/false (default: false)
-    TEAMS_EMAIL: Teams channel email as fallback (e.g., xxx@emea.teams.ms)
+    TEAMS_USE_EMAIL_PRIMARY: true/false (default: true)
 """
 
 import os
-import requests
-from datetime import datetime
-from typing import Optional, Dict, Any
-from pathlib import Path
+from typing import Optional, Dict
 
 try:
     from core.email_notifier import EmailNotifier
@@ -25,44 +22,86 @@ except ImportError:
 
 
 class TeamsNotifier:
-    """Sends formatted messages to Microsoft Teams via Incoming Webhook."""
-    
+    """Sends formatted messages via email (Teams webhook disabled)."""
+
     def __init__(self):
-        self.webhook_url = os.getenv('TEAMS_WEBHOOK_URL', '').strip()
         self.enabled = os.getenv('TEAMS_ENABLED', 'false').lower() in ('true', '1', 'yes')
         self.host = os.getenv('HOSTNAME', 'unknown-host')
         self.env = os.getenv('ENVIRONMENT', 'production')
-        # Email is PRIMARY when webhook DNS fails
         self.email_notifier = EmailNotifier() if HAS_EMAIL else None
         self.use_email_primary = os.getenv('TEAMS_USE_EMAIL_PRIMARY', 'true').lower() in ('true', '1', 'yes')
-    
+
     def is_enabled(self) -> bool:
-        """Check if Teams notifications are enabled."""
-        return self.enabled and bool(self.webhook_url)
-    
-    def _send_message(self, message_body: Dict[str, Any]) -> bool:
-        """Send message to Teams webhook."""
-        if not self.is_enabled():
-            return False
-        
-        try:
-            response = requests.post(
-                self.webhook_url,
-                json=message_body,
-                timeout=10
-            )
-            response.raise_for_status()
-            return True
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Failed to send Teams webhook: {e}")
-            
-            # Try email fallback
-            if self.email_notifier and self.email_notifier.is_enabled():
-                print("📧 Attempting email fallback...")
-                # Email fallback handled in send_backfill_completed
-            
-            return False
-    
+        """Check if notifications are enabled."""
+        return self.enabled and self.email_notifier is not None and self.email_notifier.is_enabled()
+
+    def _build_report_snippet(
+        self,
+        problem_report: Optional[str],
+        peaks_info: Optional[Dict[str, int]] = None
+    ) -> str:
+        if not problem_report:
+            return ""
+
+        import re
+
+        lines = []
+
+        # Header
+        header_match = re.search(
+            r'Period: (.+?)\nGenerated: (.+?)\nRun ID: (.+?)(?:\n|$)',
+            problem_report
+        )
+        if header_match:
+            period, generated, run_id = header_match.groups()
+            lines.extend([
+                f"Period: {period}",
+                f"Generated: {generated}",
+                f"Run ID: {run_id}",
+                ""
+            ])
+
+        # Executive Summary
+        exec_match = re.search(
+            r'^-{70}\nEXECUTIVE SUMMARY\n-{70}\n(.*?)\n-{70}',
+            problem_report,
+            re.MULTILINE | re.DOTALL
+        )
+        if exec_match:
+            lines.append("Executive Summary")
+            for line in exec_match.group(1).strip().splitlines():
+                cleaned = line.lstrip()
+                if cleaned.startswith("- "):
+                    cleaned = cleaned[2:]
+                lines.append(cleaned)
+
+        # Peaks info
+        if peaks_info:
+            total_peaks = peaks_info.get('total')
+            new_peaks = peaks_info.get('new')
+            spikes = peaks_info.get('spikes')
+            bursts = peaks_info.get('bursts')
+
+            if total_peaks is not None or new_peaks is not None or spikes is not None or bursts is not None:
+                lines.append("")
+                parts = []
+                if total_peaks is not None and new_peaks is not None:
+                    known_peaks = max(total_peaks - new_peaks, 0)
+                    parts.append(f"Peaks: total {total_peaks} (known {known_peaks}, new {new_peaks})")
+                elif total_peaks is not None:
+                    parts.append(f"Peaks: total {total_peaks}")
+                elif new_peaks is not None:
+                    parts.append(f"Peaks: new {new_peaks}")
+
+                if spikes is not None:
+                    parts.append(f"Spikes: {spikes}")
+                if bursts is not None:
+                    parts.append(f"Bursts: {bursts}")
+
+                lines.extend(parts)
+
+        return "\n".join([l for l in lines if l is not None])
+
     def send_backfill_completed(
         self,
         days_processed: int,
@@ -74,89 +113,46 @@ class TeamsNotifier:
         duration_minutes: float,
         problem_report: str = None
     ) -> bool:
-        """Send completion notification for backfill.
-        
-        Strategy: Use EMAIL as PRIMARY method (webhook DNS often fails in K8s).
-        If email succeeds, skip webhook. If email fails, try webhook as fallback.
-        """
-        
-        # Extract EXECUTIVE SUMMARY from problem report if available
-        summary_text_plain = ""
-        if problem_report:
-            import re
-            match = re.search(
-                r'^-{70}\nEXECUTIVE SUMMARY\n-{70}\n(.*?)\n-{70}',
-                problem_report,
-                re.MULTILINE | re.DOTALL
-            )
-            if match:
-                summary_text_plain = match.group(1).strip()
-        
-        # === PRIMARY: Try email first (more reliable in K8s) ===
-        print(f"🔧 DEBUG: use_email_primary={self.use_email_primary}, email_notifier={self.email_notifier is not None}, is_enabled={self.email_notifier.is_enabled() if self.email_notifier else 'N/A'}")
-        if self.use_email_primary and self.email_notifier and self.email_notifier.is_enabled():
-            print("📧 Using email as primary notification method...")
-            success = self.email_notifier.send_backfill_completed(
-                days_processed=days_processed,
-                successful_days=successful_days,
-                failed_days=failed_days,
-                total_incidents=total_incidents,
-                saved_count=saved_count,
-                duration_minutes=duration_minutes,
-                summary=summary_text_plain
-            )
-            if success:
-                print("✅ Email notification sent successfully")
-                return True
-            else:
-                print("⚠️ Email notification failed, trying webhook as fallback...")
-        
-        # === FALLBACK: Try webhook ===
-        color = "28a745" if failed_days == 0 else "ffc107"
-        if summary_text_plain:
-            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\n**Run Summary:**\n\n{summary_text_plain}"
-        else:
-            text_content = f"**Log Analyzer run at {datetime.now().strftime('%m/%d/%Y %H:%M:%S')}**\n\nBackfill completed: {successful_days}/{days_processed} days processed, {total_incidents:,} incidents saved"
-        
-        message = {
-            "@type": "MessageCard",
-            "@context": "https://schema.org/extensions",
-            "summary": "Log Analyzer - Backfill completed",
-            "themeColor": color,
-            "sections": [{"text": text_content}]
-        }
-        
-        return self._send_message(message)
-    
+        """Send completion notification for backfill (email only)."""
+
+        if not (self.use_email_primary and self.email_notifier and self.email_notifier.is_enabled()):
+            print("⚠️ Email notifier not enabled")
+            return False
+
+        peaks_info = {
+            'total': registry_updates.get('total_peaks'),
+            'new': registry_updates.get('new_peaks')
+        } if registry_updates else None
+
+        report_snippet = self._build_report_snippet(problem_report, peaks_info=peaks_info)
+
+        success = self.email_notifier.send_backfill_completed(
+            days_processed=days_processed,
+            successful_days=successful_days,
+            failed_days=failed_days,
+            total_incidents=total_incidents,
+            saved_count=saved_count,
+            duration_minutes=duration_minutes,
+            summary=report_snippet
+        )
+
+        if success:
+            print("✅ Email notification sent successfully")
+            return True
+
+        print("⚠️ Email notification failed")
+        return False
+
     def send_backfill_error(
         self,
         error_message: str,
         days_attempted: int,
         error_count: int
     ) -> bool:
-        """Send error notification for backfill failures."""
-        
-        message = {
-            "@type": "MessageCard",
-            "@context": "https://schema.org/extensions",
-            "summary": f"Backfill error on {self.host}",
-            "themeColor": "dc3545",
-            "sections": [
-                {
-                    "activityTitle": "❌ Backfill Failed",
-                    "activitySubtitle": f"Host: {self.host} | Environment: {self.env}",
-                    "facts": [
-                        {"name": "Error Message", "value": error_message},
-                        {"name": "Days Attempted", "value": str(days_attempted)},
-                        {"name": "Errors", "value": str(error_count)},
-                        {"name": "Timestamp", "value": datetime.now().isoformat()},
-                    ]
-                }
-            ]
-        }
-        
-        return self._send_message(message)
-    
+        """Backfill error notification (webhook disabled)."""
+        print(f"⚠️ Backfill error: {error_message} (days_attempted={days_attempted}, error_count={error_count})")
+        return False
+
     def send_regular_phase_completed(
         self,
         new_incidents: int,
@@ -164,35 +160,33 @@ class TeamsNotifier:
         peaks_detected: int,
         errors: int,
         registry_updated: bool,
-        duration_seconds: float
+        duration_seconds: float,
+        problem_report: str = None,
+        peaks_info: Optional[Dict[str, int]] = None,
+        summary_override: Optional[str] = None
     ) -> bool:
-        """Send completion notification for regular 15-minute phase."""
-        
-        color = "28a745" if errors == 0 else "ffc107"
-        
-        message = {
-            "@type": "MessageCard",
-            "@context": "https://schema.org/extensions",
-            "summary": f"Regular phase completed on {self.host}",
-            "themeColor": color,
-            "sections": [
-                {
-                    "activityTitle": "✅ Regular Phase Completed",
-                    "activitySubtitle": f"Host: {self.host} | Environment: {self.env}",
-                    "facts": [
-                        {"name": "New Incidents", "value": str(new_incidents)},
-                        {"name": "Total Processed", "value": str(total_processed)},
-                        {"name": "Peaks Detected", "value": str(peaks_detected)},
-                        {"name": "Errors", "value": str(errors)},
-                        {"name": "Registry Updated", "value": "Yes" if registry_updated else "No"},
-                        {"name": "Duration", "value": f"{duration_seconds:.1f} seconds"},
-                        {"name": "Timestamp", "value": datetime.now().isoformat()},
-                    ]
-                }
-            ]
-        }
-        
-        return self._send_message(message)
+        """Send completion notification for regular 15-minute phase (email only)."""
+
+        if not (self.email_notifier and self.email_notifier.is_enabled()):
+            print("⚠️ Email notifier not enabled")
+            return False
+
+        report_snippet = self._build_report_snippet(problem_report, peaks_info=peaks_info)
+
+        summary = summary_override or report_snippet or (
+            f"Window completed with {new_incidents} new incidents, "
+            f"{peaks_detected} peaks, {errors} errors."
+        )
+
+        return self.email_notifier.send_backfill_completed(
+            days_processed=1,
+            successful_days=1 if errors == 0 else 0,
+            failed_days=1 if errors > 0 else 0,
+            total_incidents=total_processed,
+            saved_count=total_processed,
+            duration_minutes=duration_seconds / 60.0,
+            summary=summary
+        )
 
 
 # Singleton instance

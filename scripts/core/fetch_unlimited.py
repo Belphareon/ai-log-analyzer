@@ -50,7 +50,25 @@ def fetch_unlimited(date_from, date_to, batch_size=5000, retry=3):
             },
             "sort": [{"@timestamp": "asc"}],  # Required for search_after
             "size": batch_size,
-            "_source": ["message", "application.name", "@timestamp", "traceId", "kubernetes.labels.eamApplication", "kubernetes.namespace", "topic"]
+            "_source": [
+                "message", 
+                "application.name",
+                "@timestamp", 
+                "traceId",
+                "kubernetes.labels.eamApplication",
+                "kubernetes.namespace",
+                "topic",
+                # NEW: Additional fields for better error classification
+                "exception",                    # Java exception object
+                "exception.type",              # Exception class name
+                "error.type",                  # Generic error type field
+                "error_type",                  # App-specific error type
+                "errorType",                   # camelCase variant
+                "error.message",               # Structured error message
+                "service.name",                # Service that produced error
+                "http.status_code",            # HTTP status
+                "stack_trace",                 # For better analysis
+            ]
         }
         
         if search_after:

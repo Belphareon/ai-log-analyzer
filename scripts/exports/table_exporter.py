@@ -59,26 +59,43 @@ from core.problem_registry import ProblemRegistry, ProblemEntry, PeakEntry
 
 @dataclass
 class ErrorTableRow:
-    """Řádek v errors_table - operátorský view (V6)"""
+    """Řádek v errors_table - operátorský view (V6.2 - redesigned)
+    
+    Nové pořadí (priority):
+    1. First Seen / Last Seen - WHEN se to stalo
+    2. Occurrence - HOW MUCH (total + last 24h)
+    3. Trend - zda se to zhoršuje/zlepšuje
+    4. Root Cause - CO se děje (z enrichment)
+    5. Category - WHERE (jakého typu je to error)
+    6. Detail - KEY info (jméno metody, service, endpoint)
+    7. Informativní - Score, Ratio, Scope (na konci)
+    """
+    first_seen: str                 # ISO format (ZAČÁTEK)
+    last_seen: str                  # ISO format
+    occurrence_total: int           # Celkový počet
+    occurrence_24h: int             # Poslední 24 hodin
+    trend: str                      # ↑ increasing | → stable | ↓ decreasing + % změna
+    root_cause: str                 # Výsledek analysis (CO se stalo) - z enrichment script
+    category: str                   # Type (DB, Code, Auth, Infra, ...) 
+    detail: str                     # Klíčová info (metoda, service, endpoint, message snippet)
+    
+    # Originální pole (historické, ale zachované)
     problem_id: str
     problem_key: str
-    category: str
     flow: str
     error_class: str
     affected_apps: str              # comma-separated (deployment labels)
     affected_namespaces: str        # comma-separated
-    deployment_labels: str          # V6: explicitní deployment labels (app-v1, app-v2)
-    app_versions: str               # V6: POUZE semantic versions (3.5.0, 3.5.1)
-    fingerprint_count: int
-    occurrences: int
-    first_seen: str                 # ISO format
-    last_seen: str                  # ISO format
-    age_days: int
-    last_seen_days_ago: int
     scope: str                      # LOCAL, CROSS_NS, SYSTEMIC
     status: str                     # OPEN, MONITORING, RESOLVED
     jira: str                       # Jira ticket link
     notes: str                      # Human notes
+    
+    # Informativní (na konci pro zájemce)
+    severity: str                   # critical, high, medium, low
+    score: float                    # Skóre detekce (0-100)
+    ratio: float                    # Peak ratio vs. baseline
+
 
 
 @dataclass
@@ -130,47 +147,67 @@ class TableExporter:
     # =========================================================================
 
     def get_errors_rows(self) -> List[ErrorTableRow]:
-        """Převede Problem Registry na řádky tabulky."""
+        """Převede Problem Registry na řádky tabulky (nový design V6.2)."""
         rows = []
         now = datetime.now(timezone.utc)
 
         for problem_key, problem in self.registry.problems.items():
-            # Calculate age
-            age_days = 0
-            last_seen_days = 0
-
             first_seen = self._ensure_aware(problem.first_seen)
             last_seen = self._ensure_aware(problem.last_seen)
 
-            if first_seen:
-                age_days = (now - first_seen).days
-            if last_seen:
-                last_seen_days = (now - last_seen).days
-
-            # V6: Separate deployment_labels from app_versions
-            deployment_labels = ", ".join(sorted(problem.deployments_seen)[:10]) if problem.deployments_seen else ""
-            app_versions = ", ".join(sorted(problem.app_versions_seen)[:5]) if problem.app_versions_seen else ""
-
+            # Vypočítej trend (změna v poslední hodině)
+            occurrence_24h = len([
+                ts for ts in problem.occurrence_times
+                if self._ensure_aware(ts) and (now - self._ensure_aware(ts)).total_seconds() < 86400
+            ]) if hasattr(problem, 'occurrence_times') else 0
+            
+            if problem.occurrences > 0 and occurrence_24h > 0:
+                trend_pct = ((occurrence_24h - (problem.occurrences - occurrence_24h)) / (problem.occurrences - occurrence_24h)) * 100 if (problem.occurrences - occurrence_24h) > 0 else 0
+                if trend_pct > 5:
+                    trend = f"↑ +{trend_pct:.0f}%"
+                elif trend_pct < -5:
+                    trend = f"↓ {trend_pct:.0f}%"
+                else:
+                    trend = "→ stable"
+            else:
+                trend = "→ stable"
+            
+            # Root Cause - extract from description or analysis
+            # NOTE: ProblemEntry uses 'description' field, enrichment may populate it
+            root_cause = problem.description or "Unknown"
+            
+            # Detail - klíčová info (shorthand)
+            detail = f"{problem.error_class}"
+            if problem.flow:
+                detail = f"{detail} / {problem.flow[:30]}"
+            
             row = ErrorTableRow(
+                # NOVÉ POŘADÍ - V6.2
+                first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "Unknown",
+                last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "Unknown",
+                occurrence_total=problem.occurrences,
+                occurrence_24h=occurrence_24h,
+                trend=trend,
+                root_cause=root_cause,
+                category=problem.category,
+                detail=detail,
+                
+                # ORIGINÁLNÍ POLE (zachované pro kompatibilitu)
                 problem_id=problem.id,
                 problem_key=problem_key,
-                category=problem.category,
                 flow=problem.flow,
                 error_class=problem.error_class,
                 affected_apps=", ".join(sorted(problem.affected_apps)[:10]),
                 affected_namespaces=", ".join(sorted(problem.affected_namespaces)),
-                deployment_labels=deployment_labels,  # V6
-                app_versions=app_versions,            # V6: ONLY semantic versions
-                fingerprint_count=len(problem.fingerprints),
-                occurrences=problem.occurrences,
-                first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
-                last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
-                age_days=age_days,
-                last_seen_days_ago=last_seen_days,
                 scope=problem.scope,
                 status=problem.status,
                 jira=problem.jira or "",
                 notes=problem.notes or "",
+                
+                # INFORMATIVNÍ (na konci)
+                severity=getattr(problem, 'max_severity', 'unknown'),
+                score=float(getattr(problem, 'max_score', 0)),
+                ratio=float(getattr(problem, 'max_ratio', 1.0)) if hasattr(problem, 'max_ratio') else 1.0,
             )
             rows.append(row)
 
@@ -180,26 +217,35 @@ class TableExporter:
         return rows
 
     def export_errors_csv(self, output_path: str) -> str:
-        """Export errors jako CSV."""
+        """Export errors jako CSV (new design V6.2)."""
         rows = self.get_errors_rows()
 
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # NOVÉ pořadí sloupců - dle designu
+        fieldnames = [
+            'first_seen', 'last_seen', 'occurrence_total', 'occurrence_24h', 'trend',
+            'root_cause', 'category', 'detail',
+            # Historické
+            'problem_id', 'problem_key', 'flow', 'error_class', 
+            'affected_apps', 'affected_namespaces', 'scope', 'status', 'jira', 'notes',
+            # Informativní
+            'severity', 'score', 'ratio'
+        ]
+
         with open(path, 'w', newline='', encoding='utf-8') as f:
             if rows:
-                writer = csv.DictWriter(f, fieldnames=list(asdict(rows[0]).keys()))
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for row in rows:
-                    writer.writerow(asdict(row))
+                    row_dict = asdict(row)
+                    # Seřaď dle fieldnames
+                    ordered = {k: row_dict.get(k, '') for k in fieldnames}
+                    writer.writerow(ordered)
             else:
-                # Empty file with headers (V6 schema)
-                writer = csv.DictWriter(f, fieldnames=[
-                    'problem_id', 'problem_key', 'category', 'flow', 'error_class',
-                    'affected_apps', 'affected_namespaces', 'deployment_labels', 'app_versions',
-                    'fingerprint_count', 'occurrences', 'first_seen', 'last_seen',
-                    'age_days', 'last_seen_days_ago', 'scope', 'status', 'jira', 'notes'
-                ])
+                # Empty file with headers (V6.2 schema)
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 
         return str(path)
@@ -257,14 +303,14 @@ class TableExporter:
                 last_seen_short = row.last_seen[:10] if row.last_seen else "-"
                 lines.append(
                     f"| {row.problem_id} | {row.category} | {row.flow} | "
-                    f"{apps_short} | {row.occurrences:,} | {last_seen_short} | {row.status} |"
+                    f"{apps_short} | {row.occurrence_total:,} | {last_seen_short} | {row.status} |"
                 )
 
             # Detailed section for recent problems
-            recent_rows = [r for r in rows if r.last_seen_days_ago <= 7]
+            recent_rows = [r for r in rows if r.last_seen]  # Just check if has last_seen
             if recent_rows:
                 lines.append("")
-                lines.append("## Recent Problems (last 7 days)")
+                lines.append("## Recent Problems")
                 lines.append("")
 
                 for row in recent_rows[:20]:
@@ -272,11 +318,9 @@ class TableExporter:
                     lines.append("")
                     lines.append(f"- **Error class:** {row.error_class}")
                     lines.append(f"- **Scope:** {row.scope}")
-                    lines.append(f"- **Occurrences:** {row.occurrences:,}")
+                    lines.append(f"- **Occurrences:** {row.occurrence_total:,}")
                     lines.append(f"- **Apps:** {row.affected_apps}")
                     lines.append(f"- **Namespaces:** {row.affected_namespaces}")
-                    if row.app_versions:
-                        lines.append(f"- **Versions:** {row.app_versions}")
                     lines.append(f"- **First seen:** {row.first_seen}")
                     lines.append(f"- **Last seen:** {row.last_seen}")
                     if row.jira:
@@ -568,7 +612,7 @@ class TableExporter:
 
         # Filter to last 7 days
         week_ago = self.generated_at - timedelta(days=7)
-        recent_errors = [r for r in errors_rows if r.last_seen_days_ago <= 7]
+        recent_errors = [r for r in errors_rows if r.last_seen]  # Filter rows with timestamps
         recent_peaks = [r for r in peaks_rows
                         if r.last_seen and datetime.strptime(r.last_seen, "%Y-%m-%d %H:%M").replace(tzinfo=None) > week_ago.replace(tzinfo=None)]
 

@@ -102,7 +102,7 @@ spec:
           
           containers:
             - name: pipeline
-              image: harbor.kb.cz/ailog/ai-log-analyzer:latest
+              image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r23
               imagePullPolicy: Always
               
               command:
@@ -152,7 +152,7 @@ spec:
       
       containers:
         - name: init
-          image: harbor.kb.cz/ailog/ai-log-analyzer:latest
+          image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r23
           
           command:
             - python
@@ -189,7 +189,7 @@ spec:
       
       containers:
         - name: backfill
-          image: harbor.kb.cz/ailog/ai-log-analyzer:latest
+          image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r23
           
           command:
             - python

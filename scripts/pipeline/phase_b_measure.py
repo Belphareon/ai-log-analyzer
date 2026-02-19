@@ -140,10 +140,12 @@ class PhaseB_Measure:
         window_minutes: int = 15,
         ewma_alpha: float = 0.3,
         baseline_windows: int = 20,
+        historical_baseline: Dict[str, List[float]] = None,
     ):
         self.window_minutes = window_minutes
         self.ewma_alpha = ewma_alpha
         self.baseline_windows = baseline_windows
+        self.historical_baseline = historical_baseline or {}  # ← Historické baseline z DB
         
         self.history: Dict[str, List[float]] = defaultdict(list)
         self.baselines: Dict[str, BaselineStats] = {}
@@ -292,7 +294,13 @@ class PhaseB_Measure:
             current_count = window_counts.get(max_window_idx, 0)
             
             # Calculate baseline ONCE from historical rates (exclude current)
-            historical_rates = rates[:-1] if len(rates) > 1 else []
+            current_window_historical = rates[:-1] if len(rates) > 1 else []
+            
+            # ← NOVÉ: Kombinuj s DB historical baseline
+            historical_rates = current_window_historical
+            if fp in self.historical_baseline:
+                # Přidej DB historii před aktuální okno
+                historical_rates = self.historical_baseline[fp] + historical_rates
             
             if historical_rates:
                 ewma_rate = self._calculate_ewma(historical_rates)
