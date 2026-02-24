@@ -399,7 +399,7 @@ def init_registry() -> Optional[ProblemRegistry]:
     global _registry
     
     # IMPORTANT: Registry MUST be on persistence volume!
-    registry_base = os.getenv('REGISTRY_DIR') or '/app/data/registry'
+    registry_base = os.getenv('REGISTRY_DIR') or str(SCRIPT_DIR.parent / 'registry')
     registry_dir = Path(registry_base)
     _registry = ProblemRegistry(str(registry_dir))
     _registry.load()
@@ -592,7 +592,8 @@ def run_regular_phase(
     # ← NOVÉ: Injektuj historické baseline do Phase B
     pipeline.phase_b.historical_baseline = historical_baseline
     
-    # Inject known fingerprints from registry
+    # ← KRITICKÉ: Inject registry do Phase C (aby mohl dělat is_problem_key_known lookup!)
+    pipeline.phase_c.registry = registry
     pipeline.phase_c.known_fingerprints = registry.get_all_known_fingerprints().copy()
     
     run_id = f"regular-{now.strftime('%Y%m%d')}-{window_start.strftime('%H%M')}"
@@ -723,12 +724,20 @@ def run_regular_phase(
     # ==========================================================================
     if HAS_TEAMS and collection.incidents:
         try:
+            # OPRAVA: Rozšířit definici "peaks" aby včetně high-score problémů
+            # Původní: pouze spike OR burst
+            # Nově: spike OR burst OR high-score anomalies
             peaks_detected = sum(
                 1 for inc in collection.incidents
-                if inc.flags.is_spike or inc.flags.is_burst
+                if (inc.flags.is_spike or inc.flags.is_burst or 
+                    getattr(inc, 'score', 0) >= 70)  # Add high-score filter
             )
             spikes_count = sum(1 for inc in collection.incidents if inc.flags.is_spike)
             bursts_count = sum(1 for inc in collection.incidents if inc.flags.is_burst)
+            high_score_count = sum(
+                1 for inc in collection.incidents 
+                if getattr(inc, 'score', 0) >= 70 and not (inc.flags.is_spike or inc.flags.is_burst)
+            )
 
             if peaks_detected > 0 and enriched_problems:
                 peak_problem = _select_peak_problem(enriched_problems)
@@ -755,7 +764,8 @@ def run_regular_phase(
                             'total': peaks_detected,
                             'new': registry_stats.get('new_peaks_added', 0),
                             'spikes': spikes_count,
-                            'bursts': bursts_count
+                            'bursts': bursts_count,
+                            'high_score': high_score_count  # Add to info
                         },
                         summary_override=peak_message
                     )

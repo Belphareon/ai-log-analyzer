@@ -12,8 +12,8 @@ FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="6.0.8"
-LABEL description="AI Log Analyzer - Incident Detection Pipeline"
+LABEL version="6.5.2"
+LABEL description="AI Log Analyzer - v6.5.2 (fixed Confluence report regex, occurrence tracking, PhaseC lookup, registry merging)"
 
 # Set working directory
 WORKDIR /app

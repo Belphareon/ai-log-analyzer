@@ -102,7 +102,7 @@ spec:
           
           containers:
             - name: pipeline
-              image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r23
+              image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r24
               imagePullPolicy: Always
               
               command:
@@ -152,7 +152,7 @@ spec:
       
       containers:
         - name: init
-          image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r23
+          image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r24
           
           command:
             - python

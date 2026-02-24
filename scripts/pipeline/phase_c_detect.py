@@ -148,8 +148,11 @@ class PhaseC_Detect:
             return False
     
     def _detect_spike(self, measurement: MeasurementResult, result: DetectionResult) -> bool:
-        """Detekuje spike: current > baseline * threshold"""
-        # EWMA test
+        """Detekuje spike: current > baseline * threshold
+        
+        OPRAVA: Přidán fallback pro baseline=0 (nové error typy)
+        """
+        # Standard EWMA test
         if measurement.baseline_ewma > 0:
             ratio = measurement.current_rate / measurement.baseline_ewma
             if ratio > self.spike_threshold:
@@ -164,7 +167,7 @@ class PhaseC_Detect:
                 self.stats['detected_spike'] += 1
                 return True
         
-        # MAD test
+        # MAD test (robustnější na outliers)
         if measurement.baseline_mad > 0:
             mad_upper = measurement.baseline_median + (measurement.baseline_mad * self.spike_mad_threshold)
             if measurement.current_rate > mad_upper:
@@ -179,6 +182,23 @@ class PhaseC_Detect:
                 self.stats['detected_spike'] += 1
                 return True
         
+        # FALLBACK pro nové error typy (baseline=0):
+        # Pokud error rate je "podstatně vyšší" než obvyklý minimální počet eventy
+        # Klasifikuj jako spike aby se mohlo poslat notifikaci
+        if measurement.baseline_ewma == 0 and measurement.baseline_median == 0:
+            # Nový error typ - neměj historickou linii
+            # Pokud máš aspoň 5 errorů v 15-min okně, to je "spike" pro nový typ
+            if measurement.current_count >= 5:
+                result.flags.is_spike = True
+                result.add_evidence(
+                    rule="spike_new_error_type",
+                    current=measurement.current_count,
+                    threshold=5,
+                    message=f"new error type with {measurement.current_count} occurrences (no baseline)"
+                )
+                self.stats['detected_spike'] += 1
+                return True
+        
         return False
     
     def _detect_burst(
@@ -187,56 +207,57 @@ class PhaseC_Detect:
         fp_records: List,
         result: DetectionResult
     ) -> bool:
-        """Detekuje burst - přijímá UŽ FILTROVANÉ records"""
+        """Detekuje burst: max_count / avg_count > threshold (per spec).
+
+        Burst = náhlá LOKÁLNÍ koncentrace chyb v krátkém časovém okně.
+        Pravidlo: max(window_counts) / avg(window_counts) > burst_threshold
+
+        Nezávisí na historickém baseline (EWMA) — pouze porovnává
+        distribuci eventů uvnitř aktuálního okna.
+        Viz README_DETAILED.md, Phase C: Burst Detection.
+        """
         if len(fp_records) < 2:
             return False
-        
-        # Sort by timestamp
+
         sorted_records = sorted(
             [r for r in fp_records if r.timestamp],
             key=lambda r: r.timestamp
         )
-        
+
         if len(sorted_records) < 2:
             return False
-        
+
         # Capture event timestamps
         result.first_event_ts = sorted_records[0].timestamp
         result.last_event_ts = sorted_records[-1].timestamp
-        
-        # Sliding window with O(n) complexity
+
+        # Compute sliding window counts (O(n))
         window = timedelta(seconds=self.burst_window_sec)
         window_start_idx = 0
-        
+        window_counts = []
+
         for i, record in enumerate(sorted_records):
-            # Move window start forward
-            while (window_start_idx < i and 
+            while (window_start_idx < i and
                    sorted_records[window_start_idx].timestamp < record.timestamp - window):
                 window_start_idx += 1
-            
-            count_in_window = i - window_start_idx + 1
-            
-            if count_in_window < 3:
-                continue
-            
-            rate_per_min = count_in_window / (self.burst_window_sec / 60)
-            
-            if measurement.baseline_ewma > 0:
-                rate_change = rate_per_min / measurement.baseline_ewma
-                
-                if rate_change > self.burst_threshold:
-                    result.flags.is_burst = True
-                    result.add_evidence(
-                        rule="burst",
-                        baseline=measurement.baseline_ewma,
-                        current=rate_per_min,
-                        threshold=self.burst_threshold,
-                        message=f"rate_change ({rate_change:.2f}) > {self.burst_threshold}",
-                        timestamp=record.timestamp
-                    )
-                    self.stats['detected_burst'] += 1
-                    return True
-        
+            window_counts.append(i - window_start_idx + 1)
+
+        max_count = max(window_counts)
+        avg_count = sum(window_counts) / len(window_counts)
+        ratio = max_count / avg_count if avg_count > 0 else 0
+
+        if ratio > self.burst_threshold:
+            result.flags.is_burst = True
+            result.add_evidence(
+                rule="burst",
+                current=float(max_count),
+                threshold=self.burst_threshold,
+                message=f"max/avg ratio ({ratio:.2f}) > {self.burst_threshold} "
+                        f"({max_count} events in {self.burst_window_sec}s window, avg {avg_count:.1f})",
+            )
+            self.stats['detected_burst'] += 1
+            return True
+
         return False
     
     def _detect_new(

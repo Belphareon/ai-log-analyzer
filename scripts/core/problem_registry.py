@@ -86,23 +86,27 @@ class ProblemEntry:
     
     # Counts
     occurrences: int = 0
-    
+
+    # Track timestamps of last occurrences (max 100 for memory efficiency)
+    # Used for 24h trend calculation in CSV exports
+    occurrence_times: List[datetime] = field(default_factory=list)
+
     # Linked fingerprints (1:N)
     fingerprints: List[str] = field(default_factory=list)
-    
+
     # Sample error messages - CRITICAL for understanding what the problem is!
     sample_messages: List[str] = field(default_factory=list)
     description: str = ""  # Human-readable description / root cause
-    
+
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
     deployments_seen: Set[str] = field(default_factory=set)  # app-v1, app-v2
     app_versions_seen: Set[str] = field(default_factory=set)  # 4.65.2, 4.65.3
-    
+
     # Scope classification
     scope: str = "LOCAL"  # LOCAL, CROSS_NS, SYSTEMIC
-    
+
     # Status
     status: str = "OPEN"  # OPEN, ACKNOWLEDGED, RESOLVED, WONT_FIX
     jira: Optional[str] = None
@@ -119,6 +123,7 @@ class ProblemEntry:
             'first_seen': self.first_seen.isoformat() if self.first_seen else None,
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
+            'occurrence_times': [ts.isoformat() if isinstance(ts, datetime) else ts for ts in self.occurrence_times],
             'fingerprints': self.fingerprints,
             'sample_messages': self.sample_messages[:MAX_SAMPLE_MESSAGES_PER_FP],  # Limit samples
             'description': self.description,
@@ -149,6 +154,19 @@ class ProblemEntry:
             entry.last_seen = datetime.fromisoformat(data['last_seen'])
         
         entry.occurrences = data.get('occurrences', 0)
+        
+        # Load occurrence_times (deserialize from ISO strings)
+        occurrence_times_data = data.get('occurrence_times', [])
+        entry.occurrence_times = []
+        for ts_str in occurrence_times_data:
+            if isinstance(ts_str, str):
+                try:
+                    entry.occurrence_times.append(datetime.fromisoformat(ts_str))
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(ts_str, datetime):
+                entry.occurrence_times.append(ts_str)
+        
         entry.fingerprints = data.get('fingerprints', [])
         entry.sample_messages = data.get('sample_messages', [])
         entry.description = data.get('description', '')
@@ -560,7 +578,13 @@ class ProblemRegistry:
                 for item in data:
                     peak = PeakEntry.from_dict(item)
                     self.peaks[peak.problem_key] = peak
-                    
+
+                    # Index peak fingerprints so is_fingerprint_known() finds them
+                    # This ensures recurring peaks are not marked as NEW
+                    for fp in peak.fingerprints:
+                        if fp not in self.fingerprint_index:
+                            self.fingerprint_index[fp] = peak.problem_key
+
                     # Track max ID
                     if peak.id.startswith('PK-'):
                         try:
@@ -568,7 +592,7 @@ class ProblemRegistry:
                             self._peak_counter = max(self._peak_counter, num)
                         except ValueError:
                             pass
-                
+
                 self.stats['peaks_loaded'] = len(self.peaks)
                 
             except Exception as e:
@@ -956,6 +980,15 @@ class ProblemRegistry:
         
         # Update counts
         problem.occurrences += count
+        
+        # Track occurrence timestamps (keep max 100 for 24h trend calculation)
+        # Add last_ts to track when this problem occurred (keep recent timestamps)
+        if last_ts:
+            problem.occurrence_times.append(last_ts)
+            # Keep only last 100 timestamps (memory efficient)
+            if len(problem.occurrence_times) > 100:
+                # Remove oldest ones to keep only last 100
+                problem.occurrence_times = problem.occurrence_times[-100:]
         
         # Add fingerprint if new (with limit)
         if fingerprint not in problem.fingerprints:

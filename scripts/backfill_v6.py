@@ -341,7 +341,12 @@ def update_registry_from_incidents(
 
 
 def save_registry():
-    """Uloží registry na disk."""
+    """
+    Uloží registry na disk.
+    
+    KRITICKÉ: Po save(), znova načteme registry z disku aby jsme se ujistil,
+    že máme nejnovější data (v případě concurrent regular phase updates).
+    """
     global _global_registry
     
     if _global_registry is None:
@@ -353,6 +358,11 @@ def save_registry():
         stats = _global_registry.get_stats()
         safe_print(f"   Problems: {stats['total_problems']} ({stats['new_problems_added']} new)")
         safe_print(f"   Peaks: {stats['total_peaks']} ({stats['new_peaks_added']} new)")
+        
+        # CRITICAL: Reload from disk to pick up any concurrent updates from regular_phase
+        # This ensures we don't lose data due to race conditions
+        safe_print(f"   Reloading from disk to sync concurrent updates...")
+        _global_registry.load()
 
 
 # =============================================================================
@@ -419,7 +429,9 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
             )
             
-            # Inject known fingerprints
+            # Inject registry into Phase C (critical for is_problem_key_known() lookup!)
+            if registry:
+                pipeline.phase_c.registry = registry
             pipeline.phase_c.known_fingerprints = known_fps.copy()
             
             collection = pipeline.run(errors, run_id=f"backfill-{date.strftime('%Y%m%d')}")
@@ -589,8 +601,8 @@ def run_backfill(
     # LOAD REGISTRY (CRITICAL!)
     # ==========================================================================
     # IMPORTANT: Registry MUST be on persistence volume!
-    # Use REGISTRY_DIR env var if set, otherwise default to /app/data/registry
-    registry_base = os.getenv('REGISTRY_DIR') or '/app/data/registry'
+    # Use REGISTRY_DIR env var if set, otherwise fall back to project registry/ dir
+    registry_base = os.getenv('REGISTRY_DIR') or str(SCRIPT_DIR.parent / 'registry')
     registry_dir = Path(registry_base)
     init_registry(str(registry_dir))
     

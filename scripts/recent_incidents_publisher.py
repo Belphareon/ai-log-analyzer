@@ -62,8 +62,9 @@ def extract_report_content(report_path):
         
         if details_match:
             details_text = details_match.group(1).strip()
-            # Split by problem headers (dashes + # number)
-            problems = re.split(r'(?=\n(?:──|--){20,}\n#\d+)', details_text)
+            # Split by problem headers (─ unicode dash or -- ascii dashes, followed by # number)
+            # problem_report.py uses '─' * 50 (unicode thick dash)
+            problems = re.split(r'(?=\n(?:─{20,}|──|--){20,}\n#\d+)', details_text)
             # Keep only top 20 problems
             result['problem_details'] = '\n'.join(problems[:20])
             result['has_details'] = True

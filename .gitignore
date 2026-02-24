@@ -86,6 +86,9 @@ DAILY_SESSION_*.md
 .archive/
 /exports/
 
+# AI analysis data (large generated files)
+ai-data/
+
 # Confidential DB access documentation
 DB_ACCESS_GUIDE.md
 LOCAL_*.md

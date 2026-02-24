@@ -83,7 +83,8 @@ def fetch_unlimited(date_from, date_to, batch_size=5000, retry=3):
                     json=query,
                     auth=HTTPBasicAuth(ES_USER, ES_PASSWORD),
                     verify=False,
-                    timeout=120
+                    timeout=120,
+                    proxies={'http': None, 'https': None}
                 )
                 
                 if resp.status_code == 200:
