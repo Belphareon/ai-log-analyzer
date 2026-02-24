@@ -2,8 +2,8 @@
   problem_key: PEAK:unknown:design_lifecycle:spike
   peak_type: SPIKE
   first_seen: '2026-02-05T00:08:02.643000+00:00'
-  last_seen: '2026-02-11T23:46:06.201000+00:00'
-  occurrences: 20
+  last_seen: '2026-02-23T23:46:02.386000+00:00'
+  occurrences: 22
   fingerprints:
   - b4fcd6415c0cd3e9
   affected_apps:
@@ -15,104 +15,194 @@
   status: OPEN
   jira: null
   notes: null
-- id: PK-000023
-  problem_key: PEAK:unknown:pilot_context:burst
+- id: PK-000007
+  problem_key: PEAK:auth:card_servicing:burst
   peak_type: BURST
-  first_seen: '2026-02-08T15:35:36.641000+00:00'
-  last_seen: '2026-02-11T23:44:59.561000+00:00'
-  occurrences: 39
+  first_seen: '2026-02-05T00:25:15.413000+00:00'
+  last_seen: '2026-02-23T23:30:19.118000+00:00'
+  occurrences: 771
   fingerprints:
-  - ceb76030e9e20643
-  - 11e586e930cbad44
-  - 206754b67d64704c
+  - 7c21892701f103b7
+  - 27db84a338656b4f
+  - be387ec047987525
+  - 5a53dcfeaf00dbf6
+  - 5e3dff8f48d693b9
+  - 263ad08cc4cce9d0
+  - f95f4d6530cca653
+  - 1344601a18fa2784
+  - a3b51cad3b72131f
+  - a650f5fad601ccb9
+  - e31eaeddff170702
+  - c19bfa88cd3a4439
+  - bbd0d3a7046702e0
+  - 3923b5df77511013
+  - 8c1f8ff094e3caac
+  - b17e4369765a7703
+  - b1270b0b1268e177
+  - 906c9bc053ab7412
+  - 07dc0ff509f93cc7
+  - f90d1fdcf61f42dd
+  - cdf32be6d23ff88a
+  - 37b50f6f611baeb7
+  - c33b6af38583771b
+  - f5bfd136e986a82e
+  - 5c3a46e41650e1df
+  - 3734e8317ceeb087
+  - 11ee3ff5618aff32
+  - fa935c846163c8a4
+  - 1fe8b3b62f85be6e
+  - 4de0ae28457a1fb5
+  - e8f88dc5c580b262
+  - 57f4f51f43d42bbe
+  - 3328139e4b607a1b
+  - f6d4e435f56cd98b
+  - d1aed5494b1d4543
+  - 770bbc76b0a573ab
+  - 17658caaa41738fc
+  - cf026365a944b2e2
+  - 2e710e3c7f885510
+  - 3fd3ac18e54ff1c1
+  - 02d24314e33ce5a6
+  - 07ee7b4ff206be6a
+  - bdf6dc5d97a6754f
+  - 7e4a057eced262d0
   affected_apps:
-  - bl-pcb-pilot-context-v1
+  - bff-pcb-ch-card-opening-v2
+  - bff-pcb-ch-card-sensitive-data-v1
+  - bff-pcb-ch-card-servicing-admin-v1
+  - bff-pcb-ch-card-servicing-init-v1
+  - bff-pcb-ch-card-servicing-notice-v1
+  - bff-pcb-ch-card-servicing-v1
+  - bff-pcb-ch-card-servicing-v2
+  - bff-pcb-ch-card-servicing-v3
+  - bff-pcb-ch-card-validation-v1
+  - bff-pcb-ch-click2pay-v1
+  - bff-pcb-ch-document-signing-v1
   affected_namespaces:
-  - pcb-sit-01-app
+  - pcb-ch-dev-01-app
+  - pcb-ch-sit-01-app
   max_value: 0
   max_ratio: 0.0
   status: OPEN
   jira: null
   notes: null
-- id: PK-000002
-  problem_key: PEAK:business:unknown:burst
+- id: PK-000005
+  problem_key: PEAK:unknown:card_servicing:burst
   peak_type: BURST
-  first_seen: '2026-02-05T00:05:51.561000+00:00'
-  last_seen: '2026-02-11T23:44:35.271000+00:00'
-  occurrences: 662
+  first_seen: '2026-02-05T00:06:45.327000+00:00'
+  last_seen: '2026-02-23T23:30:19.117000+00:00'
+  occurrences: 1416
   fingerprints:
-  - 92f2862220ae1d68
-  - 97e65518db01ffc6
-  - 529db1a34b607e66
-  - 433686a0dba8817b
-  - 3d38bb12e8b3a570
-  - 11af1fe5897141db
-  - 46127b705adb5f78
-  - 5da14c0e40eada9e
-  - 5c8162846363f6f4
-  - 890a6a122b2ac3b9
-  - 00002c1bff96c929
-  - 3a83e0d14a3ff664
-  - bc246e8bb58bc383
-  - 990e7ad432a897bd
-  - 73c137517d2ee647
-  - aea14f57048fa9d8
-  - 75b5b5b32fe450a8
-  - 330098af22d4e6ff
-  - 07ac278298539c40
-  - 700aa53412bd831b
-  - cdf185bbf56f5b19
-  - 5a86dfb52dcd644b
-  - 19d8022112c1044a
-  - 644518289d2a79a2
-  - 9620658fd7e71e69
-  - 9f2c2476a778a727
-  - 9f0f32ac38c67218
-  - 8b47e9ad4787e41b
-  - ade75b4a10c70cdd
-  - 105a03c7d441c8d3
-  - de0c540ad2ba91fc
-  - 9882fe300e44ed0e
-  - d16f88710df36b34
-  - 9db62e8415a00c7b
-  - 70bfabe0902d4d9d
-  - 505c3c7fb9d23217
-  - 8c206c2a761a19c1
-  - 08d00942b010abea
-  - 056ff3be28ead6d8
-  - b6547110b3d9c00e
-  - 5c069120af1c4a03
-  - 17b196e9e3d0ff0d
-  - 50dc25588d353ad7
-  - d8d22f1de6d4f3aa
-  - 57b490b652df3cbe
-  - 4325a1ca99f51719
-  - 05401cbb8c3bb620
-  - 990cf0799ff61f02
-  - 3d3a0d7f478a076f
-  - 199d675aa45d592a
-  - 11328567819b99ca
-  - 8b0096781f45a08d
-  - fe4d7273798548ad
-  - 3e4f0a6604af56b7
-  - 712162b7cc3058cb
-  - d527d0a08e6da34f
-  - 7b555d2441baec21
-  - 0cc87c939d7877f3
-  - 246271a41ad8668d
-  - dab8d33bdb0044ee
-  - f354342490914acd
-  - 93830f2ee508d83b
+  - 27d9b2c407385032
+  - 2f14e590de72ac76
+  - cf7fb2068a372405
+  - d9ad6fa72a7682d9
+  - 282fd3b426dfc56e
+  - 0907dc2f4dde89f2
+  - ed799e2b882f04a2
+  - b10207458bd115e3
+  - 55c1db3506d3e4cc
+  - 238d4f425e0a51c8
+  - 1d0e9b55e89c9900
+  - 864c959b15867973
+  - a2fb5880d2296d14
+  - a849f4ea8c0ad7a9
+  - d7962b4d8f6600c8
+  - 6c9afa0e722b45fe
+  - fb54e5b583261c9f
+  - 7da5ca1932ba727e
+  - 75d2be22f1a95e92
+  - 16f381153a0a6073
+  - 74f89d46ad9f4b62
+  - 62ebfc1fb77dcb26
+  - 5f2f6bf8eea23fa2
+  - 95a67e2c3ee44bb1
+  - 6130946ee50df843
+  - d197b558f6ae7cf4
+  - ff932a505d7fe5ea
+  - ed606fe2430c2b28
+  - ca5ee30d74b6cabe
+  - ca3557f896877036
+  - e6d72cabc2cbb778
+  - bd013dd705902742
+  - 57e826a030327bd6
+  - e2680a0ad631f75c
+  - 66f70b290550955a
+  - e61151d6ca8d1957
+  - aa82b22964575708
+  - da1e4625e851e72d
+  - ca5010eb05992283
+  - 4c83ac045f7010fb
+  - 77db50cf4122c296
+  - b6d71fbbc2a14876
+  - bb0120a755ba4ec6
+  - b1f3df220685ad66
+  - 8a476ced29596a17
+  - 88ecf275bc346cf6
+  - 448e736b690f13d3
+  - 81817717f7336bd8
+  - df61a37ec4380d18
+  - 265ed0b843b95cb1
+  - 35d3b697e42306bd
+  - 05f9ae95a15d6f83
+  - 2fd132f6448c2728
+  - 5b17333f6c4b6385
+  - b81c7d48b1d04c98
+  - 0f343d1354697ee9
+  - 35d277ed8a08bf8a
+  - b7a85fe3d0e135fa
+  - 58a3c621053d51bd
+  - df72d58d44bc3f14
+  - 4d57fb085946a210
+  - 5b220a71e8b1adcc
+  - b0f44f442291f8f5
+  - db5855ae211dfb5c
+  - 5817ac1ea247df4a
+  - fc4993d981249e8d
+  - fd096e80d9bd3f9f
+  - b01932bc2aa2a27c
+  - be5718c9b2554c1e
+  - 44291c6d1cb7e04a
+  - cad841c0aa972c4c
+  - 88d0492b39f59f01
+  - 509248bbb228f439
+  - 53bf607a587f8286
+  - 5c8e0dae74291f60
+  - 2b02de3c4ca4dbd1
+  - 40048c7b74a2fc11
+  - bb35caa4414dbf6b
+  - 842eff9720259e21
+  - beba702d95f532f7
+  - 7197d9a78c5541c9
+  - 9c2e914b0c5906a5
+  - b947cd6829acbe88
   affected_apps:
+  - bff-pcb-ch-card-opening-v2
+  - bff-pcb-ch-card-sensitive-data-v1
+  - bff-pcb-ch-card-servicing-admin-v1
+  - bff-pcb-ch-card-servicing-init-v1
+  - bff-pcb-ch-card-servicing-notice-v1
+  - bff-pcb-ch-card-servicing-v1
+  - bff-pcb-ch-card-servicing-v2
+  - bff-pcb-ch-card-servicing-v3
+  - bff-pcb-ch-card-validation-v1
+  - bff-pcb-ch-click2pay-v1
+  - bff-pcb-ch-document-signing-v1
+  - bl-pcb-atm-locator-v1
+  - bl-pcb-card-client-segment-v1
+  - bl-pcb-card-georisk-v1
+  - bl-pcb-click2pay-v1
+  - bl-pcb-codelist-v1
+  - bl-pcb-design-lifecycle-v1
+  - bl-pcb-document-signing-v1
+  - bl-pcb-notification-v1
+  - bl-pcb-token-v1
   - bl-pcb-v1
-  - feapi-pca-v1
   affected_namespaces:
-  - pca-dev-01-app
-  - pca-sit-01-app
+  - pcb-ch-dev-01-app
+  - pcb-ch-sit-01-app
   - pcb-dev-01-app
-  - pcb-fat-01-app
   - pcb-sit-01-app
-  - pcb-uat-01-app
   max_value: 0
   max_ratio: 0.0
   status: OPEN
@@ -122,8 +212,8 @@
   problem_key: PEAK:unknown:unknown:burst
   peak_type: BURST
   first_seen: '2026-02-05T01:06:16.095000+00:00'
-  last_seen: '2026-02-11T23:44:35.271000+00:00'
-  occurrences: 1916
+  last_seen: '2026-02-23T19:08:03.836000+00:00'
+  occurrences: 1917
   fingerprints:
   - dd76a2038bba2f50
   - 2cb04c78ee00db98
@@ -277,6 +367,110 @@
   - ad3005b60fe58d7d
   - fe7e615a07f2df10
   - 25d06a42ced14380
+  - 7b4bfc7a40bccc3b
+  affected_apps:
+  - bl-pcb-v1
+  - feapi-pca-v1
+  affected_namespaces:
+  - pca-dev-01-app
+  - pca-sit-01-app
+  - pcb-dev-01-app
+  - pcb-fat-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 0
+  max_ratio: 0.0
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000023
+  problem_key: PEAK:unknown:pilot_context:burst
+  peak_type: BURST
+  first_seen: '2026-02-08T15:35:36.641000+00:00'
+  last_seen: '2026-02-11T23:44:59.561000+00:00'
+  occurrences: 39
+  fingerprints:
+  - ceb76030e9e20643
+  - 11e586e930cbad44
+  - 206754b67d64704c
+  affected_apps:
+  - bl-pcb-pilot-context-v1
+  affected_namespaces:
+  - pcb-sit-01-app
+  max_value: 0
+  max_ratio: 0.0
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000002
+  problem_key: PEAK:business:unknown:burst
+  peak_type: BURST
+  first_seen: '2026-02-05T00:05:51.561000+00:00'
+  last_seen: '2026-02-11T23:44:35.271000+00:00'
+  occurrences: 662
+  fingerprints:
+  - 92f2862220ae1d68
+  - 97e65518db01ffc6
+  - 529db1a34b607e66
+  - 433686a0dba8817b
+  - 3d38bb12e8b3a570
+  - 11af1fe5897141db
+  - 46127b705adb5f78
+  - 5da14c0e40eada9e
+  - 5c8162846363f6f4
+  - 890a6a122b2ac3b9
+  - 00002c1bff96c929
+  - 3a83e0d14a3ff664
+  - bc246e8bb58bc383
+  - 990e7ad432a897bd
+  - 73c137517d2ee647
+  - aea14f57048fa9d8
+  - 75b5b5b32fe450a8
+  - 330098af22d4e6ff
+  - 07ac278298539c40
+  - 700aa53412bd831b
+  - cdf185bbf56f5b19
+  - 5a86dfb52dcd644b
+  - 19d8022112c1044a
+  - 644518289d2a79a2
+  - 9620658fd7e71e69
+  - 9f2c2476a778a727
+  - 9f0f32ac38c67218
+  - 8b47e9ad4787e41b
+  - ade75b4a10c70cdd
+  - 105a03c7d441c8d3
+  - de0c540ad2ba91fc
+  - 9882fe300e44ed0e
+  - d16f88710df36b34
+  - 9db62e8415a00c7b
+  - 70bfabe0902d4d9d
+  - 505c3c7fb9d23217
+  - 8c206c2a761a19c1
+  - 08d00942b010abea
+  - 056ff3be28ead6d8
+  - b6547110b3d9c00e
+  - 5c069120af1c4a03
+  - 17b196e9e3d0ff0d
+  - 50dc25588d353ad7
+  - d8d22f1de6d4f3aa
+  - 57b490b652df3cbe
+  - 4325a1ca99f51719
+  - 05401cbb8c3bb620
+  - 990cf0799ff61f02
+  - 3d3a0d7f478a076f
+  - 199d675aa45d592a
+  - 11328567819b99ca
+  - 8b0096781f45a08d
+  - fe4d7273798548ad
+  - 3e4f0a6604af56b7
+  - 712162b7cc3058cb
+  - d527d0a08e6da34f
+  - 7b555d2441baec21
+  - 0cc87c939d7877f3
+  - 246271a41ad8668d
+  - dab8d33bdb0044ee
+  - f354342490914acd
+  - 93830f2ee508d83b
   affected_apps:
   - bl-pcb-v1
   - feapi-pca-v1
@@ -412,198 +606,6 @@
   - pcb-ch-uat-01-app
   - pcb-dev-01-app
   - pcb-sit-01-app
-  max_value: 0
-  max_ratio: 0.0
-  status: OPEN
-  jira: null
-  notes: null
-- id: PK-000005
-  problem_key: PEAK:unknown:card_servicing:burst
-  peak_type: BURST
-  first_seen: '2026-02-05T00:06:45.327000+00:00'
-  last_seen: '2026-02-11T23:30:20.832000+00:00'
-  occurrences: 1413
-  fingerprints:
-  - 27d9b2c407385032
-  - 2f14e590de72ac76
-  - cf7fb2068a372405
-  - d9ad6fa72a7682d9
-  - 282fd3b426dfc56e
-  - 0907dc2f4dde89f2
-  - ed799e2b882f04a2
-  - b10207458bd115e3
-  - 55c1db3506d3e4cc
-  - 238d4f425e0a51c8
-  - 1d0e9b55e89c9900
-  - 864c959b15867973
-  - a2fb5880d2296d14
-  - a849f4ea8c0ad7a9
-  - d7962b4d8f6600c8
-  - 6c9afa0e722b45fe
-  - fb54e5b583261c9f
-  - 7da5ca1932ba727e
-  - 75d2be22f1a95e92
-  - 16f381153a0a6073
-  - 74f89d46ad9f4b62
-  - 62ebfc1fb77dcb26
-  - 5f2f6bf8eea23fa2
-  - 95a67e2c3ee44bb1
-  - 6130946ee50df843
-  - d197b558f6ae7cf4
-  - ff932a505d7fe5ea
-  - ed606fe2430c2b28
-  - ca5ee30d74b6cabe
-  - ca3557f896877036
-  - e6d72cabc2cbb778
-  - bd013dd705902742
-  - 57e826a030327bd6
-  - e2680a0ad631f75c
-  - 66f70b290550955a
-  - e61151d6ca8d1957
-  - aa82b22964575708
-  - da1e4625e851e72d
-  - ca5010eb05992283
-  - 4c83ac045f7010fb
-  - 77db50cf4122c296
-  - b6d71fbbc2a14876
-  - bb0120a755ba4ec6
-  - b1f3df220685ad66
-  - 8a476ced29596a17
-  - 88ecf275bc346cf6
-  - 448e736b690f13d3
-  - 81817717f7336bd8
-  - df61a37ec4380d18
-  - 265ed0b843b95cb1
-  - 35d3b697e42306bd
-  - 05f9ae95a15d6f83
-  - 2fd132f6448c2728
-  - 5b17333f6c4b6385
-  - b81c7d48b1d04c98
-  - 0f343d1354697ee9
-  - 35d277ed8a08bf8a
-  - b7a85fe3d0e135fa
-  - 58a3c621053d51bd
-  - df72d58d44bc3f14
-  - 4d57fb085946a210
-  - 5b220a71e8b1adcc
-  - b0f44f442291f8f5
-  - db5855ae211dfb5c
-  - 5817ac1ea247df4a
-  - fc4993d981249e8d
-  - fd096e80d9bd3f9f
-  - b01932bc2aa2a27c
-  - be5718c9b2554c1e
-  - 44291c6d1cb7e04a
-  - cad841c0aa972c4c
-  - 88d0492b39f59f01
-  - 509248bbb228f439
-  - 53bf607a587f8286
-  - 5c8e0dae74291f60
-  - 2b02de3c4ca4dbd1
-  - 40048c7b74a2fc11
-  - bb35caa4414dbf6b
-  - 842eff9720259e21
-  - beba702d95f532f7
-  - 7197d9a78c5541c9
-  - 9c2e914b0c5906a5
-  - b947cd6829acbe88
-  affected_apps:
-  - bff-pcb-ch-card-opening-v2
-  - bff-pcb-ch-card-sensitive-data-v1
-  - bff-pcb-ch-card-servicing-admin-v1
-  - bff-pcb-ch-card-servicing-init-v1
-  - bff-pcb-ch-card-servicing-notice-v1
-  - bff-pcb-ch-card-servicing-v1
-  - bff-pcb-ch-card-servicing-v2
-  - bff-pcb-ch-card-servicing-v3
-  - bff-pcb-ch-card-validation-v1
-  - bff-pcb-ch-click2pay-v1
-  - bff-pcb-ch-document-signing-v1
-  - bl-pcb-atm-locator-v1
-  - bl-pcb-card-client-segment-v1
-  - bl-pcb-card-georisk-v1
-  - bl-pcb-click2pay-v1
-  - bl-pcb-codelist-v1
-  - bl-pcb-document-signing-v1
-  - bl-pcb-notification-v1
-  - bl-pcb-token-v1
-  - bl-pcb-v1
-  affected_namespaces:
-  - pcb-ch-dev-01-app
-  - pcb-ch-sit-01-app
-  - pcb-dev-01-app
-  - pcb-sit-01-app
-  max_value: 0
-  max_ratio: 0.0
-  status: OPEN
-  jira: null
-  notes: null
-- id: PK-000007
-  problem_key: PEAK:auth:card_servicing:burst
-  peak_type: BURST
-  first_seen: '2026-02-05T00:25:15.413000+00:00'
-  last_seen: '2026-02-11T23:30:20.563000+00:00'
-  occurrences: 769
-  fingerprints:
-  - 7c21892701f103b7
-  - 27db84a338656b4f
-  - be387ec047987525
-  - 5a53dcfeaf00dbf6
-  - 5e3dff8f48d693b9
-  - 263ad08cc4cce9d0
-  - f95f4d6530cca653
-  - 1344601a18fa2784
-  - a3b51cad3b72131f
-  - a650f5fad601ccb9
-  - e31eaeddff170702
-  - c19bfa88cd3a4439
-  - bbd0d3a7046702e0
-  - 3923b5df77511013
-  - 8c1f8ff094e3caac
-  - b17e4369765a7703
-  - b1270b0b1268e177
-  - 906c9bc053ab7412
-  - 07dc0ff509f93cc7
-  - f90d1fdcf61f42dd
-  - cdf32be6d23ff88a
-  - 37b50f6f611baeb7
-  - c33b6af38583771b
-  - f5bfd136e986a82e
-  - 5c3a46e41650e1df
-  - 3734e8317ceeb087
-  - 11ee3ff5618aff32
-  - fa935c846163c8a4
-  - 1fe8b3b62f85be6e
-  - 4de0ae28457a1fb5
-  - e8f88dc5c580b262
-  - 57f4f51f43d42bbe
-  - 3328139e4b607a1b
-  - f6d4e435f56cd98b
-  - d1aed5494b1d4543
-  - 770bbc76b0a573ab
-  - 17658caaa41738fc
-  - cf026365a944b2e2
-  - 2e710e3c7f885510
-  - 3fd3ac18e54ff1c1
-  - 02d24314e33ce5a6
-  - 07ee7b4ff206be6a
-  - bdf6dc5d97a6754f
-  - 7e4a057eced262d0
-  affected_apps:
-  - bff-pcb-ch-card-opening-v2
-  - bff-pcb-ch-card-sensitive-data-v1
-  - bff-pcb-ch-card-servicing-admin-v1
-  - bff-pcb-ch-card-servicing-init-v1
-  - bff-pcb-ch-card-servicing-notice-v1
-  - bff-pcb-ch-card-servicing-v1
-  - bff-pcb-ch-card-servicing-v2
-  - bff-pcb-ch-card-servicing-v3
-  - bff-pcb-ch-card-validation-v1
-  - bff-pcb-ch-click2pay-v1
-  - bff-pcb-ch-document-signing-v1
-  affected_namespaces:
-  - pcb-ch-dev-01-app
-  - pcb-ch-sit-01-app
   max_value: 0
   max_ratio: 0.0
   status: OPEN
