@@ -145,8 +145,9 @@ class PhaseB_Measure:
         self.window_minutes = window_minutes
         self.ewma_alpha = ewma_alpha
         self.baseline_windows = baseline_windows
-        self.historical_baseline = historical_baseline or {}  # ← Historické baseline z DB
-        
+        self.historical_baseline = historical_baseline or {}  # ← Historické baseline z DB (keyed by fingerprint)
+        self.error_type_baseline: Dict[str, List[float]] = {}  # ← Historické baseline z DB (keyed by error_type)
+
         self.history: Dict[str, List[float]] = defaultdict(list)
         self.baselines: Dict[str, BaselineStats] = {}
     
@@ -250,6 +251,9 @@ class PhaseB_Measure:
         # fp_timestamps[fingerprint] = (min_ts, max_ts)
         fp_first_seen: Dict[str, datetime] = {}
         fp_last_seen: Dict[str, datetime] = {}
+
+        # fp_error_type[fingerprint] = error_type (pro error_type_baseline lookup)
+        fp_error_type: Dict[str, str] = {}
         
         max_window_idx = 0
         
@@ -271,6 +275,10 @@ class PhaseB_Measure:
             fp_namespaces[fp].add(r.namespace)
             fp_apps[fp].add(r.app_name)
             
+            # Error type (pro baseline lookup)
+            if fp not in fp_error_type:
+                fp_error_type[fp] = getattr(r, 'error_type', '')
+
             # Time range
             if fp not in fp_first_seen or r.timestamp < fp_first_seen[fp]:
                 fp_first_seen[fp] = r.timestamp
@@ -299,8 +307,13 @@ class PhaseB_Measure:
             # ← NOVÉ: Kombinuj s DB historical baseline
             historical_rates = current_window_historical
             if fp in self.historical_baseline:
-                # Přidej DB historii před aktuální okno
+                # Přidej DB historii před aktuální okno (lookup by fingerprint)
                 historical_rates = self.historical_baseline[fp] + historical_rates
+            elif self.error_type_baseline:
+                # Fallback: lookup by error_type (BaselineLoader vrací data keyed by error_type)
+                et = fp_error_type.get(fp, '')
+                if et and et in self.error_type_baseline:
+                    historical_rates = self.error_type_baseline[et] + historical_rates
             
             if historical_rates:
                 ewma_rate = self._calculate_ewma(historical_rates)

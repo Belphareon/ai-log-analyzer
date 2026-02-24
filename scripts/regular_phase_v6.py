@@ -590,7 +590,9 @@ def run_regular_phase(
     )
     
     # ← NOVÉ: Injektuj historické baseline do Phase B
-    pipeline.phase_b.historical_baseline = historical_baseline
+    # POZOR: BaselineLoader vrací data keyed by error_type, ne fingerprint!
+    # Použij error_type_baseline pro správný lookup v Phase B.
+    pipeline.phase_b.error_type_baseline = historical_baseline
     
     # ← KRITICKÉ: Inject registry do Phase C (aby mohl dělat is_problem_key_known lookup!)
     pipeline.phase_c.registry = registry

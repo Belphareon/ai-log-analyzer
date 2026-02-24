@@ -8,6 +8,7 @@
 | [INSTALLATION.md](INSTALLATION.md) | Podrobná instalace |
 | [INSTALLATION_CHECKLIST.md](INSTALLATION_CHECKLIST.md) | Checklist pro produkci |
 | [PIPELINE_V4_ARCHITECTURE.md](PIPELINE_V4_ARCHITECTURE.md) | Technická architektura (v6) |
+| [PEAK_DETECTION.md](PEAK_DETECTION.md) | Detekční algoritmy (spike, burst, new, ...) |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Řešení problémů |
 | [ADD_APPLICATION_VERSION.md](ADD_APPLICATION_VERSION.md) | Přidání version pole do ES |
 
