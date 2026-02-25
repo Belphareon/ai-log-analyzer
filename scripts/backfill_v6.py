@@ -50,6 +50,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry, compute_problem_key
+from core.baseline_loader import BaselineLoader
 from pipeline import PipelineV6
 from pipeline.phase_f_report import PhaseF_Report
 
@@ -423,17 +424,47 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
             # 2. Pipeline with registry
             registry = get_registry()
             known_fps = registry.get_all_known_fingerprints() if registry else set()
-            
+
             pipeline = PipelineV6(
                 spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
                 ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
             )
-            
+
             # Inject registry into Phase C (critical for is_problem_key_known() lookup!)
             if registry:
                 pipeline.phase_c.registry = registry
             pipeline.phase_c.known_fingerprints = known_fps.copy()
-            
+
+            # Load historical baseline from DB (same as regular_phase_v6.py)
+            historical_baseline = {}
+            try:
+                db_conn = get_db_connection()
+                baseline_loader = BaselineLoader(db_conn)
+
+                from pipeline.phase_a_parse import PhaseA_Parser
+                parser = PhaseA_Parser()
+                sample_error_types = set()
+                for error in errors[:1000]:
+                    msg = error.get('message', '')
+                    error_type = parser.extract_error_type(msg)
+                    if error_type and error_type != 'Unknown':
+                        sample_error_types.add(error_type)
+
+                if sample_error_types:
+                    historical_baseline = baseline_loader.load_historical_rates(
+                        error_types=list(sample_error_types),
+                        lookback_days=7,
+                        min_samples=3
+                    )
+                    safe_print(f"   📊 [{thread_name}] Loaded baseline for {len(historical_baseline)} error types")
+
+                db_conn.close()
+            except Exception as e:
+                safe_print(f"   ⚠️ [{thread_name}] Baseline loading failed (non-blocking): {e}")
+                historical_baseline = {}
+
+            pipeline.phase_b.error_type_baseline = historical_baseline
+
             collection = pipeline.run(errors, run_id=f"backfill-{date.strftime('%Y%m%d')}")
             
             # 3. Extract event timestamps
