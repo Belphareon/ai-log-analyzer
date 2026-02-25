@@ -74,18 +74,18 @@ class BaselineLoader:
             cursor = self.db_conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
             
             # SQL: SELECT reference_value (baseline) z tabulky
-            # WHERE: Poslední N dní, validní detekce (is_spike OR score > 30)
+            # Načte VŠECHNA data (ne jen anomální) pro přesný baseline
             query = """
-            SELECT 
+            SELECT
                 error_type,
                 reference_value,
                 timestamp,
                 EXTRACT(EPOCH FROM timestamp)::BIGINT as ts_epoch
             FROM ailog_peak.peak_investigation
-            WHERE 
+            WHERE
                 error_type = ANY(%s)
                 AND timestamp > %s
-                AND (is_spike OR is_burst OR score >= 30)
+                AND reference_value IS NOT NULL
             ORDER BY error_type, timestamp ASC
             """
             
@@ -147,8 +147,8 @@ class BaselineLoader:
             query = """
             SELECT reference_value
             FROM ailog_peak.peak_investigation
-            WHERE 
-                (is_spike OR is_burst OR score >= 30)
+            WHERE
+                reference_value IS NOT NULL
                 AND timestamp > %s
             ORDER BY timestamp ASC
             LIMIT 1000

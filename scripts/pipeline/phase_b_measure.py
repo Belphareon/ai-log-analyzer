@@ -49,40 +49,6 @@ def progress_iter(iterable, desc="Processing", total=None, disable=False):
                 yield item
         else:
             yield from iterable
-import sys
-
-# Progress bar - tqdm nebo fallback
-try:
-    from tqdm import tqdm
-    HAS_TQDM = True
-except ImportError:
-    HAS_TQDM = False
-
-def progress_iter(iterable, desc="Processing", total=None):
-    """Progress iterator - uses tqdm if available, else simple counter"""
-    if HAS_TQDM:
-        return tqdm(iterable, desc=desc, total=total, file=sys.stderr)
-    else:
-        # Simple fallback
-        if total is None:
-            try:
-                total = len(iterable)
-            except:
-                total = None
-        
-        count = 0
-        last_pct = -1
-        for item in iterable:
-            count += 1
-            if total:
-                pct = (count * 100) // total
-                if pct >= last_pct + 10: # Print every 10%
-                    print(f" {desc}: {pct}% ({count:,}/{total:,})", file=sys.stderr, flush=True)
-                    last_pct = pct
-            yield item
-        
-        if total and last_pct < 100:
-            print(f" {desc}: 100% ({count:,}/{total:,})", file=sys.stderr, flush=True)
 
 
 @dataclass
