@@ -1,17 +1,103 @@
-- id: PK-000006
-  problem_key: PEAK:unknown:design_lifecycle:spike
+- id: PK-000045
+  problem_key: PEAK:business:card_servicing:spike
   peak_type: SPIKE
-  first_seen: '2026-02-05T00:08:02.643000+00:00'
-  last_seen: '2026-02-23T23:46:02.386000+00:00'
-  occurrences: 22
+  first_seen: '2026-02-23T09:35:00.614000+00:00'
+  last_seen: '2026-02-24T09:25:36.544000+00:00'
+  occurrences: 1
   fingerprints:
-  - b4fcd6415c0cd3e9
+  - 13f20372a4354159
   affected_apps:
+  - bff-pcb-ch-card-opening-v2
+  - bff-pcb-ch-card-sensitive-data-v1
+  - bff-pcb-ch-card-servicing-admin-v1
+  - bff-pcb-ch-card-servicing-init-v1
+  - bff-pcb-ch-card-servicing-notice-v1
+  - bff-pcb-ch-card-servicing-v1
+  - bff-pcb-ch-card-servicing-v2
+  - bff-pcb-ch-card-servicing-v3
+  - bff-pcb-ch-click2pay-v1
+  - bl-pcb-atm-locator-v1
+  - bl-pcb-card-client-segment-v1
+  - bl-pcb-card-georisk-v1
+  - bl-pcb-click2pay-v1
+  - bl-pcb-codelist-v1
   - bl-pcb-design-lifecycle-v1
+  - bl-pcb-notification-v1
+  - bl-pcb-token-v1
+  - bl-pcb-v1
+  - feapi-pca-v1
+  affected_namespaces:
+  - pca-dev-01-app
+  - pca-sit-01-app
+  - pcb-ch-dev-01-app
+  - pcb-ch-sit-01-app
+  - pcb-dev-01-app
+  - pcb-fat-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 42
+  max_ratio: 0.7918806682224727
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000046
+  problem_key: PEAK:business:unknown:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T09:36:07.552000+00:00'
+  last_seen: '2026-02-24T09:25:36.544000+00:00'
+  occurrences: 4
+  fingerprints:
+  - b6547110b3d9c00e
+  - 1a6772e8af86482e
+  - 870d010c3dc689f9
+  - 056ff3be28ead6d8
+  affected_apps:
+  - bl-pcb-v1
   affected_namespaces:
   - pcb-dev-01-app
-  max_value: 1
-  max_ratio: 3.041901494268763
+  - pcb-fat-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 36
+  max_ratio: 4.1724179833344825
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000043
+  problem_key: PEAK:unknown:card_servicing:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T09:30:17.450000+00:00'
+  last_seen: '2026-02-24T09:25:21.086000+00:00'
+  occurrences: 18
+  fingerprints:
+  - 69913623eb81f4ff
+  - 6691b96b15790929
+  - 2b8e7d230b65c3e9
+  - 4124765a68fa1236
+  - 7fb6b2d05423f4d5
+  - 154529cecbf614b6
+  - 59240fe52600abe4
+  - 07dda533e9a29418
+  - 7965d05913c49fde
+  - 836cc0595565ab8e
+  - 97713f2981b4ed00
+  - 0b1caf3a1af11d6e
+  - e4ad84e338be45fd
+  - 6fbe051b866945b9
+  - 7a327f0a6c88a690
+  - 69d9065932a7ebca
+  - 4eac09eda23759b1
+  - ad18ab8d0146785e
+  affected_apps:
+  - bff-pcb-ch-card-servicing-admin-v1
+  - bff-pcb-ch-card-servicing-v1
+  - bl-pcb-design-lifecycle-v1
+  affected_namespaces:
+  - pcb-ch-dev-01-app
+  - pcb-ch-sit-01-app
+  - pcb-dev-01-app
+  max_value: 20
+  max_ratio: 286.81487899406204
   status: OPEN
   jira: null
   notes: null
@@ -19,8 +105,8 @@
   problem_key: PEAK:auth:card_servicing:burst
   peak_type: BURST
   first_seen: '2026-02-05T00:25:15.413000+00:00'
-  last_seen: '2026-02-23T23:30:19.118000+00:00'
-  occurrences: 771
+  last_seen: '2026-02-24T09:25:20.949000+00:00'
+  occurrences: 773
   fingerprints:
   - 7c21892701f103b7
   - 27db84a338656b4f
@@ -81,8 +167,8 @@
   affected_namespaces:
   - pcb-ch-dev-01-app
   - pcb-ch-sit-01-app
-  max_value: 0
-  max_ratio: 0.0
+  max_value: 18
+  max_ratio: 1.974241974500611
   status: OPEN
   jira: null
   notes: null
@@ -90,8 +176,8 @@
   problem_key: PEAK:unknown:card_servicing:burst
   peak_type: BURST
   first_seen: '2026-02-05T00:06:45.327000+00:00'
-  last_seen: '2026-02-23T23:30:19.117000+00:00'
-  occurrences: 1416
+  last_seen: '2026-02-24T09:25:20.949000+00:00'
+  occurrences: 1419
   fingerprints:
   - 27d9b2c407385032
   - 2f14e590de72ac76
@@ -203,8 +289,175 @@
   - pcb-ch-sit-01-app
   - pcb-dev-01-app
   - pcb-sit-01-app
-  max_value: 0
-  max_ratio: 0.0
+  max_value: 22
+  max_ratio: 2.3813115490750048
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000044
+  problem_key: PEAK:auth:card_servicing:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T09:30:17.454000+00:00'
+  last_seen: '2026-02-24T09:25:20.949000+00:00'
+  occurrences: 6
+  fingerprints:
+  - 7c21892701f103b7
+  - 59c36892e2ae3971
+  - 71ad07cfc3a70a2b
+  - 004803ad03131164
+  - 27db84a338656b4f
+  - a3b51cad3b72131f
+  affected_apps:
+  - bff-pcb-ch-card-opening-v2
+  - bff-pcb-ch-card-sensitive-data-v1
+  - bff-pcb-ch-card-servicing-admin-v1
+  - bff-pcb-ch-card-servicing-init-v1
+  - bff-pcb-ch-card-servicing-notice-v1
+  - bff-pcb-ch-card-servicing-v1
+  - bff-pcb-ch-card-servicing-v2
+  - bff-pcb-ch-card-validation-v1
+  - bff-pcb-ch-click2pay-v1
+  - bff-pcb-ch-document-signing-v1
+  affected_namespaces:
+  - pcb-ch-dev-01-app
+  - pcb-ch-sit-01-app
+  max_value: 18
+  max_ratio: 34.40316017933766
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000052
+  problem_key: PEAK:unknown:unknown:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:25:01.671000+00:00'
+  last_seen: '2026-02-24T09:25:06.854000+00:00'
+  occurrences: 2
+  fingerprints:
+  - 0936f4800b695658
+  - c9339d004d825796
+  affected_apps:
+  - bl-pcb-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 3
+  max_ratio: 7.384839650081405
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000049
+  problem_key: PEAK:network:atm_locator:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:16:16.607000+00:00'
+  last_seen: '2026-02-24T09:21:18.750000+00:00'
+  occurrences: 1
+  fingerprints:
+  - 21c4100b116230f3
+  affected_apps:
+  - bl-pcb-atm-locator-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 4
+  max_ratio: 7.4870354438711715
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000048
+  problem_key: PEAK:business:atm_locator:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:16:16.601000+00:00'
+  last_seen: '2026-02-24T09:21:18.747000+00:00'
+  occurrences: 1
+  fingerprints:
+  - 4d37314e49e6beb0
+  affected_apps:
+  - bl-pcb-atm-locator-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 4
+  max_ratio: 7.487035443870513
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000047
+  problem_key: PEAK:unknown:atm_locator:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:16:15.944000+00:00'
+  last_seen: '2026-02-24T09:21:18.746000+00:00'
+  occurrences: 4
+  fingerprints:
+  - 367b6c48d1b3a195
+  - b9aa40118ac56b26
+  - 1dfa023f673e8614
+  - e003d11af3f87b0c
+  affected_apps:
+  - bl-pcb-atm-locator-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 4
+  max_ratio: 7.487035483024228
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000051
+  problem_key: PEAK:unknown:georisk:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:20:04.540000+00:00'
+  last_seen: '2026-02-24T09:20:01.920000+00:00'
+  occurrences: 2
+  fingerprints:
+  - 811890d6d18734a2
+  - b26f5e6799e07c2f
+  affected_apps:
+  - bl-pcb-card-georisk-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  max_value: 1
+  max_ratio: 7.384839649952584
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000050
+  problem_key: PEAK:unknown:document_signing:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:17:01.396000+00:00'
+  last_seen: '2026-02-24T09:17:01.640000+00:00'
+  occurrences: 2
+  fingerprints:
+  - f769e8b8454c31ac
+  - d7ff514edee05152
+  affected_apps:
+  - bl-pcb-document-signing-v1
+  affected_namespaces:
+  - pcb-fat-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 2
+  max_ratio: 7.384839650131374
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000006
+  problem_key: PEAK:unknown:design_lifecycle:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-05T00:08:02.643000+00:00'
+  last_seen: '2026-02-23T23:46:02.386000+00:00'
+  occurrences: 23
+  fingerprints:
+  - b4fcd6415c0cd3e9
+  affected_apps:
+  - bl-pcb-design-lifecycle-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  max_value: 1
+  max_ratio: 3.041901494268763
   status: OPEN
   jira: null
   notes: null

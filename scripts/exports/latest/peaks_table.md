@@ -1,13 +1,13 @@
 # Peak Events Table
 
-**Generated:** 2026-02-24 08:13:39
+**Generated:** 2026-02-24 09:34:49
 **Total peaks:** 42
 
 | ID | Category | Type | Apps | Peak Ratio | Last Seen | Status |
 |-------|----------|------|------|------------|-----------|--------|
 | PK-000006 | PEAK | SPIKE | bl-pcb-design-lifecycle-v... | 3.0x | 2026-02-23 | OPEN |
-| PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-23 | OPEN |
 | PK-000007 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-23 | OPEN |
+| PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-23 | OPEN |
 | PK-000001 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-23 | OPEN |
 | PK-000023 | PEAK | BURST | bl-pcb-pilot-context-v1 | 0.0x | 2026-02-11 | OPEN |
 | PK-000002 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-11 | OPEN |
