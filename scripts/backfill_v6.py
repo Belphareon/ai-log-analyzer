@@ -444,20 +444,22 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
 
                 from pipeline.phase_a_parse import PhaseA_Parser
                 parser = PhaseA_Parser()
-                sample_error_types = set()
-                for error in errors[:1000]:
+                
+                # Extract ALL error types from all errors (not just first 1000!)
+                all_error_types = set()
+                for error in errors:
                     msg = error.get('message', '')
                     error_type = parser.extract_error_type(msg)
                     if error_type and error_type != 'Unknown':
-                        sample_error_types.add(error_type)
+                        all_error_types.add(error_type)
 
-                if sample_error_types:
+                if all_error_types:
                     historical_baseline = baseline_loader.load_historical_rates(
-                        error_types=list(sample_error_types),
+                        error_types=list(all_error_types),
                         lookback_days=7,
                         min_samples=3
                     )
-                    safe_print(f"   📊 [{thread_name}] Loaded baseline for {len(historical_baseline)} error types")
+                    safe_print(f"   📊 [{thread_name}] Loaded baseline for {len(historical_baseline)}/{len(all_error_types)} error types")
 
                 db_conn.close()
             except Exception as e:

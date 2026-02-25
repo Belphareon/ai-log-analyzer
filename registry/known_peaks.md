@@ -1,6 +1,6 @@
 # Known Peaks Registry
 
-_Last updated: 2026-02-25 11:30:43_
+_Last updated: 2026-02-25 11:38:14_
 _Total peaks: 52_
 
 ---
@@ -12,7 +12,7 @@ _Total peaks: 52_
 **Problem Key:** `PEAK:business:unknown:burst`
 **First seen:** 2026-02-05 00:05
 **Last seen:** 2026-02-25 10:13
-**Occurrences:** 664
+**Occurrences:** 665
 **Max value:** 0.00
 **Max ratio:** 0.00x
 
@@ -26,7 +26,7 @@ _Total peaks: 52_
 **Problem Key:** `PEAK:auth:card_servicing:burst`
 **First seen:** 2026-02-05 00:25
 **Last seen:** 2026-02-25 09:30
-**Occurrences:** 775
+**Occurrences:** 777
 **Max value:** 18.00
 **Max ratio:** 1.97x
 
@@ -40,7 +40,7 @@ _Total peaks: 52_
 **Problem Key:** `PEAK:unknown:card_servicing:burst`
 **First seen:** 2026-02-05 00:06
 **Last seen:** 2026-02-25 09:30
-**Occurrences:** 1423
+**Occurrences:** 1426
 **Max value:** 22.00
 **Max ratio:** 2.38x
 
@@ -63,6 +63,34 @@ _Total peaks: 52_
 
 ---
 
+### PK-000010
+
+**Problem Key:** `PEAK:business:card_servicing:burst`
+**First seen:** 2026-02-05 00:05
+**Last seen:** 2026-02-19 23:37
+**Occurrences:** 130
+**Max value:** 0.00
+**Max ratio:** 0.00x
+
+**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+---
+
+### PK-000004
+
+**Problem Key:** `PEAK:business:event_processing:burst`
+**First seen:** 2026-02-05 00:05
+**Last seen:** 2026-02-19 23:36
+**Occurrences:** 301
+**Max value:** 0.00
+**Max ratio:** 0.00x
+
+**Apps:** bl-pcb-event-processor-relay-v1
+**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+---
+
 ### PK-000023
 
 **Problem Key:** `PEAK:unknown:pilot_context:burst`
@@ -74,20 +102,6 @@ _Total peaks: 52_
 
 **Apps:** bl-pcb-pilot-context-v1
 **Namespaces:** pcb-sit-01-app
-
----
-
-### PK-000010
-
-**Problem Key:** `PEAK:business:card_servicing:burst`
-**First seen:** 2026-02-05 00:05
-**Last seen:** 2026-02-11 23:44
-**Occurrences:** 129
-**Max value:** 0.00
-**Max ratio:** 0.00x
-
-**Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1
-**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 ---
 
@@ -115,20 +129,6 @@ _Total peaks: 52_
 **Max ratio:** 0.00x
 
 **Apps:** bl-pcb-v1
-**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
----
-
-### PK-000004
-
-**Problem Key:** `PEAK:business:event_processing:burst`
-**First seen:** 2026-02-05 00:05
-**Last seen:** 2026-02-11 22:07
-**Occurrences:** 300
-**Max value:** 0.00
-**Max ratio:** 0.00x
-
-**Apps:** bl-pcb-event-processor-relay-v1
 **Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 ---
@@ -728,7 +728,7 @@ _Total peaks: 52_
 **Problem Key:** `PEAK:unknown:design_lifecycle:spike`
 **First seen:** 2026-02-05 00:08
 **Last seen:** 2026-02-23 23:46
-**Occurrences:** 23
+**Occurrences:** 25
 **Max value:** 1.00
 **Max ratio:** 3.04x
 
