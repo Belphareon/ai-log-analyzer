@@ -1,6 +1,6 @@
 # Error Problems Table
 
-**Generated:** 2026-02-25 10:38:05
+**Generated:** 2026-02-25 10:57:29
 **Total problems:** 345
 
 ## Summary by Category
@@ -209,8 +209,8 @@
 | KP-000266 | unknown | client_segment | bl-pcb-card-client-segment-v1 | 0 | 2026-02-19 | OPEN |
 | KP-000336 | unknown | unknown | bl-pcb-v1 | 0 | 2026-02-19 | OPEN |
 | KP-000345 | timeout | unknown | bl-pcb-v1 | 0 | 2026-02-19 | OPEN |
-| KP-000114 | unknown | unknown | bl-pcb-v1 | 95 | 2026-02-19 | OPEN |
 | KP-000337 | unknown | unknown | bl-pcb-v1 | 0 | 2026-02-19 | OPEN |
+| KP-000114 | unknown | unknown | bl-pcb-v1 | 95 | 2026-02-19 | OPEN |
 | KP-000201 | auth | notification | bl-pcb-notification-v1 | 0 | 2026-02-19 | OPEN |
 | KP-000186 | auth | click2pay | bl-pcb-click2pay-v1, bl-pcb-v1 | 0 | 2026-02-18 | OPEN |
 | KP-000126 | unknown | notification | bl-pcb-notification-v1 | 0 | 2026-02-18 | OPEN |
@@ -221,8 +221,8 @@
 | KP-000344 | auth | design_servicing | bff-pcb-ch-design-servicing-v1 | 0 | 2026-02-18 | OPEN |
 | KP-000172 | unknown | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-18 | OPEN |
 | KP-000343 | unknown | design_servicing | bff-pcb-ch-design-servicing-v1 | 0 | 2026-02-18 | OPEN |
-| KP-000339 | unknown | design_servicing | bff-pcb-ch-design-servicing-v1 | 0 | 2026-02-18 | OPEN |
 | KP-000340 | database | design_servicing | bff-pcb-ch-design-servicing-v1 | 0 | 2026-02-18 | OPEN |
+| KP-000339 | unknown | design_servicing | bff-pcb-ch-design-servicing-v1 | 0 | 2026-02-18 | OPEN |
 | KP-000160 | auth | unknown | bl-pcb-v1 | 51 | 2026-02-18 | OPEN |
 | KP-000338 | timeout | unknown | bl-pcb-v1 | 0 | 2026-02-18 | OPEN |
 | KP-000077 | external | card_opening | bff-pcb-ch-card-opening-v2, bl... | 0 | 2026-02-11 | OPEN |

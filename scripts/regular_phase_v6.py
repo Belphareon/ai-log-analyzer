@@ -558,24 +558,24 @@ def run_regular_phase(
         
         # Zjisti jaké error_types jsou v aktuálním okně
         if errors:
-            # Zjisti error_type z normalizace
+            # Zjisti error_type z normalizace - VŠECHNY, ne jen prvních 1000!
             from pipeline.phase_a_parse import PhaseA_Parser
             parser = PhaseA_Parser()
-            sample_error_types = set()
-            for error in errors[:1000]:  # Sample prvních 1000
+            all_error_types = set()
+            for error in errors:
                 msg = error.get('message', '')
                 error_type = parser.extract_error_type(msg)
                 if error_type and error_type != 'Unknown':
-                    sample_error_types.add(error_type)
+                    all_error_types.add(error_type)
             
-            # Načti baseline pro tyto error_types
-            if sample_error_types:
+            # Načti baseline pro ALL error_types
+            if all_error_types:
                 historical_baseline = baseline_loader.load_historical_rates(
-                    error_types=list(sample_error_types),
+                    error_types=list(all_error_types),
                     lookback_days=7,
                     min_samples=3
                 )
-                print(f"   📊 Loaded baseline for {len(historical_baseline)} error types")
+                print(f"   📊 Loaded baseline for {len(historical_baseline)}/{len(all_error_types)} error types")
         
         db_conn.close()
     except Exception as e:
