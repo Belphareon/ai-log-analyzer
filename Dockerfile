@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t ai-log-analyzer:r11 .
+#   docker build -t ai-log-analyzer:r12 .
 #
 # Run:
-#   docker run --env-file .env ai-log-analyzer:r11 python scripts/regular_phase_v6.py
+#   docker run --env-file .env ai-log-analyzer:r12 python scripts/regular_phase_v6.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="6.5.2"
-LABEL description="AI Log Analyzer - v6.5.2 (fixed Confluence report regex, occurrence tracking, PhaseC lookup, registry merging)"
+LABEL version="6.5.3"
+LABEL description="AI Log Analyzer - v6.5.3 (fixed peak detection baseline_mean writing to DB, spike detection now works)"
 
 # Set working directory
 WORKDIR /app
