@@ -2,7 +2,7 @@
 Exports - Tabulkové exporty pro operátory
 =========================================
 
-Export pravidla (V6.1):
+Export pravidla:
 - latest/   → VŽDY přepsat (overwrite) - aktuální snapshot
 - daily/    → 1× denně, kontrola existence
 - weekly/   → 1× týdně, kontrola existence

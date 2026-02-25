@@ -9,7 +9,7 @@ Používá trace_id k sestavení flow:
 3. Vytvoří flow (služba1 → služba2 → služba3)
 4. Zkrátí flow pro report (2 první + 1 poslední)
 
-Verze: 6.0
+
 """
 
 import re
@@ -20,7 +20,7 @@ from collections import defaultdict
 
 
 # =============================================================================
-# MESSAGE NORMALIZATION (V6.1)
+# MESSAGE NORMALIZATION
 # =============================================================================
 
 # Patterns pro normalizaci message
@@ -387,7 +387,7 @@ def save_trace_details(
 
 
 # =============================================================================
-# V6.1 - BEHAVIOR / TRACE FLOW ENRICHMENT
+# BEHAVIOR / TRACE FLOW ENRICHMENT
 # =============================================================================
 
 def select_representative_trace(
@@ -433,7 +433,7 @@ def select_representative_trace(
         if has_error:
             score += 10
 
-        # Bonus za fan-out (unique services) - tie-breaker (V6.1)
+        # Bonus za fan-out (unique services) - tie-breaker
         unique_services = set()
         for incident in incidents:
             if hasattr(incident, 'apps'):
@@ -491,7 +491,7 @@ def infer_trace_root_cause(flow: TraceFlow) -> Optional[Dict[str, Any]]:
     Pravidlo: první ERROR v trace = root cause.
     Fallback: první WARN, pak první krok.
 
-    Confidence levels (V6.1):
+    Confidence levels:
     - high: ERROR a zároveň první krok v trace
     - medium: ERROR ale ne první krok
     - low: pouze WARN nebo INFO (žádný ERROR)

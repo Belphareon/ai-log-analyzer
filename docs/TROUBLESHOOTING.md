@@ -1,4 +1,4 @@
-# Troubleshooting - AI Log Analyzer v5.3.1
+# Troubleshooting - AI Log Analyzer
 
 ## Časté problémy a řešení
 
@@ -50,7 +50,7 @@ ls -la registry/
 # Mělo by být zapisovatelné
 
 # Logy
-python scripts/regular_phase_v5.3.py 2>&1 | grep -i "registry"
+python scripts/regular_phase.py 2>&1 | grep -i "registry"
 ```
 
 **Řešení:**
@@ -74,7 +74,7 @@ export PYTHONPATH=/path/to/ai-log-analyzer:$PYTHONPATH
 
 # Nebo spouštět z root adresáře
 cd /path/to/ai-log-analyzer
-python scripts/regular_phase_v5.3.py
+python scripts/regular_phase.py
 ```
 
 ### 5. Import chyba: IncidentPropagation
@@ -102,7 +102,7 @@ python -c "from incident_analysis import IncidentPropagation; print('OK')"
 **Kontrola:**
 ```bash
 # Verbose mode
-python scripts/regular_phase_v5.3.py 2>&1 | head -50
+python scripts/regular_phase.py 2>&1 | head -50
 ```
 
 **Možné příčiny:**
@@ -166,7 +166,7 @@ python -c "import yaml; yaml.safe_load(open('registry/known_errors.yaml'))"
 grep ai-log /var/log/cron
 
 # Manual test s cron prostředím
-env -i /bin/bash -c 'cd /path/to && python scripts/regular_phase_v5.3.py'
+env -i /bin/bash -c 'cd /path/to && python scripts/regular_phase.py'
 ```
 
 **Typické příčiny:**
@@ -181,7 +181,7 @@ env -i /bin/bash -c 'cd /path/to && python scripts/regular_phase_v5.3.py'
 cd /opt/ai-log-analyzer
 source venv/bin/activate
 source config/.env
-python scripts/regular_phase_v5.3.py --quiet
+python scripts/regular_phase.py --quiet
 ```
 
 ### 10. Permission denied při zápisu

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-FÁZE C: Detect (V2 - S REGISTRY INTEGRACÍ)
-==========================================
+FÁZE C: Detect
+===============
 
-OPRAVY v2:
-1. Správná integrace s ProblemRegistry
-2. Lookup přes problem_key, ne jen fingerprint
-3. Propagace event timestamps (ne run timestamps)
+Detekce anomálií s registry integrací.
+- Správná integrace s ProblemRegistry
+- Lookup přes problem_key, ne jen fingerprint
+- Propagace event timestamps (ne run timestamps)
+- P93/CAP namespace-level peak detection
 
 Složitost: O(n) místo O(n × fingerprints)
 """
@@ -60,6 +61,18 @@ except ImportError:
         HAS_REGISTRY = False
         ProblemRegistry = None
 
+# Import PeakDetector (P93/CAP spike detection)
+try:
+    from core.peak_detection import PeakDetector
+    HAS_PEAK_DETECTOR = True
+except ImportError:
+    try:
+        from peak_detection import PeakDetector
+        HAS_PEAK_DETECTOR = True
+    except ImportError:
+        HAS_PEAK_DETECTOR = False
+        PeakDetector = None
+
 
 @dataclass
 class DetectionResult:
@@ -81,12 +94,12 @@ class DetectionResult:
 
 class PhaseC_Detect:
     """
-    FÁZE C: Detect (V2 s Registry)
-    
-    Klíčové opravy:
-    1. Registry se načte při __init__ nebo přes load_registry()
-    2. Lookup používá BOTH fingerprint AND problem_key
-    3. Event timestamps se propagují do DetectionResult
+    FÁZE C: Detect (s Registry integrací)
+
+    - Registry se načte při __init__ nebo přes load_registry()
+    - Lookup používá BOTH fingerprint AND problem_key
+    - Event timestamps se propagují do DetectionResult
+    - P93/CAP namespace-level peak detection
     """
     
     def __init__(
@@ -99,20 +112,28 @@ class PhaseC_Detect:
         known_fingerprints: Set[str] = None,
         known_fixes: Dict[str, str] = None,
         registry: 'ProblemRegistry' = None,
+        peak_detector: 'PeakDetector' = None,
+        new_error_min_count: int = 5,
     ):
+        # Legacy params kept for backward compat (not used for detection when peak_detector is set)
         self.spike_threshold = spike_threshold
         self.spike_mad_threshold = spike_mad_threshold
         self.burst_threshold = burst_threshold
         self.burst_window_sec = burst_window_sec
         self.cross_ns_threshold = cross_ns_threshold
-        
+
         # Legacy: direct fingerprint set
         self.known_fingerprints = known_fingerprints or set()
         self.known_fixes = known_fixes or {}
-        
-        # V2: Registry integration
+
+        # Registry integration
         self.registry = registry
-        
+
+        # P93/CAP peak detection
+        self.peak_detector = peak_detector
+        self.new_error_min_count = new_error_min_count
+        self._namespace_peak_results = {}  # populated in detect_batch
+
         # Stats
         self.stats = {
             'total_processed': 0,
@@ -148,57 +169,62 @@ class PhaseC_Detect:
             return False
     
     def _detect_spike(self, measurement: MeasurementResult, result: DetectionResult) -> bool:
-        """Detekuje spike: current > baseline * threshold
-        
-        OPRAVA: Přidán fallback pro baseline=0 (nové error typy)
+        """Detekuje spike pomocí P93/CAP percentilového systému.
+
+        Algoritmus:
+        1. Zkontroluj, zda namespace fingerprintu je v peaku (precomputed v detect_batch)
+        2. Pokud ano -> is_spike=True s P93/CAP evidencí
+        3. Fallback: nový error typ (baseline=0, count >= threshold)
         """
-        # Standard EWMA test
-        if measurement.baseline_ewma > 0:
-            ratio = measurement.current_rate / measurement.baseline_ewma
-            if ratio > self.spike_threshold:
-                result.flags.is_spike = True
-                result.add_evidence(
-                    rule="spike_ewma",
-                    baseline=measurement.baseline_ewma,
-                    current=measurement.current_rate,
-                    threshold=self.spike_threshold,
-                    message=f"ratio ({ratio:.2f}) > threshold ({self.spike_threshold})"
-                )
-                self.stats['detected_spike'] += 1
-                return True
-        
-        # MAD test (robustnější na outliers)
-        if measurement.baseline_mad > 0:
-            mad_upper = measurement.baseline_median + (measurement.baseline_mad * self.spike_mad_threshold)
-            if measurement.current_rate > mad_upper:
-                result.flags.is_spike = True
-                result.add_evidence(
-                    rule="spike_mad",
-                    baseline=measurement.baseline_median,
-                    current=measurement.current_rate,
-                    threshold=mad_upper,
-                    message=f"current ({measurement.current_rate}) > median + {self.spike_mad_threshold}*MAD ({mad_upper:.2f})"
-                )
-                self.stats['detected_spike'] += 1
-                return True
-        
-        # FALLBACK pro nové error typy (baseline=0):
-        # Pokud error rate je "podstatně vyšší" než obvyklý minimální počet eventy
-        # Klasifikuj jako spike aby se mohlo poslat notifikaci
+        # 1. P93/CAP namespace-level check (populated by detect_batch)
+        if self._namespace_peak_results:
+            for ns in measurement.namespaces:
+                peak_result = self._namespace_peak_results.get(ns)
+                if peak_result and peak_result['is_peak']:
+                    result.flags.is_spike = True
+                    result.add_evidence(
+                        rule="spike_p93_cap",
+                        current=peak_result['value'],
+                        threshold=min(peak_result['p93_threshold'], peak_result['cap_threshold']),
+                        message=(
+                            f"namespace {ns} total ({peak_result['value']:.0f}) exceeds "
+                            f"P93={peak_result['p93_threshold']:.0f} / "
+                            f"CAP={peak_result['cap_threshold']:.0f} "
+                            f"(triggered_by={peak_result['triggered_by']})"
+                        ),
+                    )
+                    self.stats['detected_spike'] += 1
+                    return True
+
+        # 2. Legacy EWMA/MAD fallback (only when no PeakDetector available)
+        if not self.peak_detector:
+            if measurement.baseline_ewma > 0:
+                ratio = measurement.current_rate / measurement.baseline_ewma
+                if ratio > self.spike_threshold:
+                    result.flags.is_spike = True
+                    result.add_evidence(
+                        rule="spike_ewma",
+                        baseline=measurement.baseline_ewma,
+                        current=measurement.current_rate,
+                        threshold=self.spike_threshold,
+                        message=f"ratio ({ratio:.2f}) > threshold ({self.spike_threshold})"
+                    )
+                    self.stats['detected_spike'] += 1
+                    return True
+
+        # 3. Fallback: new error type (no baseline)
         if measurement.baseline_ewma == 0 and measurement.baseline_median == 0:
-            # Nový error typ - neměj historickou linii
-            # Pokud máš aspoň 5 errorů v 15-min okně, to je "spike" pro nový typ
-            if measurement.current_count >= 5:
+            if measurement.current_count >= self.new_error_min_count:
                 result.flags.is_spike = True
                 result.add_evidence(
                     rule="spike_new_error_type",
                     current=measurement.current_count,
-                    threshold=5,
+                    threshold=self.new_error_min_count,
                     message=f"new error type with {measurement.current_count} occurrences (no baseline)"
                 )
                 self.stats['detected_spike'] += 1
                 return True
-        
+
         return False
     
     def _detect_burst(
@@ -272,7 +298,7 @@ class PhaseC_Detect:
         """
         Detekuje nový fingerprint/problem.
         
-        V2: Kontroluje BOTH fingerprint AND problem_key!
+        Kontroluje BOTH fingerprint AND problem_key.
         """
         fp = measurement.fingerprint
         
@@ -442,15 +468,16 @@ class PhaseC_Detect:
     ) -> Dict[str, DetectionResult]:
         """
         OPTIMALIZOVANÁ verze - předgrupuje records JEDNOU.
-        
-        V2: Přidán record_metadata pro apps, error_type, normalized_message.
+
+        Přidán record_metadata pro apps, error_type, normalized_message.
+        P93/CAP namespace-level peak detection před per-fingerprint detekcí.
         """
         # Pre-group records by fingerprint (O(n))
         records_by_fp: Dict[str, List] = defaultdict(list)
         if records:
             for r in records:
                 records_by_fp[r.fingerprint].append(r)
-        
+
         # Pre-extract metadata if not provided
         if record_metadata is None:
             record_metadata = {}
@@ -463,16 +490,56 @@ class PhaseC_Detect:
                         'normalized_message': getattr(r, 'normalized_message', ''),
                         'namespaces': list(set(rec.namespace for rec in fp_records)),
                     }
-        
-        # Detection (O(fingerprints))
+
+        # ==================================================================
+        # P93/CAP: Namespace-level peak detection
+        # ==================================================================
+        self._namespace_peak_results = {}
+
+        if self.peak_detector:
+            # 1. Aggregate counts per namespace across all fingerprints
+            ns_totals: Dict[str, float] = defaultdict(float)
+            for fp, measurement in measurements.items():
+                for ns in measurement.namespaces:
+                    if measurement.active_windows > 1 and measurement.total_count > 0:
+                        # Backfill: per-window average (P93 trained on 15-min windows)
+                        ns_totals[ns] += measurement.total_count / measurement.active_windows
+                    else:
+                        # Regular: direct count (single window)
+                        ns_totals[ns] += measurement.current_count
+
+            # 2. Determine day_of_week from first record timestamp
+            day_of_week = 0
+            if records:
+                for r in records:
+                    if r.timestamp:
+                        day_of_week = r.timestamp.weekday()
+                        break
+            elif measurements:
+                for m in measurements.values():
+                    if m.first_seen:
+                        day_of_week = m.first_seen.weekday()
+                        break
+
+            # 3. Check each namespace against P93/CAP
+            for ns, total_value in ns_totals.items():
+                try:
+                    peak_result = self.peak_detector.is_peak(total_value, ns, day_of_week)
+                    self._namespace_peak_results[ns] = peak_result
+                except Exception:
+                    pass  # non-blocking: skip if threshold lookup fails
+
+        # ==================================================================
+        # Per-fingerprint detection (O(fingerprints))
+        # ==================================================================
         results = {}
         items = list(measurements.items())
-        
+
         for fp, measurement in progress_iter(items, desc="Phase C: Detect", total=len(items)):
             fp_records = records_by_fp.get(fp, [])
             version = versions.get(fp) if versions else None
             meta = record_metadata.get(fp, {})
-            
+
             results[fp] = self.detect(
                 measurement,
                 fp_records,
@@ -482,7 +549,7 @@ class PhaseC_Detect:
                 normalized_message=meta.get('normalized_message', ''),
                 namespaces=meta.get('namespaces', []),
             )
-        
+
         return results
     
     def get_event_timestamps(self, results: Dict[str, DetectionResult]) -> Dict[str, Tuple[datetime, datetime]]:
@@ -527,4 +594,4 @@ class PhaseC_Detect:
 
 
 if __name__ == "__main__":
-    print("Phase C: Detect V2 - with Registry integration")
+    print("Phase C: Detect - with Registry integration")

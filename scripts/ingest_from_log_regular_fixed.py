@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-V2 - DYNAMIC Peak Detection with Configurable Thresholds
+DYNAMIC Peak Detection with Configurable Thresholds
 LOADS PARAMETERS FROM values.yaml FOR EASY TUNING
 
 Algorithm:
@@ -22,7 +22,6 @@ import psycopg2
 import re
 import yaml
 from datetime import datetime
-    # datetime already imported globally
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -51,12 +50,12 @@ def load_config():
         return {
             'min_ratio_multiplier': 3.0,
             'max_ratio_multiplier': 5.0,
-            'dynamic_min_multiplier': 2.5,
+            'absolute_threshold_multiplier': 4.0,
             'min_absolute_value': 100,
             'same_day_window_count': 3,
             'use_aggregation_baseline': True,
             'use_24h_trend': True,
-            'log_path': '/tmp/peaks_replaced_v2.log',
+            'log_path': '/tmp/peaks_replaced.log',
             'verbose': False
         }
     
@@ -77,12 +76,12 @@ def load_config():
         return {
             'min_ratio_multiplier': 3.0,
             'max_ratio_multiplier': 5.0,
-            'dynamic_min_multiplier': 2.5,
+            'absolute_threshold_multiplier': 4.0,
             'min_absolute_value': 100,
             'same_day_window_count': 3,
             'use_aggregation_baseline': True,
             'use_24h_trend': True,
-            'log_path': '/tmp/peaks_replaced_v2.log',
+            'log_path': '/tmp/peaks_replaced.log',
             'verbose': False
         }
 
@@ -123,14 +122,7 @@ def parse_data_format(log_file):
                 continue
             
             timestamp = parts[1]
-            day_of_week = int(parts[2])
-            # Extract calendar date from timestamp for same-day INIT accumulation
-            try:
-    # datetime already imported globally
-                ts_obj = datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
-                day = ts_obj.strftime("%Y%m%d")  # e.g., 20260112 (calendar date)
-            except:
-                day = parts[1].split("T")[0].replace("-", "")
+            day = int(parts[2])
             hour = int(parts[3])
             quarter = int(parts[4])
             namespace = parts[5]
@@ -249,103 +241,18 @@ def parse_statistics_from_log(log_file):
     return statistics
 
 
-def detect_peak_init(day, hour, quarter, namespace, value, all_stats):
-    """
-    INIT Phase Peak Detection - Simplified, INTRA-DAY only
-    
-    Algorithm:
-    1. Get last 5 same-day previous windows (-15, -30, -45, -60, -75 min)
-    2. Calculate reference = mean(those 5 windows)
-    3. Calculate ratio = value / reference
-    4. Peak decision: value > 300 OR ratio >= 20×
-    5. Replacement: use reference value if peak detected
-    
-    Key: NO cross-day references! Only same-day accumulation.
-    
-    Parameters:
-        day, hour, quarter, namespace: current window
-        value: current error count
-        all_stats: dict of current batch data (keyed by (day, hour, quarter, namespace))
-    
-    Returns: dict {
-        'is_peak': bool,
-        'ratio': float,
-        'reference': float,
-        'replacement': float,
-        'refs_count': int,
-        'reason': str (why it's a peak or not)
-    }
-    """
-    
-    # Get 5 previous windows SAME DAY ONLY
-    refs = []
-    for i in range(1, 6):  # -15, -30, -45, -60, -75 minutes
-        minutes_back = i * 15
-        total_minutes = hour * 60 + quarter * 15 - minutes_back
-        
-        if total_minutes >= 0:  # Stay within same day (cannot go negative)
-            prev_hour = total_minutes // 60
-            prev_quarter = (total_minutes % 60) // 15
-            key = (day, prev_hour, prev_quarter, namespace)
-            
-            if key in all_stats:
-                refs.append(all_stats[key]['mean'])
-    
-    # Calculate reference from available windows
-    if not refs:
-        # No previous windows available (first windows of the day)
-        # Use absolute threshold only
-        is_peak = value > 300
-        return {
-            'is_peak': is_peak,
-            'ratio': float('inf') if value > 300 else 1.0,
-            'reference': 0,
-            'replacement': value,
-            'refs_count': 0,
-            'reason': 'no_refs' if not is_peak else 'value>300'
-        }
-    
-    reference = sum(refs) / len(refs)
-    ratio = value / reference if reference > 0 else float('inf')
-    
-    # PEAK DETECTION: value > 300 OR ratio >= 20×
-    is_peak = (value > 300) or (ratio >= 20.0)
-    
-    if is_peak:
-        replacement = reference
-        if value > 300 and ratio < 20.0:
-            reason = 'value>300'
-        elif ratio >= 20.0 and value <= 300:
-            reason = f'ratio>={ratio:.1f}x'
-        else:
-            reason = f'value>300_AND_ratio>={ratio:.1f}x'
-    else:
-        replacement = value
-        reason = f'normal_ratio={ratio:.1f}x'
-    
-    return {
-        'is_peak': is_peak,
-        'ratio': ratio,
-        'reference': reference,
-        'replacement': replacement,
-        'refs_count': len(refs),
-        'reason': reason
-    }
-
-
 def detect_peak(day, hour, quarter, namespace, value, all_stats, conn=None):
     """
     DYNAMIC Peak Detection - Ratio threshold calculated from baseline_mean
     
     Strategy:
     1. Get baseline_mean from aggregation_data (Reference 1)
-    2. Calculate dynamic ratio_threshold = baseline_mean * min_ratio_multiplier (from config)
+    2. Calculate baseline_mean = aggregation_data.mean (7-day baseline)
     3. Get 3 previous 15-min windows from SAME day (from peak_raw_data DB)
     4. Calculate reference mean from those 3 windows
-    5. Get 24h average for dynamic minimum threshold
-    6. Decision: BOTH conditions must be true:
-       - ratio >= (baseline_mean * min_ratio_multiplier) [DYNAMIC!]
-       - value >= (24h_avg * dynamic_min_multiplier) [TREND-BASED!]
+    5. Decision: EITHER condition (OR):
+       - ratio >= (min_ratio_multiplier = 3.0)  [Volatility based!]
+       - value >= (aggregation_data.mean * absolute_threshold_multiplier = 4.0)  [Absolute based!]
     
     Parameters:
         day, hour, quarter, namespace: current window
@@ -442,7 +349,7 @@ def detect_peak(day, hour, quarter, namespace, value, all_stats, conn=None):
                 SELECT AVG(error_count) as avg_24h
                 FROM ailog_peak.peak_raw_data
                 WHERE namespace = %s
-                  AND timestamp >= NOW() - INTERVAL '24 hours';
+                  AND timestamp >= (SELECT MAX(timestamp) FROM ailog_peak.peak_raw_data) - INTERVAL '24 hours';
             """, (namespace,))
             result = cur.fetchone()
             if result and result[0]:
@@ -450,72 +357,53 @@ def detect_peak(day, hour, quarter, namespace, value, all_stats, conn=None):
         except Exception:
             pass  # Fallback to 0 if query fails
     
-    # STEP 6: Peak decision - DYNAMIC DUAL THRESHOLD
-    dynamic_min_multiplier = CONFIG.get('dynamic_min_multiplier', 2.5)
-    min_absolute_value = CONFIG.get('min_absolute_value', 100)
+    # STEP 6: Peak detection - DUAL THRESHOLD (OR logic)
+    absolute_threshold_multiplier = CONFIG.get('absolute_threshold_multiplier', 4.0)
     
     is_peak = False
     ratio = float('inf') if value > 0 else 0
-    
+
     if reference > 0:
         ratio = value / reference
-        
-        # Calculate dynamic minimum based on 24h trend
-        if threshold_24h > 0:
-            dynamic_minimum = threshold_24h * dynamic_min_multiplier
-        else:
-            dynamic_minimum = min_absolute_value
-        
-        # Use DYNAMIC ratio threshold if available, otherwise use minimum
-        if dynamic_ratio_threshold:
-            ratio_threshold = dynamic_ratio_threshold
-        else:
-            ratio_threshold = min_absolute_value
-        
-        # PEAK = BOTH conditions:
-        # 1. Ratio >= dynamic_ratio_threshold (based on baseline_mean * multiplier)
-        # 2. Value >= dynamic_minimum (based on 24h trend)
-        if dynamic_ratio_threshold:
-            is_peak = (ratio >= CONFIG.get('min_ratio_multiplier', 3.0)) and (value >= dynamic_minimum)
-        else:
-            is_peak = (value >= dynamic_minimum)
-    else:
-        # Zero reference → use dynamic minimum only
-        if threshold_24h > 0:
-            dynamic_minimum = threshold_24h * dynamic_min_multiplier
-        else:
-            dynamic_minimum = min_absolute_value
-        is_peak = (value >= dynamic_minimum)
+
+    # Decision: EITHER condition (OR logic):
+    # 1. Volatility-based: ratio >= 3.0 (value is 3× higher than recent trend)
+    # 2. Absolute-based: value >= aggregation_data.mean * 4.0 (value is 4× higher than 7-day baseline)
     
+    ratio_threshold = CONFIG.get('ratio_multiplier', 3.0)
+    absolute_threshold = baseline_mean * absolute_threshold_multiplier if baseline_mean and baseline_mean > 0 else float('inf')
+    
+    # Condition 1: Check ratio threshold
+    condition_1 = (reference > 0 and ratio >= ratio_threshold)
+    
+    # Condition 2: Check absolute threshold (aggregation_data.mean * multiplier)
+    condition_2 = (baseline_mean and baseline_mean > 0 and value >= absolute_threshold)
+    
+    is_peak = condition_1 or condition_2
+
     return {
         'is_peak': is_peak,
         'ratio': ratio,
         'reference': reference,
         'baseline_mean': baseline_mean,
-        'threshold_24h': threshold_24h,
-        'dynamic_ratio_threshold': dynamic_ratio_threshold,
         'refs_count': refs_count
     }
 
 
+
 def insert_to_db(statistics, conn, init_phase=False):
     """
-    Insert statistics to DB with peak detection (INIT ONLY)
+    Insert statistics to DB
     
     CRITICAL DIFFERENCE:
     - INIT Phase (init_phase=True):
-      DĚLÁ peak detection! (simplified: value > 300 OR ratio >= 20×)
-      Insert REPLACED values to peak_raw_data (ne originálu!)
-      NO loggování do peak_investigation (žádné metadata o detekci)
-      Baseline se počítá z ČISTÝCH (nahrazených) dat
-      
-      IMPORTANT: statistics dict se MODIFIKUJE - REPLACED values se ukládají!
-      Subsequent windows VIDÍ nahrazené hodnoty, ne originály.
+      Insert to peak_raw_data WITHOUT aggregation
+      NO ON CONFLICT UPDATE (keep all raw data separate!)
+      Each day's data is separate row with timestamp
     
     - REGULAR Phase (init_phase=False):
-      Peak detection s dynamickými prahy z values.yaml
-      Detekované peaky se logují a nahrazují
-      Baseline se kontinuálně aktualizuje
+      Insert to peak_raw_data with peak detection
+      Update aggregation_data for rolling baseline
     """
     
     print(f"\n💾 Connecting to database...")
@@ -530,16 +418,16 @@ def insert_to_db(statistics, conn, init_phase=False):
     print(f"📤 Processing {len(statistics)} rows...")
     
     # Open log file
-    log_file = CONFIG.get('log_path', '/tmp/peaks_replaced_v2.log')
+    log_file = CONFIG.get('log_path', '/tmp/peaks_replaced.log')
     log = open(log_file, 'w')
     log.write("=" * 120 + "\n")
-    log.write(f"Peak Detection & Replacement Log V2 - {datetime.now().isoformat()}\n")
-    log.write(f"Phase: {'🔵 INIT (peak detection >300 or ratio>=20x, accumulative replacement)' if init_phase else '🟢 REGULAR (dynamic threshold from values.yaml, full logging)'}\n")
+    log.write(f"Peak Detection & Replacement Log - {datetime.now().isoformat()}\n")
+    log.write(f"Phase: {'INIT (no peak detection)' if init_phase else 'REGULAR (with peak detection)'}\n")
     if not init_phase:
         log.write(f"\nCONFIGURATION USED:\n")
         log.write(f"  min_ratio_multiplier: {CONFIG.get('min_ratio_multiplier', 3.0)}\n")
         log.write(f"  max_ratio_multiplier: {CONFIG.get('max_ratio_multiplier', 5.0)}\n")
-        log.write(f"  dynamic_min_multiplier: {CONFIG.get('dynamic_min_multiplier', 2.5)}\n")
+        log.write(f"  dynamic_min_multiplier: {CONFIG.get('absolute_threshold_multiplier', 4.0)}\n")
         log.write(f"  min_absolute_value: {CONFIG.get('min_absolute_value', 100)}\n")
         log.write(f"  same_day_window_count: {CONFIG.get('same_day_window_count', 3)}\n")
     log.write("=" * 120 + "\n")
@@ -567,13 +455,6 @@ def insert_to_db(statistics, conn, init_phase=False):
     
     try:
         for (day, hour, quarter, namespace), stats in sorted(statistics.items()):
-            # Convert calendar_day (20260112) back to day_of_week for DB storage
-            try:
-    # datetime already imported globally
-                dt = datetime.strptime(str(day), '%Y%m%d')
-                day_of_week = dt.weekday()  # 0=Monday, 6=Sunday
-            except:
-                day_of_week = 0  # Fallback
             try:
                 original_value = stats['mean']
                 stddev = stats['stddev']
@@ -583,53 +464,29 @@ def insert_to_db(statistics, conn, init_phase=False):
                 
                 # Peak detection
                 if init_phase:
-                    # INIT Phase: Simplified peak detection (intra-day only, NO logging)
-                    # IMPORTANT: Use current statistics dict which has REPLACED values!
-                    peak_info = detect_peak_init(
-                        day, hour, quarter, namespace, original_value, statistics
-                    )
-                    is_peak = peak_info['is_peak']
-                    replacement_value = peak_info['replacement']
-                    
-                    # CRITICAL: Update statistics dict with REPLACED value
-                    # So next windows see the replaced value, not the original!
-                    if is_peak:
-                        statistics[(day, hour, quarter, namespace)]['mean'] = replacement_value
-                    
-                    if is_peak:
-                        replaced += 1
-                        # Log to console only (not to peak_investigation DB)
-                        ratio_val = peak_info['ratio']
-                        if ratio_val == float('inf'):
-                            ratio_str = '∞'
-                        else:
-                            ratio_str = f'{ratio_val:.1f}×'
-                        ref_val = peak_info['reference']
-                        log_line = (f"{day_names[day]} {hour:02d}:{quarter*15:02d} | "
-                                   f"{namespace:25s} | "
-                                   f"PEAK: {original_value:8.1f} → {replacement_value:8.1f} ({ratio_str}) | "
-                                   f"ref={ref_val:.1f}, reason={peak_info['reason']}\n")
-                        log.write(log_line)
-                        if replaced <= 20:  # Print first 20 peaks
-                            print(f"🔴 INIT PEAK: {day_names[day]} {hour:02d}:{quarter*15:02d} {namespace:25s} "
-                                  f"{original_value:8.1f} → {replacement_value:8.1f} ({ratio_str})")
+                    # INIT Phase: NO peak detection, just load all data
+                    is_peak = False
+                    replacement_value = original_value
+                    peak_info = None
                 else:
-                    # REGULAR Phase: WITH peak detection (dynamic thresholds)
+                    # REGULAR Phase: WITH peak detection
                     peak_info = detect_peak(
                         day, hour, quarter, namespace, original_value, statistics, conn
                     )
                     is_peak = peak_info['is_peak']
                     if is_peak:
-                        replacement_value = peak_info['reference']
+                        # Use aggregation_data.mean (baseline_mean) for replacement
+                        # This is the stable 7-day baseline - always better than reference
+                        replacement_value = peak_info['baseline_mean'] if peak_info['baseline_mean'] and peak_info['baseline_mean'] > 0 else original_value
                     else:
                         replacement_value = original_value
                 
-                # If peak detected in REGULAR phase: RECORD and REPLACE
-                if is_peak and not init_phase and peak_info:
+                # If peak detected (REGULAR phase only): RECORD and REPLACE
+                if is_peak and peak_info:
                     replaced += 1
                     baseline_str = f"{peak_info['baseline_mean']:.1f}" if peak_info['baseline_mean'] else 'N/A'
-                    threshold_str = f"{peak_info['dynamic_ratio_threshold']:.1f}" if peak_info['dynamic_ratio_threshold'] else 'N/A'
-                    avg_24h_str = f"{peak_info['threshold_24h']:.1f}" if peak_info['threshold_24h'] else '0.0'
+                    threshold_str = 'N/A'  # dynamic_ratio_threshold removed
+                    avg_24h_str = 'N/A'  # threshold_24h removed
                     log_line = (f"{day_names[day]} {hour:02d}:{quarter*15:02d} | "
                                f"{namespace:25s} | "
                                f"REPLACED: {original_value:8.1f} → {replacement_value:8.1f} ({peak_info['ratio']:6.1f}×) | "
@@ -639,8 +496,8 @@ def insert_to_db(statistics, conn, init_phase=False):
                                f"✅ INSERT to DB\n")
                     log.write(log_line)
                     
-                    # *** INSERT PEAK INTO peak_investigation TABLE (REGULAR ONLY) ***
-                    # Use ON CONFLICT to handle duplicates (UNIQUE constraint on timestamp + namespace)
+                    # *** INSERT PEAK INTO peak_investigation TABLE ***
+                    # Simple INSERT - duplicates are OK for audit logging
                     try:
                         # Handle inf ratio (when reference is 0)
                         ratio_val = peak_info['ratio']
@@ -653,15 +510,6 @@ def insert_to_db(statistics, conn, init_phase=False):
                              original_value, reference_value, replacement_value, ratio,
                              baseline_mean, same_day_refs_mean, investigation_status)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (timestamp, namespace) 
-                            DO UPDATE SET 
-                                original_value = EXCLUDED.original_value,
-                                reference_value = EXCLUDED.reference_value,
-                                replacement_value = EXCLUDED.replacement_value,
-                                ratio = EXCLUDED.ratio,
-                                baseline_mean = EXCLUDED.baseline_mean,
-                                same_day_refs_mean = EXCLUDED.same_day_refs_mean,
-                                updated_at = NOW()
                         """, (
                             record_timestamp,
                             day, hour, quarter, namespace,
@@ -674,7 +522,7 @@ def insert_to_db(statistics, conn, init_phase=False):
                             'new'  # investigation_status
                         ))
                     except Exception as inv_err:
-                        print(f"⚠️  Failed to log to peak_investigation: {inv_err}")
+                        print(f"⚠️  Warning - peak not logged to peak_investigation: {inv_err}")
                     
                     verbose = CONFIG.get('verbose', False)
                     if verbose or replaced <= 10:  # Log first 10 peaks
@@ -683,7 +531,7 @@ def insert_to_db(statistics, conn, init_phase=False):
                               f"baseline={baseline_str} ✅ [logged to peak_investigation]")
                 
                 # Insert to peak_raw_data (with replacement_value if peak was detected)
-                cur.execute(sql, (record_timestamp, day_of_week, hour, quarter, namespace, round(replacement_value, 1)))
+                cur.execute(sql, (record_timestamp, day, hour, quarter, namespace, round(replacement_value, 1)))
                 inserted += 1
                 
                 # REGULAR Phase: Update aggregation_data (rolling baseline)
@@ -714,7 +562,8 @@ def insert_to_db(statistics, conn, init_phase=False):
         print(f"\n{'='*80}")
         print(f"📊 SUMMARY:")
         print(f"   ✅ Total inserted to peak_raw_data: {inserted}")
-        print(f"   🔴 Peaks detected & replaced: {replaced}")
+        if not init_phase:
+            print(f"   🔴 Peaks detected & replaced: {replaced}")
         print(f"   ❌ Failed: {failed}")
         print(f"   📄 Peak log: {log_file}")
         print(f"{'='*80}\n")
@@ -728,21 +577,19 @@ def insert_to_db(statistics, conn, init_phase=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='V2 - Peak detection and ingestion with INIT phase peak replacement')
+    parser = argparse.ArgumentParser(description='Simplified peak detection and ingestion')
     parser.add_argument('--input', required=True, help='Input log file from collect_peak_detailed.py')
-    parser.add_argument('--init', action='store_true', help='INIT phase: simplified peak detection (>300 or ratio>=20x), replace peaks, no logging')
+    parser.add_argument('--init', action='store_true', help='INIT phase: no peak detection, just load raw data')
     args = parser.parse_args()
     
     print("=" * 80)
-    print("📊 Peak Statistics Ingestion - INIT PHASE PEAK DETECTION & REPLACEMENT")
+    print("📊 Peak Statistics Ingestion - DYNAMIC THRESHOLDS")
     print("=" * 80)
     print(f"Input: {args.input}")
-    print(f"Mode: {'🔵 INIT PHASE (peak detection >300 or ratio>=20×, replace, no logging)' if args.init else '🟢 REGULAR PHASE (dynamic thresholds, with logging)'}")
-    if args.init:
-        print(f"Peak detection rules: value > 300 OR ratio >= 20× (same-day only)")
-    else:
+    print(f"Mode: {'🔵 INIT PHASE (no peak detection)' if args.init else '🟢 REGULAR PHASE (with peak detection)'}")
+    if not args.init:
         print(f"Peak ratio multiplier: {CONFIG.get('min_ratio_multiplier', 3.0)}×")
-        print(f"Dynamic min multiplier: {CONFIG.get('dynamic_min_multiplier', 2.5)}×")
+        print(f"Dynamic min multiplier: {CONFIG.get('absolute_threshold_multiplier', 4.0)}×")
     print("=" * 80)
     
     # Detect format (DATA| vs old format)

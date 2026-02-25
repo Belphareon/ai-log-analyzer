@@ -22,7 +22,7 @@ Analyza a oprava 5 kritickych problemu v detekci peaku a baseline vypoctu.
 - Fix: Metoda ted kontroluje i `self.peaks` a provadi cross-format matching
 - Dopad: Zname peaky uz nejsou oznacovany jako NEW
 
-**3. BaselineLoader v Backfillu (`scripts/backfill_v6.py`)**
+**3. BaselineLoader v Backfillu (`scripts/backfill.py`)**
 - Regular phase mel BaselineLoader implementovany (od v6.0.5), ale backfill ne
 - Backfill pocital baseline pouze z aktualniho dne (max 96 oken)
 - Pro nove error_type: baseline = 0 = spatna detekce
@@ -45,7 +45,7 @@ Analyza a oprava 5 kritickych problemu v detekci peaku a baseline vypoctu.
 | Soubor | Zmena |
 |--------|-------|
 | `core/problem_registry.py` | Peak fingerprint indexing + is_problem_key_known() rozsireni |
-| `scripts/backfill_v6.py` | Pridan BaselineLoader import a pouziti |
+| `scripts/backfill.py` | Pridan BaselineLoader import a pouziti |
 | `scripts/core/baseline_loader.py` | Odstranen anomaly-only SQL filtr |
 | `scripts/pipeline/phase_b_measure.py` | Odstranen duplicitni kod |
 
@@ -59,7 +59,7 @@ Oprava detekce peaku v regular phase implementaci BaselineLoader.
 
 - **BaselineLoader** - Novy modul `scripts/core/baseline_loader.py` pro nacteni historickych baseline dat z DB
 - **Phase B integrace** - `phase_b_measure.py` nyni kombinuje historicke + aktualni rates pro EWMA vypocet
-- **Regular phase integrace** - `regular_phase_v6.py` nacita 7-denni historii pred spustenim pipeline
+- **Regular phase integrace** - `regular_phase.py` nacita 7-denni historii pred spustenim pipeline
 - **CSV Export opravy** - Opraveny reference na neexistujici pole v `table_exporter.py`:
   - `problem.root_cause` -> `problem.description`
   - `row.occurrences` -> `row.occurrence_total`

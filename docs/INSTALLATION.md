@@ -1,4 +1,4 @@
-# 🚀 V4 Complete Installation Guide
+# Installation Guide
 
 **Last Updated:** 2026-01-21
 **Status:** Production Ready (with known blockers listed)
@@ -249,7 +249,7 @@ psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyz
 psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyzer \
   -f scripts/migrations/002_create_enhanced_analysis_tables.sql
 
-# Migration 003: V4 upgrade (adds V4 flags to existing tables)
+# Migration 003: upgrade (adds flags to existing tables)
 psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyzer \
   -f scripts/migrations/upgrade_v3_to_v4.sql
 ```
@@ -267,7 +267,7 @@ EOF
 
 **Expected tables (13):**
 - `peak_raw_data` - Baseline hourly error counts
-- `peak_investigation` - Detected incidents with V4 flags
+- `peak_investigation` - Detected incidents with flags
 - `peak_thresholds` - P93 percentile thresholds per namespace/dow
 - `peak_threshold_caps` - Aggregated CAP values per namespace
 - `aggregation_data` - Baseline statistics
@@ -641,7 +641,7 @@ cd /home/jvsete/git/sas/ai-log-analyzer
 #!/bin/bash
 set -e
 
-echo "🔍 V4 Installation Verification Checklist"
+echo "🔍 Installation Verification Checklist"
 echo "=========================================="
 
 # 1. Python environment

@@ -1,4 +1,4 @@
-# Quick Start - AI Log Analyzer v5.3.1
+# Quick Start - AI Log Analyzer
 
 ## 5 minut k prvnímu reportu
 
@@ -18,7 +18,7 @@ cp config/.env.example config/.env
 ### 3. Spuštění (1 min)
 
 ```bash
-python scripts/regular_phase_v5.3.py
+python scripts/regular_phase.py
 ```
 
 ### 4. Výsledky (1 min)
@@ -35,7 +35,7 @@ cat registry/known_errors.yaml
 
 ```
 1. Fetch logů z ES (posledních 15 min)
-2. Detekce anomálií (EWMA/MAD)
+2. Detekce anomálií (P93/CAP spike detekce na úrovni namespace, burst, cross-NS)
 3. Analýza incidentů (role, propagace)
 4. Knowledge matching (KNOWN vs NEW)
 5. Registry update (append-only)
@@ -88,13 +88,13 @@ IMMEDIATE ACTIONS:
 ### Cron (automatizace)
 
 ```bash
-*/15 * * * * cd /path/to && python scripts/regular_phase_v5.3.py --quiet
+*/15 * * * * cd /path/to && python scripts/regular_phase.py --quiet
 ```
 
 ### Backfill (historie)
 
 ```bash
-python scripts/backfill_v5.3.py --days 7
+python scripts/backfill.py --days 7
 ```
 
 ### Knowledge Base (známé errory)
@@ -122,7 +122,7 @@ v5.3.1 generuje report VŽDY. Pokud je prázdný:
 ls -la registry/
 
 # Zkontrolujte logy na chyby
-python scripts/regular_phase_v5.3.py 2>&1 | grep -i error
+python scripts/regular_phase.py 2>&1 | grep -i error
 ```
 
 ### Import error?
@@ -132,7 +132,7 @@ python scripts/regular_phase_v5.3.py 2>&1 | grep -i error
 export PYTHONPATH=/path/to/ai-log-analyzer:$PYTHONPATH
 ```
 
-## Klíčové změny v5.3.1
+## Klíčové změny
 
 1. **Report VŽDY** - i prázdný, i bez incidentů
 2. **Registry append-only** - automatická evidence všeho

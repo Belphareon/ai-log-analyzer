@@ -7,15 +7,15 @@
 **9 Major Fixes Implemented:**
 
 1. ✅ **DB Connection Fix** - DDL user login for INSERT operations
-   - Files: backfill_v6.py, regular_phase_v6.py
+   - Files: backfill.py, regular_phase.py
    - Change: Use `DB_DDL_USER` instead of APP_USER for role switching
    
 2. ✅ **Teams Integration** - Backfill notifications
-   - File: core/teams_notifier.py + integration in backfill_v6.py
+   - File: core/teams_notifier.py + integration in backfill.py
    - Sends: Stats, duration, registry updates
    
 3. ✅ **Teams Alerts** - Real-time monitoring from regular phase
-   - File: regular_phase_v6.py
+   - File: regular_phase.py
    - Sends: Only spike/burst/critical (score >= 80)
    
 4. ✅ **Export Bug Fix** - PeakEntry.category extraction
@@ -102,8 +102,8 @@ DATABASE:unknown:connection_pool     ← flow="unknown" (no app matched)
 ### Files Modified
 
 ```
-✅ scripts/backfill_v6.py         - DB fix + Teams integration
-✅ scripts/regular_phase_v6.py    - DB fix + Teams alerts
+✅ scripts/backfill.py         - DB fix + Teams integration
+✅ scripts/regular_phase.py    - DB fix + Teams alerts
 ✅ scripts/exports/table_exporter.py - PeakEntry.category fix
 ✅ scripts/daily_report_generator.py - NEW (270 lines)
 ✅ scripts/publish_daily_reports.sh  - UPDATED (uses ito-upload)
@@ -117,7 +117,7 @@ DATABASE:unknown:connection_pool     ← flow="unknown" (no app matched)
 
 ```bash
 # Test Backfill
-python3 scripts/backfill_v6.py --days 1 --force
+python3 scripts/backfill.py --days 1 --force
 
 # Test Publishing (dry-run)
 bash scripts/publish_daily_reports.sh --dry-run
@@ -126,7 +126,7 @@ bash scripts/publish_daily_reports.sh --dry-run
 bash scripts/publish_daily_reports.sh
 
 # Test Regular Phase
-python3 scripts/regular_phase_v6.py
+python3 scripts/regular_phase.py
 
 # Verify Confluence (use ito-upload directly)
 /root/git/toolbox/ITO-sync-v4/ito-upload \

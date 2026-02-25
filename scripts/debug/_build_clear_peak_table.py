@@ -21,7 +21,7 @@ sys.path.insert(0, str(repo))
 load_dotenv(repo / '.env')
 load_dotenv(repo / 'config/.env')
 
-from scripts.regular_phase_v6 import get_db_connection, set_db_role
+from scripts.regular_phase import get_db_connection, set_db_role
 
 
 now = datetime.now(timezone.utc)

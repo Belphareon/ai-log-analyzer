@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MIGRAČNÍ SKRIPT V2 - Inteligentní sloučení 700k → stovky problem_keys
+MIGRAČNÍ SKRIPT - Inteligentní sloučení 700k → stovky problem_keys
 =====================================================================
 
 Funkce:
@@ -607,7 +607,7 @@ def check_health(registry_dir: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Registry Migration Tool V2',
+        description='Registry Migration Tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

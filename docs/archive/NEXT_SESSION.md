@@ -17,14 +17,14 @@
 2. **Missing SET ROLE**
    - Code was trying to skip `SET ROLE role_ailog_analyzer_ddl`
    - Without SET ROLE, even DDL user cannot access `ailog_peak` schema
-   - Restored `set_db_role()` calls in both backfill_v6.py and regular_phase_v6.py
+   - Restored `set_db_role()` calls in both backfill.py and regular_phase.py
 
 ### Changes Made
 
 #### Code Changes (ai-log-analyzer)
 - **Dockerfile**: Updated to r9 (v6.0.5)
-- **backfill_v6.py**: Restored `set_db_role()` with proper documentation
-- **regular_phase_v6.py**: Same
+- **backfill.py**: Restored `set_db_role()` with proper documentation
+- **regular_phase.py**: Same
 
 #### K8s Configuration (k8s-infra-apps-nprod)
 - **values.yaml**: Added `database_ddl: ailog_analyzer_ddl_user_d1` account mapping
@@ -56,8 +56,8 @@ Without step 2, even DDL user gets "permission denied for schema"
 
 ### Files Updated
 - ai-log-analyzer/Dockerfile (r9)
-- ai-log-analyzer/scripts/backfill_v6.py
-- ai-log-analyzer/scripts/regular_phase_v6.py
+- ai-log-analyzer/scripts/backfill.py
+- ai-log-analyzer/scripts/regular_phase.py
 - ai-log-analyzer/DB_ACCESS_GUIDE.md (confidential, not in git)
 - k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/values.yaml
 - k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/templates/secrets.yaml

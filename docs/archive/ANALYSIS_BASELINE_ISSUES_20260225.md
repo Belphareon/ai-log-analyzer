@@ -21,7 +21,7 @@ v6_backfill     |      2,842 |       0 |  0.0% | NULL   |    0.0% |   14.9%
 
 #### a) Regular Phase - omezené extrahování error_types
 
-**Soubor**: `scripts/regular_phase_v6.py` (řádky ~200-220)
+**Soubor**: `scripts/regular_phase.py` (řádky ~200-220)
 
 ```python
 # AKTUÁLNÍ KÓD - CHYBNÝ
@@ -53,7 +53,7 @@ if sample_error_types:
 
 #### b) Backfill Phase - stejný problém, jiný kód
 
-**Soubor**: `scripts/backfill_v6.py` (řádky ~450-470)
+**Soubor**: `scripts/backfill.py` (řádky ~450-470)
 
 ```python
 # AKTUÁLNÍ KÓD - ZA POSLEDNÍCH COMMITŮ JE FIXNUTÝ
@@ -85,7 +85,7 @@ Actual spikes detected: 31 (0.2%)
 
 ### Root cause
 
-Spike detekce v `scripts/pipeline/phase_c_detect_v2.py` (řádky 150-180) používá:
+Spike detekce v `scripts/pipeline/phase_c_detect.py` (řádky 150-180) používá:
 
 ```python
 def _detect_spike(self, measurement: MeasurementResult, result: DetectionResult) -> bool:
@@ -116,7 +116,7 @@ inc.stats.baseline_median = measurement.baseline_median  # ✅ Přidán v posled
 inc.stats.baseline_mad = measurement.baseline_mad  # ✅ Existuje
 ```
 
-Ale v **regular_phase_v6.py INSERT** (řádky 358-374):
+Ale v **regular_phase.py INSERT** (řádky 358-374):
 
 ```python
 data.append((
@@ -196,7 +196,7 @@ inc.stats.baseline_median = measurement.baseline_median  # ✅ Nově přidáno
 inc.stats.baseline_mad = measurement.baseline_mad
 ```
 
-**V regular_phase_v6.py (zapis do DB)**:
+**V regular_phase.py (zapis do DB)**:
 ```python
 data.append((
     ...
@@ -210,7 +210,7 @@ baseline_mean,  # Pozice 7+1 ve sloupcích = baseline_rate
                # Pozice 8+1 = baseline_median (je to baseline_mean 2x?)
 ```
 
-**V backfill_v6.py (zapis do DB)**:
+**V backfill.py (zapis do DB)**:
 ```python
 data.append((
     ...
@@ -267,18 +267,18 @@ WHERE timestamp >= NOW() - INTERVAL '24 hours'
 
 ## Recommended Actions
 
-1. **FIX #1**: V regular_phase_v6.py - extrahovat error_types ze VŠECH records, ne jen prvních 1000
-   - Soubor: `scripts/regular_phase_v6.py`
+1. **FIX #1**: V regular_phase.py - extrahovat error_types ze VŠECH records, ne jen prvních 1000
+   - Soubor: `scripts/regular_phase.py`
    - Řádky: ~200-220
    - Zmena: `for error in errors[:1000]:` → `for error in errors:`
 
-2. **FIX #2**: V backfill_v6.py - totéž
-   - Soubor: `scripts/backfill_v6.py`
+2. **FIX #2**: V backfill.py - totéž
+   - Soubor: `scripts/backfill.py`
    - Řádky: ~450-470
    - Zmena: `for error in errors[:1000]:` → `for error in errors:`
 
 3. **FIX #3**: Ověřit, že baseline_mean a baseline_median nejsou duplicitní v INSERT datech
-   - Soubor: `scripts/regular_phase_v6.py` a `scripts/backfill_v6.py`
+   - Soubor: `scripts/regular_phase.py` a `scripts/backfill.py`
    - Řádky: ~358-374 (regular) a ~250-273 (backfill)
    - Ověřit pořadí a počet polí ve `data.append()` vs INSERT statement
 
@@ -300,10 +300,10 @@ WHERE timestamp >= NOW() - INTERVAL '24 hours'
 python3 verify_baseline_fix.py
 
 # Spustit regular phase na 24h okně
-python3 scripts/regular_phase_v6.py --window 1440
+python3 scripts/regular_phase.py --window 1440
 
 # Spustit backfill na 1 den
-python3 scripts/backfill_v6.py --days 1
+python3 scripts/backfill.py --days 1
 
 # Commit and push
 git add -A

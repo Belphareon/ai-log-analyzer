@@ -57,7 +57,7 @@ class DailyReportGenerator:
                     date_range_to=date.today(),
                     input_records=0,
                     total_incidents=0,
-                    pipeline_version="4.0",
+                    pipeline_version="1.0",
                 )
             )
         
@@ -82,7 +82,7 @@ class DailyReportGenerator:
                 date_range_to=sorted_dates[-1],
                 input_records=collection.input_records,
                 total_incidents=collection.total_incidents,
-                pipeline_version=collection.pipeline_version or "4.0",
+                pipeline_version=collection.pipeline_version or "1.0",
             ),
             daily_reports=daily_reports,
             cross_day_trends=cross_day,

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-BACKFILL V6 - S KOMPLETNÍ REGISTRY INTEGRACÍ + PROBLEM-CENTRIC ANALYSIS
-========================================================================
+BACKFILL - S KOMPLETNÍ REGISTRY INTEGRACÍ + PROBLEM-CENTRIC ANALYSIS
+=====================================================================
 
-OPRAVY v6:
 1. Registry se načítá PŘED pipeline
 2. Lookup funguje (známé fingerprinty nejsou marked as NEW)
 3. first_seen/last_seen = event timestamps, NE run timestamps
@@ -12,7 +11,6 @@ OPRAVY v6:
 6. Správné ukončení (cleanup connections)
 7. Detekce již zpracovaných dnů
 
-NOVÉ v6.1 (Problem-Centric Analysis):
 - Incidenty se agregují do PROBLÉMŮ (problem_key)
 - Report iteruje přes problémy, NE incidenty
 - Root cause inference (deterministicky z trace)
@@ -22,9 +20,9 @@ NOVÉ v6.1 (Problem-Centric Analysis):
 - CSV/JSON exporty oddělené od reportu
 
 Použití:
-    python backfill_v6.py --days 14
-    python backfill_v6.py --from "2026-01-06" --to "2026-01-20"
-    python backfill_v6.py --days 14 --workers 4
+    python backfill.py --days 14
+    python backfill.py --from "2026-01-06" --to "2026-01-20"
+    python backfill.py --days 14 --workers 4
 """
 
 import os
@@ -51,7 +49,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry, compute_problem_key
 from core.baseline_loader import BaselineLoader
-from pipeline import PipelineV6
+from pipeline import Pipeline
 from pipeline.phase_f_report import PhaseF_Report
 
 # Table exports
@@ -88,7 +86,7 @@ except ImportError as e:
     HAS_INCIDENT_ANALYSIS = False
     print(f"⚠️ Incident Analysis import failed: {e}")
 
-# Problem-Centric Analysis V6
+# Problem-Centric Analysis
 try:
     from analysis import (
         aggregate_by_problem_key,
@@ -217,7 +215,7 @@ def check_day_processed(date: datetime) -> bool:
         cursor.execute("""
             SELECT COUNT(*) FROM ailog_peak.peak_investigation
             WHERE timestamp >= %s AND timestamp <= %s
-              AND detection_method = 'v6_backfill'
+              AND detection_method = 'backfill'
         """, (date_start, date_end))
         
         count = cursor.fetchone()[0]
@@ -283,7 +281,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
                 incident.flags.is_cross_namespace,
                 incident.error_type or '',
                 (incident.normalized_message or '')[:500],
-                'v6_backfill',
+                'backfill',
                 incident.score,
                 incident.severity.value
             ))
@@ -393,8 +391,7 @@ def save_registry():
 def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bool = True) -> dict:
     """
     Worker function - zpracuje jeden den.
-    
-    FIX v6:
+
     - Kontroluje zda den již byl zpracován
     - Používá globální registry
     - Propaguje event timestamps
@@ -445,9 +442,18 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
             registry = get_registry()
             known_fps = registry.get_all_known_fingerprints() if registry else set()
 
-            pipeline = PipelineV6(
-                spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
+            # P93/CAP peak detection
+            peak_detector = None
+            try:
+                from core.peak_detection import PeakDetector
+                peak_db_conn = get_db_connection()
+                peak_detector = PeakDetector(conn=peak_db_conn)
+            except Exception as e:
+                safe_print(f"   ⚠️ [{thread_name}] P93/CAP peak detector unavailable: {e}")
+
+            pipeline = Pipeline(
                 ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
+                peak_detector=peak_detector,
             )
 
             # Inject registry into Phase C (critical for is_problem_key_known() lookup!)
@@ -455,7 +461,7 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 pipeline.phase_c.registry = registry
             pipeline.phase_c.known_fingerprints = known_fps.copy()
 
-            # Load historical baseline from DB (same as regular_phase_v6.py)
+            # Load historical baseline from DB (same as regular_phase.py)
             historical_baseline = {}
             try:
                 db_conn = get_db_connection()
@@ -615,8 +621,7 @@ def run_backfill(
 ) -> dict:
     """
     Hlavní backfill funkce.
-    
-    FIX v6:
+
     - Načte registry PŘED zpracováním
     - Aktualizuje registry PO zpracování
     - Používá event timestamps
@@ -642,7 +647,7 @@ def run_backfill(
         current += timedelta(days=1)
     
     safe_print("=" * 70)
-    safe_print("🔄 BACKFILL V6 - With Registry Integration")
+    safe_print("🔄 BACKFILL - With Registry Integration")
     safe_print("=" * 70)
     safe_print(f"\n📅 Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
     safe_print(f" Total days: {len(dates)}")
@@ -774,7 +779,7 @@ def run_backfill(
     all_incidents_collection = IncidentCollection(
         run_id=f"backfill-{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}",
         run_timestamp=datetime.now(timezone.utc),
-        pipeline_version="6.0",
+        pipeline_version="1.0",
         input_records=total_errors,
     )
     
@@ -787,7 +792,7 @@ def run_backfill(
     # SUMMARY
     # ==========================================================================
     safe_print("\n" + "=" * 70)
-    safe_print("📊 BACKFILL V6 SUMMARY")
+    safe_print("📊 BACKFILL SUMMARY")
     safe_print("=" * 70)
     
     safe_print(f"\n Days processed: {len(results)}")
@@ -815,11 +820,11 @@ def run_backfill(
     last_report_path = None
 
     # ==========================================================================
-    # PROBLEM-CENTRIC ANALYSIS REPORT (V6)
+    # PROBLEM-CENTRIC ANALYSIS REPORT
     # ==========================================================================
     if all_incidents_collection.total_incidents > 0 and HAS_PROBLEM_ANALYSIS and not skip_analysis:
         safe_print("\n" + "=" * 70)
-        safe_print("🔍 PROBLEM ANALYSIS V6")
+        safe_print("🔍 PROBLEM ANALYSIS")
         safe_print("=" * 70)
 
         # 1. Agreguj incidenty do problémů
@@ -893,7 +898,7 @@ def run_backfill(
         
         with open(summary_path, 'w') as f:
             json.dump({
-                'backfill_version': '6.0',
+                'backfill_version': '1.0',
                 'backfill_date': datetime.now().isoformat(),
                 'date_range': {
                     'start': start_date.isoformat(),
@@ -932,7 +937,7 @@ def run_backfill(
             safe_print(f"   ⚠️ Export error: {e}")
 
     safe_print("\n" + "=" * 70)
-    safe_print("✅ BACKFILL V6 COMPLETE")
+    safe_print("✅ BACKFILL COMPLETE")
     safe_print("=" * 70)
     
     # ==========================================================================
@@ -1031,7 +1036,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Backfill V6 - With Registry Integration')
+    parser = argparse.ArgumentParser(description='Backfill - With Registry Integration')
     parser.add_argument('--days', type=int, default=14, help='Number of days (default: 14)')
     parser.add_argument('--from', dest='date_from', help='Start date')
     parser.add_argument('--to', dest='date_to', help='End date')

@@ -8,11 +8,11 @@
 
 ## Summary
 
-Fixed peak detection failure in `regular_phase_v6.py` by implementing 3-part solution:
+Fixed peak detection failure in `regular_phase.py` by implementing 3-part solution:
 
 1. **BaselineLoader** - New class to load historical baseline data from DB
 2. **Phase B Integration** - Inject historical baseline rates into EWMA calculation
-3. **regular_phase_v6.py Modification** - Call BaselineLoader before pipeline execution
+3. **regular_phase.py Modification** - Call BaselineLoader before pipeline execution
 
 Additionally fixed CSV export schema and corrected field references.
 
@@ -88,7 +88,7 @@ Results:
 ### T3: Pipeline Execution with Baseline Integration ✅
 
 ```
-✅ Command: python3 scripts/regular_phase_v6.py --window 15 --dry-run
+✅ Command: python3 scripts/regular_phase.py --window 15 --dry-run
 
 Output:
   ✓ NotFoundError: 326 historical rates
@@ -106,7 +106,7 @@ Output:
   ✅ Incidents: 57 built successfully
 ```
 
-**Conclusion:** regular_phase_v6.py successfully integrates baseline loading and processes incidents correctly.
+**Conclusion:** regular_phase.py successfully integrates baseline loading and processes incidents correctly.
 
 ---
 
@@ -181,7 +181,7 @@ Output:
 - Changed `measure()` method to combine historical + current window rates
 - Impact: Baseline calculation now uses 600+ samples instead of 1
 
-### 3. scripts/regular_phase_v6.py
+### 3. scripts/regular_phase.py
 - **Modified** - Added BaselineLoader integration
 - Added import: `from core.baseline_loader import BaselineLoader`
 - Added section (~35 lines) "LOAD HISTORICAL BASELINE FROM DB"
@@ -229,7 +229,7 @@ Ratio: 99 / 25.41 = 3.89 > SPIKE_THRESHOLD (3.0)
 - ✅ BaselineLoader queries return expected format and volume
 - ✅ Baseline values are reasonable (min=0, max=8309, avg=2.89)
 - ✅ Phase B correctly combines historical + current data
-- ✅ regular_phase_v6.py loads baseline before pipeline execution
+- ✅ regular_phase.py loads baseline before pipeline execution
 - ✅ Peak detection scoring works (26 high-score, 5 critical in 6h window)
 - ✅ 100% baseline availability (65,566/65,566 records with baseline > 0)
 - ✅ CSV export works without errors

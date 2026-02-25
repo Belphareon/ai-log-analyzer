@@ -4,7 +4,7 @@
 
 ### 1. REGULAR PHASE - ✅ SPRÁVNĚ IMPLEMENTOVÁNO
 
-**Regular phase (`scripts/regular_phase_v6.py`) má FIX A implementovaný podle dokumentu FIX_PEAK_DETECTION_V1.md:**
+**Regular phase (`scripts/regular_phase.py`) má FIX A implementovaný podle dokumentu FIX_PEAK_DETECTION.md:**
 
 ✅ **Import BaselineLoader** (řádek 37)
 ✅ **Načtení historického baseline z DB** (řádky 553-582) - načítá 7 dní historie z `peak_investigation`
@@ -17,7 +17,7 @@
 
 ### 2. BACKFILL - ❌ CHYBÍ BASELINE LOADING
 
-**Backfill (`scripts/backfill_v6.py`) NEPOUŽÍVÁ BaselineLoader!**
+**Backfill (`scripts/backfill.py`) NEPOUŽÍVÁ BaselineLoader!**
 
 **Co chybí:**
 
@@ -25,10 +25,10 @@
 ❌ **Načtení historického baseline** - neprovádí se  
 ❌ **Injekce do pipeline.phase_b** - řádky 427-437 vytváří pipeline BEZ historical_baseline
 
-**Problematický kód v backfill_v6.py:**
+**Problematický kód v backfill.py:**
 ```python
 # Řádek 427-437
-pipeline = PipelineV6(
+pipeline = Pipeline(
     spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
     ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
 )
@@ -84,7 +84,7 @@ collection = pipeline.run(errors, run_id=f"backfill-{date.strftime('%Y%m%d')}")
 
 ### Problem #1: Backfill nemá BaselineLoader
 **Symptom:** Baseline hodnoty jsou nízké nebo 0  
-**Root cause:** backfill_v6.py nepoužívá BaselineLoader  
+**Root cause:** backfill.py nepoužívá BaselineLoader  
 **Impact:** Špatná detekce nových peaků, mnoho false positives
 
 ### Problem #2: Root Cause Analysis není implementována
@@ -118,7 +118,7 @@ collection = pipeline.run(errors, run_id=f"backfill-{date.strftime('%Y%m%d')}")
 
 ### 1️⃣ VYSOKÁ PRIORITA: Přidat BaselineLoader do backfill
 
-**Do `backfill_v6.py` přidat:**
+**Do `backfill.py` přidat:**
 
 ```python
 # A) Import (začátek souboru)

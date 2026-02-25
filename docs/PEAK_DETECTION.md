@@ -1,301 +1,292 @@
-# Peak Detection - Detailní popis algoritmů
+# Peak Detection - P93/CAP Percentile System
 
-Tento dokument popisuje jak systém detekuje anomálie (peaky) v error logu.
-Detekce probíhá v Phase C pipeline (`scripts/pipeline/phase_c_detect.py`),
-ale závisí na datech z Phase B (`scripts/pipeline/phase_b_measure.py`)
-a na historickém baseline z DB (`scripts/core/baseline_loader.py`).
+Systém detekuje anomalie (peaky) v error logu pomocí **P93/CAP percentilového systemu**.
+Spike detekce probihá na urovni **namespace** (celkovy error count), ne per-fingerprint.
 
----
-
-## Přehled detekčních pravidel
-
-Phase C aplikuje na každý fingerprint sadu nezávislých detekčních pravidel.
-Každé pravidlo nastaví boolean flag a přidá evidence (důkaz).
-Jeden fingerprint může mít více flagů současně (např. `is_spike + is_new`).
-
-```
-Pro každý fingerprint:
-  1. _detect_spike()          → is_spike
-  2. _detect_burst()          → is_burst
-  3. _detect_new()            → is_new
-  4. _detect_cross_namespace()→ is_cross_namespace
-  5. _detect_silence()        → is_silence
-  6. _detect_regression()     → is_regression
-```
+**Klicove soubory:**
+- `scripts/pipeline/phase_c_detect.py` - spike detekce (Phase C pipeline)
+- `scripts/core/peak_detection.py` - PeakDetector (P93/CAP thresholds z DB)
+- `scripts/core/calculate_peak_thresholds.py` - prepocet P93/CAP z peak_raw_data
+- `scripts/pipeline/phase_b_measure.py` - EWMA/MAD (pouze informativni metriky)
 
 ---
 
-## 1. Spike Detection (`_detect_spike`)
+## Prehled detekčnich pravidel
 
-**Účel:** Detekuje, že aktuální error rate výrazně převyšuje historický průměr.
-
-**Tři testy (aplikovány postupně, první úspěšný vyhrává):**
-
-### Test 1: EWMA ratio
+Phase C aplikuje na kazdy fingerprint sadu nezavislych pravidel.
+Kazde pravidlo nastavi boolean flag a prida evidence.
 
 ```
-Podmínka: baseline_ewma > 0
-Výpočet:  ratio = current_rate / baseline_ewma
-Pravidlo:  ratio > spike_threshold (default: 3.0)
-```
+detect_batch():
+  1. Agreguj error count per namespace
+  2. PeakDetector.is_peak(ns_total, namespace, dow) pro kazdy namespace
 
-Pokud aktuální rate je 3x vyšší než EWMA baseline, je to spike.
-
-**Příklad:**
-- baseline_ewma = 10 errors/window, current_rate = 45 errors/window
-- ratio = 45/10 = 4.5 > 3.0 -> SPIKE
-
-### Test 2: MAD (Median Absolute Deviation)
-
-```
-Podmínka: baseline_mad > 0
-Výpočet:  mad_upper = baseline_median + (baseline_mad * spike_mad_threshold)
-Pravidlo:  current_rate > mad_upper
-```
-
-Default: `spike_mad_threshold = 3.0`
-
-Robustnější test, který odolává outlierům v historických datech.
-MAD se počítá jako medián absolutních odchylek od mediánu.
-
-**Příklad:**
-- baseline_median = 8, baseline_mad = 2
-- mad_upper = 8 + (2 * 3.0) = 14
-- current_rate = 20 > 14 -> SPIKE
-
-### Test 3: Fallback pro nové error typy
-
-```
-Podmínka: baseline_ewma == 0 AND baseline_median == 0
-Pravidlo:  current_count >= 5
-```
-
-Pokud error typ nemá žádnou historii (baseline = 0), a v aktuálním okně
-je alespoň 5 výskytů, klasifikuje se jako spike. Tento fallback zajišťuje,
-že nové error typy s významným počtem výskytů nejsou ignorovány.
-
----
-
-## 2. Burst Detection (`_detect_burst`)
-
-**Účel:** Detekuje náhlou LOKÁLNÍ koncentraci chyb v krátkém časovém okně.
-
-**Rozdíl od spike:** Spike porovnává aktuální rate s historickým baseline.
-Burst porovnává distribuci eventů UVNITŘ aktuálního okna - hledá,
-zda se velká část eventů nahromadila v krátkém časovém úseku.
-
-**Algoritmus:**
-
-```
-1. Seřaď records podle timestamp
-2. Sliding window (default: 60s):
-   Pro každý record i:
-     - Spočítej kolik records je v okně [timestamp_i - 60s, timestamp_i]
-     - Ulož jako window_count[i]
-3. Výpočet:
-   max_count = max(window_counts)
-   avg_count = mean(window_counts)
-   ratio = max_count / avg_count
-4. Pravidlo:
-   ratio > burst_threshold (default: 5.0)
-```
-
-**Příklad:**
-- 100 errors v 15-min okně, ale 80 z nich přišlo během 30 sekund
-- max_count = 80 (v sliding window 60s)
-- avg_count = 15
-- ratio = 80/15 = 5.3 > 5.0 -> BURST
-
-**Minimální podmínka:** Alespoň 2 records s validním timestamp.
-
----
-
-## 3. New Detection (`_detect_new`)
-
-**Účel:** Detekuje fingerprint/problem_key, který dosud nebyl viděn.
-
-**Algoritmus (V2 s Registry integrací):**
-
-```
-1. Check fingerprint:
-   IF fingerprint IN known_fingerprints -> KNOWN (ne new)
-
-2. Check problem_key (pokud registry je dostupný):
-   problem_key = compute_problem_key(category, apps, error_type, message, namespaces)
-   IF registry.is_problem_key_known(problem_key):
-     -> Fingerprint je nový, ale problém je známý (nová varianta)
-     -> Přidej fingerprint do known_fingerprints pro tuto session
-     -> KNOWN (ne new)
-
-3. Pokud ani fingerprint ani problem_key nejsou známé:
-   -> is_new = True
-   -> Přidej fingerprint do known_fingerprints pro tuto session
-```
-
-**Registry se načítá PŘED spuštěním pipeline** (v regular_phase_v6.py):
-```python
-pipeline.phase_c.registry = registry
-pipeline.phase_c.known_fingerprints = registry.get_all_known_fingerprints()
+Pro kazdy fingerprint:
+  1. _detect_spike()          -> is_spike  (P93/CAP namespace-level)
+  2. _detect_burst()          -> is_burst  (sliding window)
+  3. _detect_new()            -> is_new    (registry lookup)
+  4. _detect_cross_namespace()-> is_cross_namespace
+  5. _detect_silence()        -> is_silence
+  6. _detect_regression()     -> is_regression
 ```
 
 ---
 
-## 4. Cross-Namespace Detection (`_detect_cross_namespace`)
+## 1. Spike Detection (`_detect_spike`) - P93/CAP
 
-**Účel:** Detekuje, že stejný error pattern se vyskytuje ve více namespacech.
+**Ucel:** Detekuje, ze namespace ma neobvykle vysoky error rate (peak).
+
+**Algoritmus: P93 OR CAP**
 
 ```
-Pravidlo: namespace_count >= cross_ns_threshold (default: 2)
+is_peak = (ns_total > P93_per_DOW) OR (ns_total > CAP)
+
+P93_per_DOW = 93. percentil error countu pro (namespace, den_tydne)
+              Zdroj: tabulka ailog_peak.peak_thresholds
+
+CAP = (median_P93 + avg_P93) / 2 per namespace
+      Zdroj: tabulka ailog_peak.peak_threshold_caps
 ```
 
-Cross-namespace error typicky indikuje systémový problém (shared dependency,
-infra issue), ne lokální bug v jedné aplikaci.
+### Jak to funguje v pipeline
+
+1. **detect_batch()** agreguje total error count per namespace:
+   - Regular phase (1 okno): sum current_count per namespace
+   - Backfill (96 oken): total_count / active_windows (prumer per okno)
+
+2. **PeakDetector.is_peak()** zkontroluje kazdy namespace proti P93/CAP
+
+3. **_detect_spike()** per fingerprint:
+   - Pokud namespace fingerprintu je v peaku -> `is_spike=True`
+   - Evidence: `rule="spike_p93_cap"` s P93/CAP hodnotami
+
+### Priklad
+
+```
+Namespace: pcb-sit-01-app, Pondeli
+P93 threshold: 360 errors/window
+CAP threshold: 373 errors/window
+Aktualni celkovy count: 487 errors
+
+487 > 360 (P93) -> SPIKE (triggered_by=p93)
+```
+
+### Fallback: Novy error typ
+
+```
+Podminka: baseline_ewma == 0 AND baseline_median == 0
+Pravidlo: current_count >= 5
+```
+
+Novy error typ bez historie s 5+ vyskyty = spike. Konfigurovatelne pres
+`new_error_min_count`.
+
+### Legacy fallback (bez PeakDetectoru)
+
+Pokud PeakDetector neni dostupny (chybi DB thresholds), pouzije se
+puvodni EWMA ratio test jako fallback. Tento stav nastane jen pri
+prvnim nasazeni pred naplnenim peak_raw_data.
 
 ---
 
-## 5. Silence Detection (`_detect_silence`)
+## 2. EWMA/MAD - Informativni metriky
 
-**Účel:** Detekuje neočekávanou ABSENCI errorů.
+EWMA a MAD se **NEPOUZIVAJI pro spike detekci**. Zustavaji v Phase B
+jako informativni metriky:
 
-```
-Podmínka: current_rate == 0 AND baseline_ewma > 5
-```
+- `trend_ratio` = current_rate / baseline_ewma -> indikuje trend
+- `trend_direction` = "increasing" / "stable" / "decreasing"
+- `baseline_ewma` = exponencialne vazeny prumer historickych rates
+- `baseline_mad` = median absolutnich odchylek
 
-Pokud error typ, který normálně produkuje 5+ errors/window, najednou
-nemá žádné výskyty, může to indikovat problém (např. aplikace spadla
-a neprodukuje ani error logy).
+Tyto metriky se ukladaji do DB (peak_investigation) a pouzivaji
+v Phase D pro bonus scoring (trend_ratio > 2.0 pridava body).
 
----
-
-## 6. Regression Detection (`_detect_regression`)
-
-**Účel:** Detekuje, že error, který byl opraven, se znovu objevil.
-
-```
-Podmínka: fingerprint IN known_fixes
-         AND current_version >= fixed_in_version
-```
-
-Pokud error byl opraven ve verzi 1.5.0, ale objevuje se ve verzi 1.6.0,
-je to regrese.
+**Proc ne EWMA pro spike detekci:**
+- EWMA produkuje 17.8% false positive rate (vs 7.8% P93)
+- EWMA se adaptuje na vysoke hodnoty a pak misi realne peaky
+- MAD test generuje masivni false positives u nizkych hodnot
 
 ---
 
-## Baseline - Odkud se bere
+## 3-6. Ostatni detekce
 
-Kvalita detekce závisí na kvalitě baseline. Baseline se skládá ze dvou zdrojů:
+### Burst Detection (`_detect_burst`)
 
-### Zdroj 1: Aktuální okno (vždy dostupné)
+Detekuje nahlou LOKALNI koncentraci chyb v kratkem casovem okne.
 
-Phase B rozdělí aktuální data na sub-okna (po 15 min) a z nich vypočítá rates.
-Pro 15-min regular phase je ale typicky jen 1 okno -> žádný intra-window baseline.
-Pro 24h backfill je k dispozici až 96 oken -> dobrý intra-window baseline.
+```
+Sliding window (60s): max_count / avg_count > burst_threshold (5.0)
+```
 
-### Zdroj 2: Historický baseline z DB (regular phase)
+### New Detection (`_detect_new`)
 
-`BaselineLoader` (`scripts/core/baseline_loader.py`) načte historická data
-z tabulky `ailog_peak.peak_investigation`:
+Detekuje novy fingerprint/problem_key (registry lookup).
+
+### Cross-Namespace Detection (`_detect_cross_namespace`)
+
+```
+namespace_count >= cross_ns_threshold (2)
+```
+
+### Silence Detection (`_detect_silence`)
+
+```
+current_rate == 0 AND baseline_ewma > 5
+```
+
+### Regression Detection (`_detect_regression`)
+
+```
+fingerprint IN known_fixes AND current_version >= fixed_in_version
+```
+
+---
+
+## P93/CAP Thresholds - Datovy tok
+
+### 1. Sber dat (peak_raw_data)
+
+Tabulka `ailog_peak.peak_raw_data` uchovava surove error county
+per (namespace, 15-min okno). Plni se ze dvou zdroju:
+
+- **init_phase.py** - inicializacni sber 21+ dni z ES (jednorázove)
+- **regular_phase.py** - kazdy 15-min beh ulozi namespace totaly (průběžne)
 
 ```sql
-SELECT error_type, reference_value, timestamp
-FROM ailog_peak.peak_investigation
-WHERE error_type = ANY(error_types)
-  AND timestamp > now() - interval '7 days'
-  AND (is_spike OR is_burst OR score >= 30)
-ORDER BY error_type, timestamp ASC
+-- Schéma peak_raw_data:
+timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
+error_count, original_value
+-- UNIQUE(timestamp, day_of_week, hour_of_day, quarter_hour, namespace)
 ```
 
-**Vrací:** `{error_type: [reference_value_1, reference_value_2, ...]}`
+### 2. Prepocet thresholds (calculate_peak_thresholds.py)
 
-Phase B pak kombinuje oba zdroje:
+Spousti se periodicky (doporuceno tydne). Cte peak_raw_data a pocita:
+
+```bash
+python3 scripts/core/calculate_peak_thresholds.py
+  --weeks 4            # Jen posledni 4 tydny dat
+  --percentile 0.93    # Default z env PERCENTILE_LEVEL
+  --dry-run            # Ukazat bez ulozeni
+```
+
+**Vystup:**
+- `peak_thresholds` - P93 per (namespace, day_of_week)
+- `peak_threshold_caps` - CAP per namespace
+
+### 3. Pouziti v pipeline (PeakDetector)
+
+PeakDetector nactě thresholds z DB (5-min cache) a vystavuje:
+
 ```python
-if error_type in error_type_baseline:
-    historical_rates = error_type_baseline[error_type] + current_window_rates
+detector = PeakDetector(conn=db_connection)
+result = detector.is_peak(value=487, namespace='pcb-sit-01-app', day_of_week=0)
+# {'is_peak': True, 'triggered_by': 'p93', 'p93_threshold': 360, 'cap_threshold': 373}
 ```
 
-**Omezení:**
-- Nový error_type bez historie v DB -> baseline = 0 -> spike detekce
-  projde jen přes fallback test (current_count >= 5)
-- DB query filtruje jen záznamy s `is_spike OR is_burst OR score >= 30`,
-  takže error typy s nízkou závažností nemusí mít historii
+### Samozdokonalovaci smycka
+
+```
+Regular Phase (kazdych 15 min)
+  -> uklada namespace totaly do peak_raw_data
+  -> peak_raw_data roste
+  -> calculate_peak_thresholds (tydne) prepocita P93/CAP
+  -> PeakDetector nacte nove thresholds
+  -> presnejsi detekce
+```
 
 ---
 
 ## End-to-End Flow (Regular Phase)
 
 ```
-1. fetch_unlimited() → raw errors z ES (15 min)
-       ↓
-2. BaselineLoader.load_historical_rates() → {error_type: [rates]} z DB (7 dní)
-       ↓
-3. Phase A: Parse → NormalizedRecord[] (fingerprint, error_type, ...)
-       ↓
-4. Phase B: Measure → MeasurementResult[] (baseline_ewma, current_rate, ...)
-   │  Pro každý fingerprint:
-   │    - Zkus najít DB baseline přes error_type_baseline[error_type]
-   │    - Kombinuj s intra-window rates
-   │    - Spočítej EWMA a MAD
-       ↓
-5. Phase C: Detect → DetectionResult[] (is_spike, is_burst, is_new, ...)
-   │  Pro každý fingerprint:
-   │    - Aplikuj spike test (EWMA → MAD → fallback)
-   │    - Aplikuj burst test (sliding window)
-   │    - Zkontroluj v registry (new vs known)
-   │    - Zkontroluj cross-namespace
-       ↓
-6. Phase D: Score → score 0-100
-   │  base + spike(+25) + burst(+20) + new(+15) + ...
-       ↓
-7. Phase E: Classify → category (DATABASE, NETWORK, AUTH, ...)
-       ↓
+1. fetch_unlimited() -> raw errors z ES (15 min)
+       |
+2. BaselineLoader.load_historical_rates() -> {error_type: [rates]} z DB
+       |
+3. Phase A: Parse -> NormalizedRecord[]
+       |
+4. Phase B: Measure -> MeasurementResult[]
+   |  EWMA, MAD, trend_ratio (informativni metriky)
+       |
+5. Phase C: Detect
+   |  5a. Agreguj error count per namespace
+   |  5b. PeakDetector.is_peak() per namespace (P93 OR CAP)
+   |  5c. Per fingerprint: spike + burst + new + cross_ns
+       |
+6. Phase D: Score -> 0-100
+   |  base + spike(+25) + burst(+20) + new(+15) + ...
+       |
+7. Phase E: Classify -> category
+       |
 8. Build IncidentCollection
-       ↓
-9. Save to DB (peak_investigation)
-       ↓
-10. Update Registry (known_problems, known_peaks, fingerprint_index)
-       ↓
-11. Problem Analysis → agregace incidentů do problémů
-       ↓
-12. Notifikace (Teams/Email) - pokud peaks_detected > 0 nebo score >= 70
+       |
+9. Save to DB:
+   |  - peak_investigation (per incident)
+   |  - peak_raw_data (namespace totaly pro P93 prepocet)
+       |
+10. Update Registry
+       |
+11. Problem Analysis + Notifikace
 ```
 
 ---
 
 ## Konfigurace
 
+Konfigurace se nacita z env vars (nastaveno K8s z `k8s/values.yaml`):
+
 | Parametr | Default | Env var | Popis |
 |----------|---------|---------|-------|
-| `spike_threshold` | 3.0 | `SPIKE_THRESHOLD` | EWMA ratio pro spike |
-| `spike_mad_threshold` | 3.0 | - | MAD násobek pro spike |
+| `percentile_level` | 0.93 | `PERCENTILE_LEVEL` | Percentil pro thresholds (P93) |
+| `default_threshold` | 100 | `DEFAULT_THRESHOLD` | Fallback kdyz chybi data |
+| `min_samples` | 10 | `MIN_SAMPLES_FOR_THRESHOLD` | Min vzorku pro spolehlivy P93 |
+| `ewma_alpha` | 0.3 | `EWMA_ALPHA` | EWMA citlivost (jen informativni) |
 | `burst_threshold` | 5.0 | - | max/avg ratio pro burst |
-| `burst_window_sec` | 60 | - | Sliding window pro burst (sekundy) |
-| `cross_ns_threshold` | 2 | - | Min. namespaců pro cross-NS flag |
-| `ewma_alpha` | 0.3 | `EWMA_ALPHA` | EWMA citlivost (0-1) |
-| `baseline_windows` | 20 | - | Max. počet historických oken |
-| `lookback_days` | 7 | - | Kolik dní historie z DB |
+| `cross_ns_threshold` | 2 | - | Min. namespace pro cross-NS flag |
 
 ---
 
-## Časté problémy
+## Zpetne dohrání dat z ES
 
-### baseline_ewma = 0 pro všechny fingerprints
+Pro zlepseni percentiloveho odhadu:
 
-**Příčina:** Historický baseline se nenačetl z DB, nebo se nepředal správně do Phase B.
+```bash
+# 1. Sber historickych dat do peak_raw_data (21+ dni)
+python3 scripts/init_phase.py --days 30
 
-**Kontrola:**
-- Ověř, že `BaselineLoader` vrací neprázdný dict
-- Ověř, že se injektuje do `pipeline.phase_b.error_type_baseline` (ne `historical_baseline`)
-- Ověř, že DB obsahuje data za posledních 7 dní
+# 2. Prepocet P93/CAP thresholds
+python3 scripts/core/calculate_peak_thresholds.py --verbose
 
-### Žádné spike detekce, přestože error rate je vysoký
+# 3. Overeni (optional)
+python3 scripts/core/peak_detection.py --show-thresholds
+```
 
-**Příčiny:**
-1. baseline = 0 -> EWMA test a MAD test se přeskočí
-2. Fallback test vyžaduje current_count >= 5
-3. Ratio nepřekročí threshold (aktuální rate < 3x baseline)
+Vice dat = presnejsi P93. Doporucuje se min. 14 dni, idealne 30+.
+
+---
+
+## Caste problemy
+
+### P93 thresholds chybi v DB
+
+**Pricina:** `peak_raw_data` je prazdna, nebo `calculate_peak_thresholds.py` nebyl spusten.
+
+**Reseni:**
+1. `python3 scripts/init_phase.py --days 21` (sber dat z ES)
+2. `python3 scripts/core/calculate_peak_thresholds.py` (prepocet)
+
+### PeakDetector neni dostupny
+
+**Pricina:** DB connection failed, nebo thresholds tabulky neexistuji.
+
+**Dsledek:** Pipeline pouzije legacy EWMA fallback (vyssi false positive rate).
+
+**Reseni:** Zkontroluj DB connection a migrace (001_create_peak_thresholds.sql).
 
 ### False positive bursts
 
-**Příčina:** Burst test je nezávislý na baseline a závisí jen na distribuci
-eventů uvnitř okna. Málo eventů (< 5) s nerovnoměrnou distribucí
-může vygenerovat high ratio.
+**Pricina:** Burst test je nezavisly na P93 - zalezi jen na distribuci
+eventu uvnitr okna. Malo eventu (< 5) s nerovnomernou distribuci
+muze vygenerovat high ratio.

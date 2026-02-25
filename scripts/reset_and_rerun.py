@@ -181,10 +181,10 @@ def run_migration(registry_dir: Path, dry_run: bool = True) -> bool:
 
 def run_backfill(days: int, workers: int, dry_run: bool = True) -> dict:
     """Spustí backfill."""
-    from backfill_v6 import run_backfill as backfill
+    from backfill import run_backfill as backfill
     
     if dry_run:
-        print(f"\n   Would run: backfill_v6.py --days {days} --workers {workers}")
+        print(f"\n   Would run: backfill.py --days {days} --workers {workers}")
         return {'dry_run': True}
     else:
         return backfill(
@@ -313,7 +313,7 @@ Examples:
     
     if dry_run:
         print(f"\n   Would execute:")
-        print(f"   python backfill_v6.py --days {args.days} --workers {args.workers} --force")
+        print(f"   python backfill.py --days {args.days} --workers {args.workers} --force")
         print("\n   ⚠️  This is a DRY-RUN. Use --execute to actually run.")
     else:
         print(f"\n   Running backfill with {args.days} days, {args.workers} workers...")

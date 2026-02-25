@@ -20,7 +20,7 @@ cp config/.env.example config/.env
 mkdir -p registry scripts/reports
 
 # 4. Test
-python3 scripts/regular_phase_v6.py --help
+python3 scripts/regular_phase.py --help
 ```
 
 ## Konfigurace (.env)
@@ -54,13 +54,13 @@ CONFLUENCE_API_TOKEN=...
 
 ```bash
 # 15min cyklus
-python3 scripts/regular_phase_v6.py
+python3 scripts/regular_phase.py
 
 # Backfill N dni
-python3 scripts/backfill_v6.py --days 7 --workers 4
+python3 scripts/backfill.py --days 7 --workers 4
 
 # Backfill s force reprocessing
-python3 scripts/backfill_v6.py --days 14 --force
+python3 scripts/backfill.py --days 14 --force
 ```
 
 ## Overeni instalace
@@ -73,7 +73,7 @@ python3 -c "import psycopg2; print('DB OK')"
 python3 -c "from incident_analysis import IncidentAnalysisEngine; print('OK')"
 
 # 3. Suchy beh
-python3 scripts/regular_phase_v6.py --dry-run
+python3 scripts/regular_phase.py --dry-run
 ```
 
 ## Troubleshooting

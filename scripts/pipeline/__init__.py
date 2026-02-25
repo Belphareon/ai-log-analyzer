@@ -1,6 +1,6 @@
 """
-AI Log Analyzer - Pipeline V6
-=============================
+AI Log Analyzer - Detection Pipeline
+=====================================
 
 Striktně oddělené fáze pro incident detection.
 
@@ -13,9 +13,9 @@ Fáze:
 - F: Report (render)
 
 Použití:
-    from pipeline import PipelineV6
-    
-    pipeline = PipelineV6()
+    from pipeline import Pipeline
+
+    pipeline = Pipeline()
     collection = pipeline.run(errors)
 """
 
@@ -39,9 +39,9 @@ from .phase_c_detect import PhaseC_Detect, DetectionResult
 from .phase_d_score import PhaseD_Score, ScoreResult, ScoreWeights, score_to_severity
 from .phase_e_classify import PhaseE_Classify, ClassificationRule, ClassificationResult
 from .phase_f_report import PhaseF_Report
-from .pipeline import PipelineV6, load_batch_files
+from .pipeline import Pipeline, load_batch_files
 
-__version__ = "6.0.1"
+__version__ = "1.0.0"
 __all__ = [
     # Incident
     "Incident",
@@ -65,6 +65,6 @@ __all__ = [
     "PhaseF_Report",
     
     # Pipeline
-    "PipelineV6",
+    "Pipeline",
     "load_batch_files",
 ]

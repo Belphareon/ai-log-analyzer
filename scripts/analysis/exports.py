@@ -12,7 +12,7 @@ Exporty:
 - propagation_stats.csv - propagation info
 - registry_health.csv - health metriky registry
 
-Verze: 6.0
+
 """
 
 import csv
@@ -121,7 +121,7 @@ class ProblemExporter:
                 'is_burst',
                 'is_new',
                 'is_cross_ns',
-                'representative_trace_id',  # V6.1
+                'representative_trace_id',
                 'root_cause_service',
                 'root_cause_message',
                 'propagation_type',
@@ -159,7 +159,7 @@ class ProblemExporter:
                     int(problem.has_burst),
                     int(problem.has_new),
                     int(problem.is_cross_namespace),
-                    problem.representative_trace_id or '',  # V6.1
+                    problem.representative_trace_id or '',
                     rc_service,
                     rc_message[:200].replace('\n', ' '),
                     propagation.propagation_type if propagation else '',

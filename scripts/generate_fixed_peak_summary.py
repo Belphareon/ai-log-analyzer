@@ -243,7 +243,7 @@ if baseline_ewma == 0 and current_count >= 5:
     result.flags.is_spike = True  # New error type
 ```
 
-### 3. Score-Based Notifications (regular_phase_v6.py)
+### 3. Score-Based Notifications (regular_phase.py)
 ```python
 peaks_detected = (spike OR burst OR score >= 70)
 if peaks_detected > 0:

@@ -1,8 +1,8 @@
 """
-Analysis Module V6 - Problem-Centric Analysis
+Analysis Module - Problem-Centric Analysis
 =============================================
 
-Nový přístup:
+Přístup:
 - Incidenty = vstupní data (ES)
 - Problémy (problem_key) = primární analytická jednotka
 - Trace = nástroj k pochopení co se dělo
@@ -15,8 +15,6 @@ Moduly:
 - propagation: Propagace přes services
 - version_analysis: Version-aware analýza
 - category_refinement: Automatická reklasifikace unknown
-
-Verze: 6.0
 """
 
 from .problem_aggregator import (
@@ -30,7 +28,7 @@ from .trace_analysis import (
     summarize_trace_flow,
     group_incidents_by_trace,
     get_representative_traces,
-    # V6.1 Behavior
+    # Behavior
     select_representative_trace,
     summarize_trace_flow_to_dict,
     infer_trace_root_cause,
@@ -75,7 +73,7 @@ __all__ = [
     'summarize_trace_flow',
     'group_incidents_by_trace',
     'get_representative_traces',
-    # V6.1 Behavior
+    # Behavior
     'select_representative_trace',
     'summarize_trace_flow_to_dict',
     'infer_trace_root_cause',

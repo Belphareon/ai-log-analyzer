@@ -3,7 +3,7 @@
 Propagation Analysis - Analýza šíření problémů
 ==============================================
 
-ZMĚNA oproti V5:
+ZMĚNA:
 - TEĎ: boolean CROSS_NS + neurčitý text
 - NOVĚ: seznam služeb, root service, propagation path
 
@@ -12,12 +12,12 @@ Logika:
 - root = první služba v trace
 - affected = všechny další služby
 
-V6.3 změny:
+Změny:
 - propagation_time_ms se počítá POUZE z trace dat
 - Pokud nemáme trace, duration = 0 (N/A)
 - Opraveny nesmyslné hodnoty jako 47176523ms (13 hodin)
 
-Verze: 6.3
+
 """
 
 from dataclasses import dataclass, field
@@ -161,7 +161,7 @@ def analyze_propagation_from_problem(problem: Any) -> PropagationResult:
     """
     Analyzuje propagaci přímo z ProblemAggregate (bez trace).
 
-    V6.3: Duration se NEPOČÍTÁ z problem.first_seen/last_seen (to je celý den),
+    Duration se NEPOČÍTÁ z problem.first_seen/last_seen (to je celý den),
     ale pouze z trace dat. Pokud nemáme trace, duration = 0 (N/A).
 
     Args:
@@ -194,13 +194,13 @@ def analyze_propagation_from_problem(problem: Any) -> PropagationResult:
     result.namespace_count = len(namespaces)
     result.fan_out = max(0, result.service_count - 1)
 
-    # V6.3: Časové info - BEZ DURATION (ta je smysluplná pouze z trace)
+    # Časové info - BEZ DURATION (ta je smysluplná pouze z trace)
     # problem.first_seen/last_seen reprezentuje časový rozsah problému, ne propagace
     if hasattr(problem, 'first_seen'):
         result.first_seen = problem.first_seen
     if hasattr(problem, 'last_seen'):
         result.last_seen = problem.last_seen
-    # V6.3: propagation_time_ms = 0 (N/A) pokud nemáme trace data
+    # propagation_time_ms = 0 (N/A) pokud nemáme trace data
     # Nesmyslné hodnoty jako 47176523ms (13 hodin) byly způsobeny použitím
     # časového rozsahu celého problému místo jednoho trace
     result.propagation_time_ms = 0

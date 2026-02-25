@@ -34,7 +34,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from peak_detection_v3 import PeakDetector
+    from peak_detection import PeakDetector
 except ImportError:
     PeakDetector = None
 
@@ -155,7 +155,7 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
     
     # Collect statistics
     stats_by_ns = {}
-    total_peaks_v3 = 0
+    total_peaks_detected = 0
     total_peaks_db = 0
     
     for row in data:
@@ -167,11 +167,11 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
         if ns not in stats_by_ns:
             stats_by_ns[ns] = {
                 'total': 0,
-                'peaks_v3': 0,
+                'peaks_detected': 0,
                 'peaks_db': 0,
                 'max_non_peak': 0,
                 'max_value': 0,
-                'by_dow': {d: {'total': 0, 'peaks_v3': 0, 'peaks_db': 0} for d in range(7)}
+                'by_dow': {d: {'total': 0, 'peaks_detected': 0, 'peaks_db': 0} for d in range(7)}
             }
         
         result = detector.is_peak(value, ns, dow)
@@ -181,9 +181,9 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
         stats_by_ns[ns]['by_dow'][dow]['total'] += 1
         
         if result['is_peak']:
-            stats_by_ns[ns]['peaks_v3'] += 1
-            stats_by_ns[ns]['by_dow'][dow]['peaks_v3'] += 1
-            total_peaks_v3 += 1
+            stats_by_ns[ns]['peaks_detected'] += 1
+            stats_by_ns[ns]['by_dow'][dow]['peaks_detected'] += 1
+            total_peaks_detected += 1
         else:
             stats_by_ns[ns]['max_non_peak'] = max(stats_by_ns[ns]['max_non_peak'], value)
         
@@ -199,24 +199,24 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
     with open(output_path, 'w') as f:
         f.write(f"# {title}\n\n")
         f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"**Method:** P{int(all_thresholds['percentile_level'] * 100)} OR CAP (V3 - DB)\n")
+        f.write(f"**Method:** P{int(all_thresholds['percentile_level'] * 100)} OR CAP (DB thresholds)\n")
         f.write(f"**Data points:** {len(data)}\n\n")
         
         # Summary table
         f.write("## Summary\n\n")
-        f.write("| NS | N | Peaks (V3) | % | Max non-peak | Max value |\n")
+        f.write("| NS | N | Peaks | % | Max non-peak | Max value |\n")
         f.write("|----|---|------------|---|--------------|----------|\n")
         
         total_n = 0
         
         for ns in sorted(stats_by_ns.keys()):
             s = stats_by_ns[ns]
-            pct = (s['peaks_v3'] / s['total'] * 100) if s['total'] > 0 else 0
-            f.write(f"| {ns} | {s['total']} | {s['peaks_v3']} | {pct:.1f}% | {s['max_non_peak']:.0f} | {s['max_value']:.0f} |\n")
+            pct = (s['peaks_detected'] / s['total'] * 100) if s['total'] > 0 else 0
+            f.write(f"| {ns} | {s['total']} | {s['peaks_detected']} | {pct:.1f}% | {s['max_non_peak']:.0f} | {s['max_value']:.0f} |\n")
             total_n += s['total']
         
-        total_pct = (total_peaks_v3 / total_n * 100) if total_n > 0 else 0
-        f.write(f"| **TOTAL** | **{total_n}** | **{total_peaks_v3}** | **{total_pct:.1f}%** | | |\n")
+        total_pct = (total_peaks_detected / total_n * 100) if total_n > 0 else 0
+        f.write(f"| **TOTAL** | **{total_n}** | **{total_peaks_detected}** | **{total_pct:.1f}%** | | |\n")
         
         # Thresholds used (from DB)
         f.write("\n## Thresholds (from Database)\n\n")
@@ -243,10 +243,10 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
         
         for ns in sorted(stats_by_ns.keys()):
             s = stats_by_ns[ns]
-            ns_pct = (s['peaks_v3'] / s['total'] * 100) if s['total'] > 0 else 0
+            ns_pct = (s['peaks_detected'] / s['total'] * 100) if s['total'] > 0 else 0
             
             f.write(f"\n### {ns}\n\n")
-            f.write(f"**Total:** {s['total']} | **Peaks:** {s['peaks_v3']} ({ns_pct:.1f}%) | ")
+            f.write(f"**Total:** {s['total']} | **Peaks:** {s['peaks_detected']} ({ns_pct:.1f}%) | ")
             f.write(f"**Max non-peak:** {s['max_non_peak']:.0f} | **Max:** {s['max_value']:.0f}\n\n")
             
             f.write("| Day | N | Peaks | % |\n")
@@ -254,8 +254,8 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
             
             for dow in range(7):
                 d = s['by_dow'][dow]
-                pct = (d['peaks_v3'] / d['total'] * 100) if d['total'] > 0 else 0
-                f.write(f"| {days[dow]} | {d['total']} | {d['peaks_v3']} | {pct:.1f}% |\n")
+                pct = (d['peaks_detected'] / d['total'] * 100) if d['total'] > 0 else 0
+                f.write(f"| {days[dow]} | {d['total']} | {d['peaks_detected']} | {pct:.1f}% |\n")
     
     print(f"✅ Report saved: {output_path}")
     return output_path
@@ -281,7 +281,7 @@ def main():
         sys.exit(1)
     
     if PeakDetector is None:
-        print("❌ Could not import PeakDetector from peak_detection_v3.py")
+        print("❌ Could not import PeakDetector from peak_detection.py")
         sys.exit(1)
     
     print("🔌 Connecting to database...")

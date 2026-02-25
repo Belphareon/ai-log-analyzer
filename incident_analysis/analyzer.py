@@ -308,7 +308,7 @@ class IncidentAnalysisEngine:
             severity=severity,
             trigger=trigger,
             scope=scope,
-            propagation=propagation,  # v5.3: odděleno od scope
+            propagation=propagation,  # odděleno od scope
             timeline=timeline,
             causal_chain=causal_chain,
             recommended_actions=actions,
@@ -355,7 +355,7 @@ class IncidentAnalysisEngine:
         """
         Generuje 1-3 bezprostřední akce.
         
-        VYLEPŠENO v5.3: Actions zohledňují kontext (WHAT + WHERE + HOW BAD + HOW NEW + PROPAGATION)
+        VYLEPŠENO: Actions zohledňují kontext (WHAT + WHERE + HOW BAD + HOW NEW + PROPAGATION)
         Ne jen category → šablona, ale:
         - is_new
         - affected_apps_count
@@ -369,11 +369,11 @@ class IncidentAnalysisEngine:
         is_new = incident.knowledge_status == "NEW"
         is_known = incident.knowledge_status == "KNOWN"
         scope = incident.scope
-        propagation = incident.propagation  # v5.3: odděleno od scope
+        propagation = incident.propagation  # odděleno od scope
         affected_apps_count = scope.blast_radius
         is_widespread = affected_apps_count >= 3
         
-        # v5.3: Propagation context (z incident.propagation, ne scope!)
+        # Propagation context (z incident.propagation, ne scope!)
         is_fast_propagation = propagation.propagated and propagation.propagation_time_sec and propagation.propagation_time_sec < 30
         is_localized = scope.is_localized
         root_app = scope.root_apps[0] if scope.root_apps else None
@@ -401,7 +401,7 @@ class IncidentAnalysisEngine:
         
         # === GENERATE CONTEXT-AWARE ACTIONS ===
         
-        # 0. v5.3: Fast propagation = nejvyšší priorita
+        # 0. Fast propagation = nejvyšší priorita
         if is_fast_propagation and is_new:
             actions.append(f"URGENT: Fast propagation detected ({propagation.propagation_time_sec}s) - check {root_app or 'root service'}")
         
@@ -449,7 +449,7 @@ class IncidentAnalysisEngine:
             if is_new and is_widespread:
                 actions.append(f"Identify common factor across {affected_apps_count} affected apps")
             elif is_new and is_localized:
-                # v5.3: Lokální incident = jednodušší diagnostika
+                # Lokální incident = jednodušší diagnostika
                 actions.append(f"Check logs on {rc_app or root_app or 'affected service'}")
             elif is_new:
                 actions.append(f"Check logs and metrics on {rc_app or 'affected service'}")
@@ -461,7 +461,7 @@ class IncidentAnalysisEngine:
             actions.append("Investigate and classify incident")
         
         if is_new and len(actions) < 3:
-            # v5.3: Lokální incident nepotřebuje Jiru okamžitě
+            # Lokální incident nepotřebuje Jiru okamžitě
             if is_localized:
                 actions.append("Monitor for 15 min before escalating")
             else:
@@ -483,7 +483,7 @@ class IncidentAnalysisEngine:
         """
         Staví scope incidentu.
         
-        v5.3: Klasifikuje role aplikací (root, downstream, collateral)
+        Klasifikuje role aplikací (root, downstream, collateral)
               a vrací také IncidentPropagation
               
         Returns:
@@ -498,8 +498,8 @@ class IncidentAnalysisEngine:
         namespaces = set()
         fingerprints = set()
         app_versions: Dict[str, Set[str]] = defaultdict(set)
-        app_timestamps: Dict[str, datetime] = {}  # v5.3: pro klasifikaci rolí
-        app_error_counts: Dict[str, int] = defaultdict(int)  # v5.3: pro určení root
+        app_timestamps: Dict[str, datetime] = {}  # pro klasifikaci rolí
+        app_error_counts: Dict[str, int] = defaultdict(int)  # pro určení root
         
         for event in events:
             app = event.get('app', 'unknown')
@@ -541,7 +541,7 @@ class IncidentAnalysisEngine:
         # Detekce změny verzí (v5.2)
         scope.detect_version_changes()
         
-        # === v5.3: Klasifikace rolí aplikací ===
+        # === Klasifikace rolí aplikací ===
         if app_timestamps:
             # Root = app s nejdřívějším timestamp NEBO nejvíce errory
             first_app = min(app_timestamps.items(), key=lambda x: x[1])[0] if app_timestamps else None

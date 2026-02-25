@@ -31,7 +31,7 @@ Regular phase (15-min) **nemohl detekovat nové peaky** protože:
   - = 673+ samples pro baseline EWMA
 - Baseline nyní ≠ 0 pro nové errory!
 
-#### 3. `scripts/regular_phase_v6.py` (MODIFIED)
+#### 3. `scripts/regular_phase.py` (MODIFIED)
 - Import: `from core.baseline_loader import BaselineLoader`
 - Před spuštěním pipeline:
   1. Zavolá `BaselineLoader(db_conn).load_historical_rates(...)`
@@ -76,9 +76,9 @@ python scripts/core/baseline_loader.py \
     --days 7 --stats
 ```
 
-### T3: Spustit regular_phase_v6.py
+### T3: Spustit regular_phase.py
 ```bash
-python scripts/regular_phase_v6.py \
+python scripts/regular_phase.py \
     --from "$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
     --to "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
@@ -94,7 +94,7 @@ grep -E "(BaselineLoader|historical|spike|burst|peak)" /tmp/test.log
 |------|---------|-------|
 | `scripts/core/baseline_loader.py` | NEW | 250+ |
 | `scripts/pipeline/phase_b_measure.py` | historical_baseline integration | +15 |
-| `scripts/regular_phase_v6.py` | BaselineLoader call + injection | +35 |
+| `scripts/regular_phase.py` | BaselineLoader call + injection | +35 |
 | `scripts/exports/table_exporter.py` | CSV redesign (V6.2) | +60 |
 
 ## Expected Outcomes

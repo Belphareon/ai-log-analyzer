@@ -106,7 +106,7 @@ python3 scripts/core/baseline_loader.py --error-types ErrorType1 ErrorType2 --da
 
 ---
 
-#### scripts/regular_phase_v6.py
+#### scripts/regular_phase.py
 
 **Changes:**
 
@@ -261,7 +261,7 @@ pipeline.phase_b.historical_baseline = {
 
 1. **BaselineLoader** - New class, doesn't affect existing code
 2. **Phase B** - `historical_baseline` parameter is optional (defaults to None)
-3. **regular_phase_v6.py** - BaselineLoader call is wrapped in try-except, non-breaking
+3. **regular_phase.py** - BaselineLoader call is wrapped in try-except, non-breaking
 4. **table_exporter.py** - Field name fixes only improve existing functionality
 
 **Fallback:** If BaselineLoader fails, baseline calculation reverts to previous behavior (baseline=0 for new errors). No pipeline interruption.
@@ -272,7 +272,7 @@ pipeline.phase_b.historical_baseline = {
 
 - **BaselineLoader DB query:** ~500ms (first run), cached after
 - **Phase B EWMA calculation:** +10% time (combining historical + current)
-- **regular_phase_v6.py overhead:** +200ms per run (single DB query at start)
+- **regular_phase.py overhead:** +200ms per run (single DB query at start)
 
 **Net impact:** <300ms additional latency per 15-min cycle
 
@@ -306,8 +306,8 @@ python3 scripts/core/baseline_loader.py \
     --error-types UnknownError NotFoundError \
     --days 7 --stats
 
-# Test regular_phase_v6.py with baseline loading
-python3 scripts/regular_phase_v6.py --window 15 --dry-run
+# Test regular_phase.py with baseline loading
+python3 scripts/regular_phase.py --window 15 --dry-run
 
 # Check export outputs
 ls -lh scripts/exports/latest/errors_table.*
@@ -326,7 +326,7 @@ If issues arise, revert these changes:
 
 ```bash
 # Revert BaselineLoader integration
-git checkout scripts/regular_phase_v6.py
+git checkout scripts/regular_phase.py
 
 # Revert Phase B changes
 git checkout scripts/pipeline/phase_b_measure.py
@@ -344,8 +344,8 @@ Pipeline will revert to previous behavior (baseline=0 for new errors) immediatel
 
 ## References
 
-- [FIX_PEAK_DETECTION_V1.md](./FIX_PEAK_DETECTION_V1.md) - Detailed problem analysis
-- [TESTING_RESULTS_V1.md](./TESTING_RESULTS_V1.md) - Full test results
+- [FIX_PEAK_DETECTION.md](./FIX_PEAK_DETECTION.md) - Detailed problem analysis
+- [TESTING_RESULTS.md](./TESTING_RESULTS.md) - Full test results
 - peak_investigation schema: `columns=[error_type, reference_value, is_spike, is_burst, score, severity, ...]`
 - EWMA algorithm: Exponential Weighted Moving Average with alpha=0.3
 

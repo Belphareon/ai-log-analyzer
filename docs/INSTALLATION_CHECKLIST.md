@@ -1,4 +1,4 @@
-# 🔧 V4 Installation - Step-by-Step Execution Checklist
+# Installation - Step-by-Step Execution Checklist
 
 **Purpose:** Jednotlivé příkazy ke spuštění v přesném pořadí  
 **Status:** Ready for execution  
@@ -84,13 +84,13 @@ psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyz
 echo "✅ Migration 002 complete"
 ```
 
-### Step 2.6: Run Migration 003 - V4 Upgrade
+### Step 2.6: Run Migration 003 - Upgrade
 
 ```bash
 export PGPASSWORD="WWvkHhyjje8YSgvU"
 psql -h P050TD01.DEV.KB.CZ -p 5432 -U ailog_analyzer_ddl_user_d1 -d ailog_analyzer \
   -f scripts/migrations/upgrade_v3_to_v4.sql
-echo "✅ Migration 003 (V4 upgrade) complete"
+echo "✅ Migration 003 (upgrade) complete"
 ```
 
 ### Step 2.7: Verify All Tables Created
@@ -338,7 +338,7 @@ echo "✅ Cron job verified"
 
 ```bash
 cat << 'EOFCHECK'
-🔍 V4 System Status Check
+🔍 System Status Check
 ===========================
 
 echo "1. Python Environment:"
@@ -422,7 +422,7 @@ echo "✅ Incidents verified"
 
 ## 🎯 Quick Reference - All Commands in One Script
 
-Save this as `install_v4_full.sh`:
+Save this as `install_full.sh`:
 
 ```bash
 #!/bin/bash
@@ -431,7 +431,7 @@ set -e
 cd /home/jvsete/git/sas/ai-log-analyzer
 export PGPASSWORD="WWvkHhyjje8YSgvU"
 
-echo "📦 V4 Full Installation Script"
+echo "📦 Full Installation Script"
 echo "=============================="
 
 # PHASE 1: Config
@@ -490,7 +490,7 @@ echo "*/15 * * * * cd $(pwd) && ./run_regular.sh >> /var/log/ailog/cron.log 2>&1
 echo "✅ Phase 8 done"
 
 echo ""
-echo "✅✅✅ V4 INSTALLATION COMPLETE ✅✅✅"
+echo "✅✅✅ INSTALLATION COMPLETE ✅✅✅"
 echo ""
 echo "Next steps:"
 echo "1. Run backfill: ./run_backfill.sh --days 14"

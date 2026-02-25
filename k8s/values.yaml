@@ -110,7 +110,7 @@ env:
   DEFAULT_THRESHOLD: "100"             # Fallback threshold pokud není data v DB
   
   # === Telemetry & Context ===
-  # Odvozování environment z namespace (viz TELEMETRY_V6.md)
+  # Odvozování environment z namespace (viz TELEMETRY.md)
   # Podporované patterny: -prod-, -uat-, -sit-, -dev-
 
 # ============================================================================

@@ -9,7 +9,7 @@ ZÁSADNÍ ZMĚNA:
 - Jeden kvalitní seznam problémů
 
 Report struktura:
-1. Executive Summary (V6.3: pouze actionable problémy)
+1. Executive Summary (pouze actionable problémy)
 2. Problem List (seřazeno podle priority)
 3. Per-problem detail:
    - Root cause
@@ -17,14 +17,6 @@ Report struktura:
    - Version impact
    - Sample trace
 4. Statistics (na konci, oddělené)
-
-V6.3 změny:
-- Executive Summary filtruje jen relevantní problémy
-- Trace flow: smart deduplication zachovává různé apps
-- Plné message a trace ID (bez truncation)
-- Confidence level u root cause
-
-Verze: 6.3
 """
 
 from datetime import datetime
@@ -77,7 +69,7 @@ class ProblemReportGenerator:
         total = len(self.problems)
         print(f"   Enriching {total} problems...", flush=True)
 
-        # 1. Trace behavior (V6.1) - MUSÍ BÝT PRVNÍ pro trace-based root cause
+        # 1. Trace behavior - MUSÍ BÝT PRVNÍ pro trace-based root cause
         print("   [1/5] Trace enrichment...", flush=True)
         enrich_all_problems_with_traces(self.problems, output_dir=output_dir, verbose=True)
 
@@ -129,7 +121,7 @@ class ProblemReportGenerator:
         """Formátuje header reportu."""
         lines = [
             "=" * 70,
-            "PROBLEM ANALYSIS REPORT V6",
+            "PROBLEM ANALYSIS REPORT",
             "=" * 70,
             "",
         ]
@@ -169,7 +161,7 @@ class ProblemReportGenerator:
         lines.append(f"  - Cross-namespace: {cross_ns}")
         lines.append("")
 
-        # Top issues - POUZE relevantní problémy (V6.3)
+        # Top issues - POUZE relevantní problémy
         # Filtr: musí splnit aspoň 1 podmínku
         MIN_OCCURRENCES = 50
         actionable_problems = [
@@ -285,7 +277,7 @@ class ProblemReportGenerator:
 
         lines.append("")
 
-        # === BEHAVIOR / TRACE FLOW (V6.3) ===
+        # === BEHAVIOR / TRACE FLOW ===
         if problem.representative_trace_id and problem.trace_flow_summary:
             # Počet zpráv pro trace
             trace_msg_count = sum(step.get('count', 1) for step in problem.trace_flow_summary)
@@ -293,7 +285,7 @@ class ProblemReportGenerator:
             lines.append(f"    TraceID: {problem.representative_trace_id}")
             lines.append("")
 
-            # V6.3: Smart deduplication - zachovat různé apps i se stejnou message
+            # Smart deduplication - zachovat různé apps i se stejnou message
             steps = problem.trace_flow_summary
             num_steps = len(steps)
             step_num = 0

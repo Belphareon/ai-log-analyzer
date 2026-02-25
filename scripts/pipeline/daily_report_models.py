@@ -185,7 +185,7 @@ class ReportMetadata:
     input_records: int
     total_incidents: int
     pipeline_version: str
-    report_version: str = "2.0"
+    report_version: str = "1.0"
 
 
 @dataclass

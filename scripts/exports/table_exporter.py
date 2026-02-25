@@ -3,7 +3,7 @@
 Table Exporter - Operátorský view na Problem Registry
 =====================================================
 
-Export pravidla (V6.1):
+Export pravidla:
 - latest/   → VŽDY přepsat (overwrite) - aktuální snapshot
 - daily/    → 1× denně, kontrola existence
 - weekly/   → 1× týdně, kontrola existence
@@ -59,7 +59,7 @@ from core.problem_registry import ProblemRegistry, ProblemEntry, PeakEntry
 
 @dataclass
 class ErrorTableRow:
-    """Řádek v errors_table - operátorský view (V6.2 - redesigned)
+    """Řádek v errors_table - operátorský view
     
     Nové pořadí (priority):
     1. First Seen / Last Seen - WHEN se to stalo
@@ -147,7 +147,7 @@ class TableExporter:
     # =========================================================================
 
     def get_errors_rows(self) -> List[ErrorTableRow]:
-        """Převede Problem Registry na řádky tabulky (nový design V6.2)."""
+        """Převede Problem Registry na řádky tabulky."""
         rows = []
         now = datetime.now(timezone.utc)
 
@@ -182,7 +182,7 @@ class TableExporter:
                 detail = f"{detail} / {problem.flow[:30]}"
             
             row = ErrorTableRow(
-                # NOVÉ POŘADÍ - V6.2
+                # NOVÉ POŘADÍ
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "Unknown",
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "Unknown",
                 occurrence_total=problem.occurrences,
@@ -217,7 +217,7 @@ class TableExporter:
         return rows
 
     def export_errors_csv(self, output_path: str) -> str:
-        """Export errors jako CSV (new design V6.2)."""
+        """Export errors jako CSV ."""
         rows = self.get_errors_rows()
 
         path = Path(output_path)
@@ -244,7 +244,7 @@ class TableExporter:
                     ordered = {k: row_dict.get(k, '') for k in fieldnames}
                     writer.writerow(ordered)
             else:
-                # Empty file with headers (V6.2 schema)
+                # Empty file with headers 
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 

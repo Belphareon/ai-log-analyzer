@@ -1,4 +1,4 @@
-# Dokumentace AI Log Analyzer v6.0.1
+# Dokumentace AI Log Analyzer
 
 ## Obsah
 
@@ -7,8 +7,8 @@
 | [QUICKSTART.md](QUICKSTART.md) | 5 minut k prvnímu reportu |
 | [INSTALLATION.md](INSTALLATION.md) | Podrobná instalace |
 | [INSTALLATION_CHECKLIST.md](INSTALLATION_CHECKLIST.md) | Checklist pro produkci |
-| [PIPELINE_V4_ARCHITECTURE.md](PIPELINE_V4_ARCHITECTURE.md) | Technická architektura (v6) |
-| [PEAK_DETECTION.md](PEAK_DETECTION.md) | Detekční algoritmy (spike, burst, new, ...) |
+| [PIPELINE_ARCHITECTURE.md](PIPELINE_ARCHITECTURE.md) | Technická architektura |
+| [PEAK_DETECTION.md](PEAK_DETECTION.md) | P93/CAP spike detekce a ostatní detekční pravidla |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Řešení problémů |
 | [ADD_APPLICATION_VERSION.md](ADD_APPLICATION_VERSION.md) | Přidání version pole do ES |
 
@@ -19,7 +19,7 @@
 | [../README.md](../README.md) | Hlavní README projektu |
 | [../INSTALL.md](../INSTALL.md) | Rychlá instalace |
 
-## Změny v6.0.1
+## Změny
 
 ### Architektura
 
@@ -45,7 +45,7 @@ class IncidentAnalysis:
 
 ```bash
 # Spuštění
-python scripts/regular_phase_v6.py
+python scripts/regular_phase.py
 
 # Výstup
 cat scripts/reports/incident_analysis_15min_*.txt

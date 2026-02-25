@@ -82,7 +82,7 @@ class EmailNotifier:
                 if summary:
                     body = f"{summary.strip()}\n"
                 else:
-                        body = f"""AI Log Analyzer - Backfill V6 Completed
+                        body = f"""AI Log Analyzer - Backfill Completed
 {'='*70}
 
 Status: {status}
@@ -109,7 +109,7 @@ Results:
             html_body = f"""
             <html>
             <body style="font-family: Arial, sans-serif; color: #333;">
-                <h2>AI Log Analyzer - Backfill V6 Completed</h2>
+                <h2>AI Log Analyzer - Backfill Completed</h2>
                 <hr style="border: 1px solid #ddd;">
                 {html_summary}
                 <p style="margin-top: 20px;">
@@ -127,7 +127,7 @@ Results:
             html_body = f"""
             <html>
             <body style="font-family: Arial, sans-serif; color: #333;">
-                <h2>AI Log Analyzer - Backfill V6 Completed</h2>
+                <h2>AI Log Analyzer - Backfill Completed</h2>
                 <hr style="border: 1px solid #ddd;">
                 <p><strong>Status:</strong> {status}</p>
                 <p><strong>Duration:</strong> {duration_minutes:.1f} minutes</p>

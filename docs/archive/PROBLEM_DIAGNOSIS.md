@@ -73,7 +73,7 @@ if measurement.baseline_ewma > 0:
 **Symptom:** Nemáš žádné Teams notifikace o peakech
 
 **Root Cause:**  
-V `regular_phase_v6.py` (řádek 725-736):
+V `regular_phase.py` (řádek 725-736):
 
 ```python
 if HAS_TEAMS and collection.incidents:
@@ -179,7 +179,7 @@ def _detect_burst(...):
 
 ### FIX #2: REGULAR PHASE NOTIFIKACE - ZAHRŇ SCORE-BASED
 
-**Co opravit:** `regular_phase_v6.py`, podmínka pro notifikaci (ř. 725-736)
+**Co opravit:** `regular_phase.py`, podmínka pro notifikaci (ř. 725-736)
 
 **Současný kód:**
 ```python
@@ -311,7 +311,7 @@ ORDER BY timestamp ASC
 
 ### Krok 2: Oprav regular phase notifikace (20 min)
 ```bash
-# Edit: scripts/regular_phase_v6.py
+# Edit: scripts/regular_phase.py
 # Přidej critical_incidents check
 # Add TEAMS_ALERT_SCORE_THRESHOLD=70 do .env
 ```
@@ -319,7 +319,7 @@ ORDER BY timestamp ASC
 ### Krok 3: Test E2E (15 min)
 ```bash
 # Run regular phase
-python3 scripts/regular_phase_v6.py --window 60
+python3 scripts/regular_phase.py --window 60
 
 # Verify:
 # 1. Počet burst detections ↓

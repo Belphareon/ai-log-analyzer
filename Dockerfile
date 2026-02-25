@@ -5,15 +5,15 @@
 #   docker build -t ai-log-analyzer:r12 .
 #
 # Run:
-#   docker run --env-file .env ai-log-analyzer:r12 python scripts/regular_phase_v6.py
+#   docker run --env-file .env ai-log-analyzer:r12 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="6.5.3"
-LABEL description="AI Log Analyzer - v6.5.3 (fixed peak detection baseline_mean writing to DB, spike detection now works)"
+LABEL version="1.0.0"
+LABEL description="AI Log Analyzer - Incident detection and analysis pipeline"
 
 # Set working directory
 WORKDIR /app
@@ -48,4 +48,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/scripts
 
 # Default command
-CMD ["python", "scripts/regular_phase_v6.py", "--quiet"]
+CMD ["python", "scripts/regular_phase.py", "--quiet"]

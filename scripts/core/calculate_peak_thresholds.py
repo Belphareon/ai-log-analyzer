@@ -287,12 +287,16 @@ def print_summary(thresholds: dict, caps: dict):
 
 
 def main():
+    # Percentile default: env var PERCENTILE_LEVEL (from K8s values.yaml) > hardcoded 0.93
+    default_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.93'))
+
     parser = argparse.ArgumentParser(description='Calculate Peak Thresholds from peak_raw_data')
     parser.add_argument('--weeks', type=int, help='Only use last N weeks of data')
-    parser.add_argument('--percentile', type=float, default=0.93, help='Percentile level (default: 0.93)')
+    parser.add_argument('--percentile', type=float, default=default_percentile,
+                        help=f'Percentile level (default: {default_percentile} from env PERCENTILE_LEVEL)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be calculated without saving')
     parser.add_argument('--verbose', action='store_true', help='Show detailed output')
-    
+
     args = parser.parse_args()
     
     print("=" * 80)

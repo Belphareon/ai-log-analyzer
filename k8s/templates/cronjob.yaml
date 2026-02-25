@@ -1,6 +1,6 @@
 {{/*
 =============================================================================
-Log Analyzer v6 - CronJobs (Regular Phase + Backfill)
+Log Analyzer - CronJobs (Regular Phase + Backfill)
 =============================================================================
 */}}
 ---
@@ -44,7 +44,7 @@ spec:
               workingDir: /app
               command:
                 - python3
-                - /app/scripts/regular_phase_v6.py
+                - /app/scripts/regular_phase.py
               
               env:
                 # === Application Config ===
@@ -212,8 +212,8 @@ spec:
                 - -c
                 - |
                   set -e
-                  echo "📊 Running Backfill V6..."
-                  python3 /app/scripts/backfill_v6.py --days 1 --force --output /app/scripts/reports
+                  echo "📊 Running Backfill..."
+                  python3 /app/scripts/backfill.py --days 1 --force --output /app/scripts/reports
                   
                   echo ""
                   echo "📋 Publishing to Confluence..."

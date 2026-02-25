@@ -11,12 +11,10 @@ Tok:
 3. Každý ProblemAggregate obsahuje všechna data pro analýzu
 4. Report iteruje přes problémy, ne incidenty
 
-V6.3 změny:
+Změny:
 - Robustní výpočet occurrences z více zdrojů (ne jen stats.current_count)
 - Vylepšené priority scoring s log-scale occurrences a fan-out bonus
 - Lepší diferenciace mezi MEDIUM problémy
-
-Verze: 6.3
 """
 
 from dataclasses import dataclass, field
@@ -61,7 +59,7 @@ class ProblemAggregate:
     trace_ids: Set[str] = field(default_factory=set)
     trace_count: int = 0
 
-    # === BEHAVIOR / TRACE FLOW (V6.1) ===
+    # === BEHAVIOR / TRACE FLOW ===
     # Reprezentativní trace pro "příběh" problému
     representative_trace_id: Optional[str] = None
     trace_flow_summary: List[Dict[str, Any]] = field(default_factory=list)  # 2+1 kroky
@@ -97,7 +95,7 @@ class ProblemAggregate:
         self._incidents.append(incident)
         self.incident_count += 1
 
-        # Počty - V6.3: robustní výpočet z více zdrojů
+        # Počty - robustní výpočet z více zdrojů
         count = _get_incident_occurrence_count(incident)
         self.total_occurrences += count
 
@@ -272,7 +270,7 @@ def aggregate_by_problem_key(incidents: List[Any]) -> Dict[str, ProblemAggregate
 
 def _get_incident_occurrence_count(incident: Any, debug: bool = False) -> int:
     """
-    Získá počet occurrences z incidentu (V6.3 - robustní).
+    Získá počet occurrences z incidentu (robustní).
 
     Hierarchie zdrojů:
     1. incident.stats.current_count (pokud > 0)
@@ -448,8 +446,8 @@ def sort_problems_by_priority(
     """
     Seřadí problémy podle priority pro report.
 
-    V6.3: Vylepšený composite scoring pro lepší diferenciaci.
-    V6.3.1: Upper cap + stabilní tie-breaker
+    Vylepšený composite scoring pro lepší diferenciaci.
+    Upper cap + stabilní tie-breaker.
 
     Kritéria (vážená kombinace):
     1. max_score (základ)
@@ -503,7 +501,7 @@ def sort_problems_by_priority(
         if p.has_burst:
             score += 3
 
-        # V6.3.1: Apply upper cap
+        # Apply upper cap
         return min(score, SCORE_CAP)
 
     return sorted(

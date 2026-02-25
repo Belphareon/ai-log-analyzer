@@ -18,10 +18,10 @@ from dotenv import load_dotenv
 from scripts.core.fetch_unlimited import fetch_unlimited
 from scripts.core.problem_registry import ProblemRegistry
 from scripts.core.baseline_loader import BaselineLoader
-from scripts.pipeline import PipelineV6
+from scripts.pipeline import Pipeline
 from scripts.pipeline.phase_a_parse import PhaseA_Parser
 from scripts.analysis import aggregate_by_problem_key
-from scripts.regular_phase_v6 import get_db_connection
+from scripts.regular_phase import get_db_connection
 
 
 load_dotenv(repo / '.env')
@@ -356,7 +356,7 @@ try:
 except Exception:
     historical_baseline = {}
 
-pipeline = PipelineV6(
+pipeline = Pipeline(
     spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
     ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
     window_minutes=window_minutes,

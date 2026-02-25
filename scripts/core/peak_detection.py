@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Peak Detection V3 - P93 OR CAP Methodology (DATABASE VERSION)
+Peak Detection - P93 OR CAP Methodology (DATABASE VERSION)
 ==============================================================
 Thresholds se načítají DYNAMICKY z databáze (tabulky peak_thresholds a peak_threshold_caps).
 Žádné hardcoded hodnoty!
@@ -19,7 +19,7 @@ DATABÁZOVÉ TABULKY:
 
 POUŽITÍ:
 --------
-from peak_detection_v3 import PeakDetector
+from peak_detection import PeakDetector
 
 # S DB connection
 detector = PeakDetector(conn=db_connection)
@@ -47,31 +47,41 @@ class PeakDetector:
     def __init__(self, conn=None, config_path: str = None):
         """
         Initialize detector
-        
+
+        Configuration priority: env vars (from K8s values.yaml) > config file > defaults.
+
+        Env vars (set by K8s CronJob from k8s/values.yaml):
+            PERCENTILE_LEVEL          - percentile level (default: 0.93)
+            DEFAULT_THRESHOLD         - fallback threshold (default: 100)
+            MIN_SAMPLES_FOR_THRESHOLD - min samples for reliable P93 (default: 10)
+
         Args:
             conn: psycopg2 database connection (optional, can be set later)
-            config_path: path to values.yaml for default settings
+            config_path: path to values.yaml for default settings (legacy)
         """
         self._conn = conn
         self._thresholds_cache = None
         self._caps_cache = None
         self._cache_loaded_at = None
         self._cache_ttl_seconds = 300  # 5 minutes cache
-        
-        # Load config for defaults
+
+        # Load config: env vars take priority over file config
         self._config = self._load_config(config_path)
-        self._default_threshold = self._config.get('default_threshold', 100)
-        self._percentile_level = self._config.get('percentile_level', 0.93)
-        self._min_samples = self._config.get('min_samples_for_threshold', 10)
-    
+        self._default_threshold = float(os.getenv(
+            'DEFAULT_THRESHOLD', self._config.get('default_threshold', 100)))
+        self._percentile_level = float(os.getenv(
+            'PERCENTILE_LEVEL', self._config.get('percentile_level', 0.93)))
+        self._min_samples = int(float(os.getenv(
+            'MIN_SAMPLES_FOR_THRESHOLD', self._config.get('min_samples_for_threshold', 10))))
+
     def _load_config(self, config_path: str = None) -> dict:
-        """Load configuration from values.yaml"""
+        """Load configuration from values.yaml (legacy fallback)"""
         if config_path is None:
             config_path = os.path.join(os.path.dirname(__file__), '..', 'values.yaml')
-        
+
         if not os.path.exists(config_path):
             return {}
-        
+
         try:
             with open(config_path, 'r') as f:
                 data = yaml.safe_load(f)
@@ -84,6 +94,18 @@ class PeakDetector:
         self._conn = conn
         self._invalidate_cache()
     
+    def load_thresholds_direct(self, thresholds: Dict[tuple, dict], caps: Dict[str, dict]):
+        """
+        Load thresholds directly from dicts (for standalone/testing without DB).
+
+        Args:
+            thresholds: {(namespace, day_of_week): {'value': float, 'samples': int}}
+            caps: {namespace: {'value': float, 'samples': int}}
+        """
+        self._thresholds_cache = thresholds
+        self._caps_cache = caps
+        self._cache_loaded_at = datetime.now()
+
     def _invalidate_cache(self):
         """Invalidate threshold cache"""
         self._thresholds_cache = None
@@ -366,7 +388,7 @@ if __name__ == '__main__':
         print("❌ Required: pip install psycopg2-binary python-dotenv")
         sys.exit(1)
     
-    parser = argparse.ArgumentParser(description='Peak Detection V3 - P93 OR CAP (DB version)')
+    parser = argparse.ArgumentParser(description='Peak Detection - P93 OR CAP (DB thresholds)')
     parser.add_argument('--show-thresholds', action='store_true', help='Show all thresholds from DB')
     parser.add_argument('--check', nargs=3, metavar=('VALUE', 'NAMESPACE', 'DOW'), 
                         help='Check if value is peak (e.g. --check 500 pcb-sit-01-app 0)')

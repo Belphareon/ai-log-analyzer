@@ -12,8 +12,8 @@
 - **Docker Image**: ✅ v3 (r5 tag in registry)
 
 ### K8s Deployment: ✅ READY TO DEPLOY
-- **CronJob 1 - Regular Phase**: `*/15 * * * *` (every 15 minutes) → `regular_phase_v6.py`
-- **CronJob 2 - Backfill Phase**: `0 9 * * *` (09:00 UTC daily) → `backfill_v6.py --days 1 --output /app/scripts/reports`
+- **CronJob 1 - Regular Phase**: `*/15 * * * *` (every 15 minutes) → `regular_phase.py`
+- **CronJob 2 - Backfill Phase**: `0 9 * * *` (09:00 UTC daily) → `backfill.py --days 1 --output /app/scripts/reports`
 - **Image Tag**: r5 (dockerhub.kb.cz/pccm-sq016/ai-log-analyzer)
 - **Teams Notifications**: ✅ ENABLED (TEAMS_ENABLED=true, TEAMS_WEBHOOK_URL configured)
 - **Confluence Publishing**: ✅ AUTOMATIC (runs after backfill completes)
@@ -90,8 +90,8 @@
 | 5 | Timezone UTC (2/3) | table_exporter.py | 127 | ✅ COMPLETE |
 | 6 | Timezone UTC (3/3) | table_exporter.py | 556 | ✅ COMPLETE |
 | 7 | Teams notifier module | core/teams_notifier.py | new | ✅ CREATED |
-| 8 | Teams integration backfill | backfill_v6.py | 45, main() | ⚠️ PARTIAL |
-| 9 | Teams integration regular | regular_phase_v6.py | 42 | ✅ ADDED |
+| 8 | Teams integration backfill | backfill.py | 45, main() | ⚠️ PARTIAL |
+| 9 | Teams integration regular | regular_phase.py | 42 | ✅ ADDED |
 | 10 | Webhook config | .env, values.yaml | global | ✅ ADDED |
 
 ---
@@ -145,10 +145,10 @@ kubectl get cronjob log-analyzer-backfill -n ai-log-analyzer -o jsonpath='{.stat
 ### Code Fixes
 | Component | Issue | Fix | Commit |
 |-----------|-------|-----|--------|
-| backfill_v6.py | Transaction cascade | Added ROLLBACK on DB errors | 5ad8904 |
+| backfill.py | Transaction cascade | Added ROLLBACK on DB errors | 5ad8904 |
 | teams_notifier.py | Message format | Extract EXECUTIVE SUMMARY section | 3b9d40c |
 | recent_incidents_publisher.py | Confluence content | Show problem analysis + top 20 issues | 453eab2 |
-| regular_phase_v6.py | Teams integration | Pass problem_report parameter | b05ec08 |
+| regular_phase.py | Teams integration | Pass problem_report parameter | b05ec08 |
 
 ### Infrastructure Updates
 | File | Change | Commit |
@@ -190,7 +190,7 @@ kubectl get cronjob log-analyzer-backfill -n ai-log-analyzer -o jsonpath='{.stat
 
 ### Core Pipeline
 ```
-✅ scripts/backfill_v6.py
+✅ scripts/backfill.py
    - Added ROLLBACK exception handling
    - Stores problem_report to _global_problem_report
    - Passes to TeamsNotifier with problem_report parameter

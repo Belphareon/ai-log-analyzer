@@ -5,8 +5,8 @@
 | Test | Command | Expected |
 |------|---------|----------|
 | DB Connection | `python3 -c "import psycopg2; ..."` | No error |
-| Backfill 1-day | `python3 scripts/backfill_v6.py --days 1 --workers 1` | 50K+ incidents |
-| Regular phase | `python3 scripts/regular_phase_v6.py` | Report generated |
+| Backfill 1-day | `python3 scripts/backfill.py --days 1 --workers 1` | 50K+ incidents |
+| Regular phase | `python3 scripts/regular_phase.py` | Report generated |
 | BaselineLoader | `python3 scripts/core/baseline_loader.py --error-types UnknownError --stats` | Historical rates |
 | Export | `python3 scripts/exports/table_exporter.py` | CSV/JSON/MD files |
 
@@ -50,10 +50,10 @@ EOF
 
 ```bash
 # Quick test (1 day, 1 worker)
-python3 scripts/backfill_v6.py --days 1 --workers 1
+python3 scripts/backfill.py --days 1 --workers 1
 
 # Full test (4 days, 4 workers)
-python3 scripts/backfill_v6.py --days 4 --workers 4
+python3 scripts/backfill.py --days 4 --workers 4
 ```
 
 Ocekavany vystup:
@@ -80,7 +80,7 @@ Overi ze:
 ## Test 5: Regular Phase
 
 ```bash
-python3 scripts/regular_phase_v6.py
+python3 scripts/regular_phase.py
 ```
 
 Ocekavany vystup:

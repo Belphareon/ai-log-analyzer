@@ -26,7 +26,7 @@
    └─ Decision matrix
    └─ Quick start commands
    
-4. CHANGELOG_V6.md (UPDATED)
+4. CHANGELOG.md (UPDATED)
    └─ Added: "Poslední aktualizace (Únor 2026)" section
    └─ Lists all 5 major fixes with status
    └─ Shows 2 remaining issues
@@ -67,7 +67,7 @@
 4. Teams Webhook Integration
    - Status: ⚠️ PARTIAL (code added, import broken)
    - Module: core/teams_notifier.py created
-   - Files: backfill_v6.py, regular_phase_v6.py updated
+   - Files: backfill.py, regular_phase.py updated
    - Issue: ModuleNotFoundError in main()
    - Next: Fix sys.path configuration
 
@@ -81,7 +81,7 @@
 ❌ ISSUES BLOCKING DEPLOYMENT:
 
 1. Teams Notifications Import Fails
-   - Error: ModuleNotFoundError in backfill_v6.py main()
+   - Error: ModuleNotFoundError in backfill.py main()
    - Impact: Notifications don't send (core DB save works)
    - Fix options: See NEXT_SESSION.md
    - Priority: MEDIUM (non-critical)
@@ -116,7 +116,7 @@
 
 📊 TEST RESULTS SUMMARY:
 
-Command: python3 scripts/backfill_v6.py --days 4 --workers 4
+Command: python3 scripts/backfill.py --days 4 --workers 4
 Result:  ✅ 236,419 incidents saved to DB
          ✅ Registry updated (299 problems, 65 peaks)
          ✅ Report generated
@@ -139,7 +139,7 @@ Status overview          → STATUS.md
 Known issues details     → STATUS.md (Issue sections)
 What to fix next         → NEXT_SESSION.md
 How to test each part    → TESTING_GUIDE.md
-Infrastructure changes   → CHANGELOG_V6.md
+Infrastructure changes   → CHANGELOG.md
 Installation help        → INSTALL.md
 User-facing features     → README.md
 

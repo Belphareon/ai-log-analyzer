@@ -27,7 +27,7 @@ sys.path.insert(0, str(repo / 'scripts'))
 
 from dotenv import load_dotenv
 from scripts.core.baseline_loader import BaselineLoader
-from scripts.regular_phase_v6 import get_db_connection
+from scripts.regular_phase import get_db_connection
 
 load_dotenv(repo / '.env')
 load_dotenv(repo / 'config/.env')

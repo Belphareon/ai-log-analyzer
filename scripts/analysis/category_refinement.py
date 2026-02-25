@@ -10,17 +10,17 @@ Pravidla:
 
 Logika:
 1. Pokud category == "unknown"
-2. Projdi root cause message (včetně trace_root_cause V6.3)
-3. Aplikuj keyword pravidla (Java exceptions mají prioritu V6.3)
+2. Projdi root cause message (včetně trace_root_cause)
+3. Aplikuj keyword pravidla (Java exceptions mají prioritu)
 4. Přiřaď novou kategorii
 
-V6.3 změny:
+Změny:
 - Přidány Java exception patterny (ConstraintViolationException, etc.)
 - Přidány config error patterny
 - Přidány serialization error patterny
 - Trace root cause message má nejvyšší prioritu
 
-Verze: 6.3
+
 """
 
 from typing import List, Tuple, Optional, Any
@@ -33,10 +33,10 @@ import re
 
 # Pravidla: (pattern_list, new_category, subcategory)
 # Pattern může být string nebo regex
-# V6.3: Rozšířeno o Java exceptions a specifické error messages
+# Rozšířeno o Java exceptions a specifické error messages
 CATEGORY_RULES: List[Tuple[List[str], str, str]] = [
 
-    # === JAVA EXCEPTIONS (V6.3 - vysoká priorita) ===
+    # === JAVA EXCEPTIONS (vysoká priorita) ===
     # Tyto patterny jsou specifičtější, proto jsou na začátku
 
     # Configuration errors
@@ -217,7 +217,7 @@ def refine_category(
     # Sesbírej text k analýze
     texts_to_check = []
 
-    # 0. V6.3: Trace root cause message (nejvyšší priorita - už je analyzovaný)
+    # 0. Trace root cause message (nejvyšší priorita - už je analyzovaný)
     if hasattr(problem, 'trace_root_cause') and problem.trace_root_cause:
         trace_msg = problem.trace_root_cause.get('message', '')
         if trace_msg:
@@ -241,7 +241,7 @@ def refine_category(
     if problem.error_class and problem.error_class != 'unknown':
         texts_to_check.append(problem.error_class)
 
-    # 5. Sample messages (V6.3: all samples, not just first 3)
+    # 5. Sample messages (all samples, not just first 3)
     for sample in problem.sample_messages[:5]:
         texts_to_check.append(sample)
 

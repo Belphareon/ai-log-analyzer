@@ -45,7 +45,7 @@ __all__ = [
     'extract_deployment_label',
     'extract_app_version',
     'migrate_old_registry',
-    # Telemetry V6
+    # Telemetry
     'IncidentTelemetryContext',
     'TraceContext',
     'PropagationInfo',

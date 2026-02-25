@@ -294,7 +294,7 @@ class PhaseA_Parser:
         Vstup: raw error dict z ES/JSON
         Výstup: NormalizedRecord
 
-        Nová pole v V6:
+        Nová pole:
         - span_id, parent_span_id (pro trace propagation)
         - environment (odvozeno z namespace)
         - app_version = POUZE z application.version (ne z názvu!)

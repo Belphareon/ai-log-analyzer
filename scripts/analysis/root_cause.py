@@ -13,7 +13,7 @@ Logika:
 - První ERROR/WARN = pravděpodobný root cause
 - Pokud není trace, použij nejvyšší score incident
 
-Verze: 6.0
+
 """
 
 from dataclasses import dataclass, field

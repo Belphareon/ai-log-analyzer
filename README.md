@@ -56,8 +56,8 @@ PROBLEM REGISTRY (stabilni)        1:N     FINGERPRINT INDEX (technicky)
 ```
 ai-log-analyzer/
 ├── scripts/
-│   ├── backfill_v6.py              # Denni backfill pipeline
-│   ├── regular_phase_v6.py         # 15-min real-time pipeline
+│   ├── backfill.py                 # Denni backfill pipeline
+│   ├── regular_phase.py            # 15-min real-time pipeline
 │   ├── daily_report_generator.py   # Daily report -> Teams
 │   ├── publish_daily_reports.sh    # Orchestrace reportu
 │   ├── core/
@@ -66,7 +66,7 @@ ai-log-analyzer/
 │   │   ├── fetch_unlimited.py      # ES data fetcher
 │   │   └── teams_notifier.py       # Teams integrace
 │   ├── pipeline/
-│   │   ├── pipeline.py             # PipelineV6 orchestrator
+│   │   ├── pipeline.py             # Pipeline orchestrator
 │   │   ├── phase_a_parse.py        # Parse & Normalize
 │   │   ├── phase_b_measure.py      # EWMA/MAD statistiky
 │   │   ├── phase_c_detect.py       # Boolean detekce
@@ -102,13 +102,13 @@ Viz [INSTALL.md](INSTALL.md) pro detailni navod.
 
 ```bash
 # 15min cyklus
-python3 scripts/regular_phase_v6.py
+python3 scripts/regular_phase.py
 
 # Backfill N dni
-python3 scripts/backfill_v6.py --days 7 --workers 4
+python3 scripts/backfill.py --days 7 --workers 4
 
 # Backfill s force reprocessing
-python3 scripts/backfill_v6.py --days 14 --force
+python3 scripts/backfill.py --days 14 --force
 
 # Pipeline standalone
 python3 scripts/pipeline/pipeline.py data/batches/2026-01-20/

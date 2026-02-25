@@ -78,7 +78,7 @@ echo "=============================================="
 echo ""
 
 # Build command
-CMD="python scripts/backfill_v6.py"
+CMD="python scripts/backfill.py"
 
 if [ -n "$DATE_FROM" ] && [ -n "$DATE_TO" ]; then
     CMD="$CMD --from '$DATE_FROM' --to '$DATE_TO'"

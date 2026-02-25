@@ -21,13 +21,15 @@
 ```yaml
 # CronJob: log-analyzer
 schedule: "*/15 * * * *"  # 24/7,每 15 分钟
-command: python3 /app/scripts/regular_phase_v6.py
+command: python3 /app/scripts/regular_phase.py
 ```
 
 **Co dělá:**
 - Zpracuje poslední 15 minut dat z Elasticsearch
+- Používá PeakDetector (P93/CAP) pro spike detekci na úrovni namespace
 - Detekuje spikes/bursts/cross-namespace issues
 - Ukládá incidenty do PostgreSQL
+- Ukládá namespace totaly do `peak_raw_data` (pro budoucí P93 přepočet)
 - Updatuje registry (problémy + peaks)
 - POUZE na kritické problémy → Teams alert
 
@@ -45,11 +47,12 @@ Registry updated: P problems, K peaks
 ```yaml
 # CronJob: log-analyzer-backfill
 schedule: "0 9 * * *"  # 09:00 UTC (11:00 CET Praha)
-command: python3 /app/scripts/backfill_v6.py --days 1 --output /app/scripts/reports
+command: python3 /app/scripts/backfill.py --days 1 --output /app/scripts/reports
 ```
 
 **Co dělá:**
 - Zpracuje VČERAJŠÍ DEN (kompletní 24h data)
+- Používá PeakDetector (P93/CAP) pro spike detekci na úrovni namespace
 - Generuje podrobný problem report (JSON, TXT, CSV)
 - Publikuje do Confluence (page 1334314207)
 - Odesílá Teams notifikaci s EXECUTIVE SUMMARY
@@ -66,6 +69,36 @@ command: python3 /app/scripts/backfill_v6.py --days 1 --output /app/scripts/repo
    - problem_report_TIMESTAMP.csv
 ✅ Published to Confluence
 ✅ Teams notification sent
+```
+
+---
+
+### 3️⃣ **THRESHOLD RECALCULATION** - Týdně (doporučeno)
+```bash
+# Ruční nebo CronJob (doporučeno neděle v noci)
+# schedule: "0 3 * * 0"  # 03:00 UTC neděle
+python3 /app/scripts/core/calculate_peak_thresholds.py --weeks 4 --verbose
+```
+
+**Co dělá:**
+- Čte `peak_raw_data` za posledních N týdnů (default: 4)
+- Počítá P93 percentil per (namespace, day_of_week)
+- Počítá CAP = (median_P93 + avg_P93) / 2 per namespace
+- Ukládá do `peak_thresholds` + `peak_threshold_caps`
+- PeakDetector automaticky načte nové thresholds (5-min cache)
+
+**Konfigurace (env vars z values.yaml):**
+- `PERCENTILE_LEVEL` - percentil (default: 0.93 = P93)
+- `MIN_SAMPLES_FOR_THRESHOLD` - min vzorků pro spolehlivý threshold (default: 10)
+- `DEFAULT_THRESHOLD` - fallback pokud chybí data (default: 100)
+
+**Expected output:**
+```
+✅ Loaded X raw data points from peak_raw_data
+✅ Calculated P93 thresholds for Y namespaces
+✅ Calculated CAP values for Y namespaces
+✅ Saved to peak_thresholds: Z rows
+✅ Saved to peak_threshold_caps: Y rows
 ```
 
 **Teams message format:**
@@ -87,23 +120,26 @@ Run Summary:
 Every 15 min (Regular Phase):
 ┌─────────────────────────────────┐
 │ Regular Phase CronJob (*/15)    │
-│ python3 regular_phase_v6.py     │
+│ python3 regular_phase.py     │
 └────────┬────────────────────────┘
          │
          ├─→ Fetch last 15 min from ES
-         ├─→ Pipeline: detect → classify → propagate
+         ├─→ Create PeakDetector (P93/CAP z DB)
+         ├─→ Pipeline: detect (P93/CAP) → classify → propagate
          ├─→ Save to PostgreSQL
+         ├─→ Save namespace totals to peak_raw_data ←── vstup pro P93 přepočet
          ├─→ Update registry
          └─→ IF critical → Teams alert
 
 Daily at 09:00 UTC (Backfill Phase):
 ┌─────────────────────────────────┐
 │ Backfill CronJob (0 9 * * *)    │
-│ python3 backfill_v6.py          │
+│ python3 backfill.py          │
 └────────┬────────────────────────┘
          │
          ├─→ Fetch YESTERDAY'S data from ES
-         ├─→ Pipeline: detect → classify → propagate
+         ├─→ Create PeakDetector (P93/CAP z DB)
+         ├─→ Pipeline: detect (P93/CAP) → classify → propagate
          ├─→ Save to PostgreSQL
          ├─→ Aggregate problems
          ├─→ Generate reports
@@ -113,6 +149,25 @@ Daily at 09:00 UTC (Backfill Phase):
          │
          ├─→ Publish to Confluence (API)
          └─→ Send Teams notification (webhook)
+
+Weekly (Threshold Recalculation - doporučeno neděle):
+┌──────────────────────────────────────────────┐
+│ calculate_peak_thresholds.py --weeks 4       │
+└────────┬─────────────────────────────────────┘
+         │
+         ├─→ Read peak_raw_data (posledních N týdnů)
+         ├─→ Calculate P93 per (namespace, day_of_week)
+         ├─→ Calculate CAP per namespace
+         └─→ Save to peak_thresholds + peak_threshold_caps
+                  ↓
+         PeakDetector automaticky načte (5-min cache)
+```
+
+**Samozdokonalovací smyčka:**
+```
+Regular Phase → peak_raw_data roste → calculate_peak_thresholds → přesnější P93/CAP
+     ↑                                                                    ↓
+     └──────────── PeakDetector načte nové thresholds ←───────────────────┘
 ```
 
 ---
@@ -132,10 +187,10 @@ Daily at 09:00 UTC (Backfill Phase):
 ### Confluence Updates
 **Page:** 1334314207 (Recent Incidents - Problem Analysis)
 
-**Content:** PROBLEM_ANALYSIS_REPORT V6
+**Content:** PROBLEM_ANALYSIS_REPORT
 ```
 ═══════════════════════════════════════════
-PROBLEM_ANALYSIS_REPORT V6
+PROBLEM_ANALYSIS_REPORT
 Backfill Analysis: 2026-02-09
 
 EXECUTIVE SUMMARY
@@ -174,7 +229,7 @@ AUTH:card_opening:access_denied (89 occurrences)
 ```yaml
 # Image
 app:
-  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r4
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r36
   imagePullPolicy: IfNotPresent
 
 # Schedules are hardcoded in templates/cronjob.yaml
@@ -187,6 +242,15 @@ env:
   ES_HOST: https://elasticsearch-test.kb.cz:9500
   REGISTRY_DIR: /data/registry
   EXPORT_DIR: /data/exports
+
+  # Peak Detection Algorithm (P93 OR CAP)
+  PERCENTILE_LEVEL: "0.93"             # Percentil pro peak thresholds (P93 = 0.93)
+  MIN_SAMPLES_FOR_THRESHOLD: "10"      # Min počet vzorků pro spolehlivý threshold
+  DEFAULT_THRESHOLD: "100"             # Fallback threshold pokud chybí data v DB
+
+  # Informativní metriky (EWMA/MAD - NE pro spike detekci)
+  EWMA_ALPHA: "0.3"                    # EWMA smoothing faktor pro trend metriky
+  WINDOW_MINUTES: "15"                 # Časové okno pro analýzu
 
 # Teams & Confluence
 teams:
@@ -380,25 +444,36 @@ kubectl logs -n ai-log-analyzer job/ai-log-analyzer-backfill-<ID>
 ## 📐 ENVIRONMENT VARIABLES (v K8s)
 
 ```yaml
-# .env nebo config/values.yaml
+# Nastaveno v k8s/values.yaml -> injektováno jako env vars přes cronjob.yaml
+
+# === Database ===
 DB_HOST=P050TD01.DEV.KB.CZ
 DB_PORT=5432
 DB_USER=ailog_analyzer_user_d1
 DB_DDL_USER=ailog_analyzer_ddl_user_d1
-DB_PASSWORD=...
-DB_DDL_PASSWORD=...
+DB_PASSWORD=...  # z Conjur/CyberArk
+DB_DDL_PASSWORD=...  # z Conjur/CyberArk
 DB_DDL_ROLE=role_ailog_analyzer_ddl
 
-ES_HOST=elasticsearch.kb.cz
-ES_PORT=9200
+# === Elasticsearch ===
+ES_HOST=https://elasticsearch-test.kb.cz:9500
+ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*
 
-TEAMS_WEBHOOK_URL=https://outlook.webhook.office.com/webhookb2/...
+# === Peak Detection (P93/CAP) ===
+PERCENTILE_LEVEL=0.93              # Percentil pro peak thresholds
+MIN_SAMPLES_FOR_THRESHOLD=10       # Min vzorků pro spolehlivý P93
+DEFAULT_THRESHOLD=100              # Fallback pokud chybí data v DB
+
+# === Informativní metriky ===
+EWMA_ALPHA=0.3                     # EWMA smoothing (jen trend metriky, NE spike detekce)
+WINDOW_MINUTES=15                  # Časové okno pro analýzu
+
+# === Teams & Confluence ===
+TEAMS_WEBHOOK_URL=https://sgcz.webhook.office.com/webhookb2/...
 TEAMS_ENABLED=true
 
-CONFLUENCE_URL=https://confluence.kb.cz
-CONFLUENCE_USERNAME=XX_AWX_CONFLUENCE
-CONFLUENCE_PASSWORD=PP_@9532bb-xmHV26
-CONFLUENCE_DAILY_REPORT_PAGE_ID=1334314207
+CONFLUENCE_URL=https://wiki.kb.cz
+CONFLUENCE_PROXY=http://cntlm.speed-default:3128
 CONFLUENCE_KNOWN_ERRORS_PAGE_ID=1334314201
 CONFLUENCE_KNOWN_PEAKS_PAGE_ID=1334314203
 ```
@@ -426,7 +501,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - cd /app && python3 scripts/backfill_v6.py --days 1 --output /app/scripts/reports
+            - cd /app && python3 scripts/backfill.py --days 1 --output /app/scripts/reports
             env:
             - name: DB_HOST
               valueFrom:
@@ -466,7 +541,7 @@ spec:
             command:
             - /bin/sh
             - -c
-            - cd /app && python3 scripts/regular_phase_v6.py
+            - cd /app && python3 scripts/regular_phase.py
             env:
             # ... env vars
             resources:
@@ -490,21 +565,27 @@ Než to deployneš do produkce:
 
 ```bash
 # 1. Test backfill v suchém režimu
-python3 scripts/backfill_v6.py --days 1 --dry-run
+python3 scripts/backfill.py --days 1 --dry-run
 
 # 2. Test regular phase
-python3 scripts/regular_phase_v6.py --window 15 --dry-run
+python3 scripts/regular_phase.py --window 15 --dry-run
 
-# 3. Test publishing
+# 3. Test P93/CAP thresholds
+python3 scripts/core/calculate_peak_thresholds.py --dry-run --verbose
+
+# 4. Zobrazit aktuální thresholds
+python3 scripts/core/peak_detection.py --show-thresholds
+
+# 5. Test publishing
 bash scripts/publish_daily_reports.sh --dry-run
 
-# 4. Test Confluence connection
+# 6. Test Confluence connection
 python3 scripts/confluence_publisher.py \
   --page-id 1334314201 \
   --csv-file ./scripts/exports/errors_table_latest.csv \
   --title "Test: Known Errors"
 
-# 5. Test Teams notification
+# 7. Test Teams notification
 python3 -c "
 from core.teams_notifier import TeamsNotifier
 notifier = TeamsNotifier()
@@ -526,6 +607,8 @@ notifier.send_backfill_completed(
 
 - [ ] Backfill testován lokalně (1 den)
 - [ ] Regular phase testován (15 min okno)
+- [ ] P93/CAP thresholds naplněny (`init_phase.py --days 21` + `calculate_peak_thresholds.py`)
+- [ ] PeakDetector ověřen (`--show-thresholds` ukazuje data pro všechny namespace)
 - [ ] Teams webhook ověřen (message přijat)
 - [ ] Confluence credentials ověřeny (CSV uploadován)
 - [ ] K8s manifesty vytvořeny
@@ -537,4 +620,4 @@ notifier.send_backfill_completed(
 
 ---
 
-**Více info:** [docs/PIPELINE_V4_ARCHITECTURE.md](./PIPELINE_V4_ARCHITECTURE.md)
+**Více info:** [docs/PIPELINE_ARCHITECTURE.md](./PIPELINE_ARCHITECTURE.md)

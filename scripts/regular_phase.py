@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-REGULAR PHASE V6 - 15-minute Pipeline s Registry integrací
-==========================================================
+REGULAR PHASE - 15-minute Pipeline s Registry integrací
+=======================================================
 
-OPRAVY v6:
 1. Registry se načítá a aktualizuje
 2. Event timestamps se používají správně
 3. Peaks se ukládají
 4. Správné ukončení scriptu
 
 Použití:
-    python regular_phase_v6.py                    # Poslední 15 min
-    python regular_phase_v6.py --window 30        # Posledních 30 min
-    python regular_phase_v6.py --dry-run          # Bez ukládání
+    python regular_phase.py                    # Poslední 15 min
+    python regular_phase.py --window 30        # Posledních 30 min
+    python regular_phase.py --dry-run          # Bez ukládání
 """
 
 import os
@@ -35,7 +34,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry
 from core.baseline_loader import BaselineLoader
-from pipeline import PipelineV6
+from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
 
 # Table exports
@@ -71,7 +70,7 @@ try:
 except ImportError as e:
     HAS_INCIDENT_ANALYSIS = False
 
-# Problem-Centric Analysis V6.1
+# Problem-Centric Analysis
 try:
     from analysis import (
         aggregate_by_problem_key,
@@ -370,7 +369,7 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
                 incident.flags.is_cross_namespace,
                 incident.error_type or '',
                 (incident.normalized_message or '')[:500],
-                'v6_regular',
+                'regular',
                 incident.score,
                 incident.severity.value
             ))
@@ -391,6 +390,75 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
         
     except Exception as e:
         print(f" ⚠️ DB error: {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+def save_namespace_totals_to_raw_data(collection: IncidentCollection) -> int:
+    """
+    Save namespace-level error totals to peak_raw_data.
+
+    This feeds the P93/CAP threshold calculation (calculate_peak_thresholds.py).
+    Each regular phase run adds one row per namespace with the total error count
+    for that 15-min window. Over time this builds the dataset from which P93
+    percentiles are calculated, making the system self-improving.
+    """
+    if not HAS_DB:
+        return 0
+    if not collection or not collection.incidents:
+        return 0
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        set_db_role(cursor)
+
+        # Aggregate total error count per namespace
+        ns_totals = {}
+        ts = None
+        for incident in collection.incidents:
+            inc_ts = incident.time.first_seen or datetime.now(timezone.utc)
+            if ts is None:
+                ts = inc_ts
+            ns = incident.namespaces[0] if incident.namespaces else 'unknown'
+            ns_totals[ns] = ns_totals.get(ns, 0) + incident.stats.current_count
+
+        if not ns_totals or ts is None:
+            if conn:
+                conn.close()
+            return 0
+
+        data = []
+        for ns, total_count in ns_totals.items():
+            data.append((
+                ts,
+                ts.weekday(),
+                ts.hour,
+                ts.minute // 15,
+                ns,
+                total_count,      # error_count (current, possibly replaced)
+                total_count,      # original_value (raw count for P93 calculation)
+            ))
+
+        execute_values(cursor, """
+            INSERT INTO ailog_peak.peak_raw_data
+            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
+             error_count, original_value)
+            VALUES %s
+            ON CONFLICT (timestamp, day_of_week, hour_of_day, quarter_hour, namespace)
+            DO UPDATE SET error_count = EXCLUDED.error_count,
+                          original_value = EXCLUDED.original_value
+        """, data, page_size=100)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return len(data)
+
+    except Exception as e:
+        print(f"   peak_raw_data save failed (non-blocking): {e}")
         if conn:
             conn.close()
         return 0
@@ -508,7 +576,7 @@ def run_regular_phase(
     window_start = window_end - timedelta(minutes=window_minutes)
     
     print("=" * 70)
-    print("🚀 REGULAR PHASE V6 - 15-minute Pipeline")
+    print("🚀 REGULAR PHASE - 15-minute Pipeline")
     print(f"   Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     
@@ -591,9 +659,19 @@ def run_regular_phase(
     # ==========================================================================
     # RUN PIPELINE
     # ==========================================================================
-    pipeline = PipelineV6(
-        spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
+    # P93/CAP peak detection (replaces EWMA/MAD for spike detection)
+    peak_detector = None
+    try:
+        from core.peak_detection import PeakDetector
+        peak_db_conn = get_db_connection()
+        peak_detector = PeakDetector(conn=peak_db_conn)
+        print("   P93/CAP peak detector loaded")
+    except Exception as e:
+        print(f"   P93/CAP peak detector unavailable (falling back to EWMA): {e}")
+
+    pipeline = Pipeline(
         ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
+        peak_detector=peak_detector,
     )
     
     # ← NOVÉ: Injektuj historické baseline do Phase B
@@ -636,7 +714,12 @@ def run_regular_phase(
         saved = save_incidents_to_db(collection)
         result['saved'] = saved
         print(f"\n💾 Saved {saved} incidents to DB")
-    
+
+        # Save namespace totals to peak_raw_data (feeds P93/CAP threshold calculation)
+        raw_saved = save_namespace_totals_to_raw_data(collection)
+        if raw_saved > 0:
+            print(f"   Saved {raw_saved} namespace totals to peak_raw_data")
+
     # ==========================================================================
     # UPDATE REGISTRY
     # ==========================================================================
@@ -654,10 +737,10 @@ def run_regular_phase(
     peak_trace_flows = None
 
     # ==========================================================================
-    # PROBLEM-CENTRIC ANALYSIS (V6.1)
+    # PROBLEM-CENTRIC ANALYSIS
     # ==========================================================================
     if collection.incidents and HAS_PROBLEM_ANALYSIS:
-        print("\n🔍 Running Problem Analysis V6.1...")
+        print("\n🔍 Running Problem Analysis...")
 
         # 1. Agreguj incidenty do problémů
         problems = aggregate_by_problem_key(collection.incidents)
@@ -725,7 +808,7 @@ def run_regular_phase(
             print(f"   ⚠️ Export error: {e}")
 
     print("\n" + "=" * 70)
-    print("✅ REGULAR PHASE V6 COMPLETE")
+    print("✅ REGULAR PHASE COMPLETE")
     print("=" * 70)
     
     # ==========================================================================
@@ -851,7 +934,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Regular Phase V6 - 15-minute Pipeline')
+    parser = argparse.ArgumentParser(description='Regular Phase - 15-minute Pipeline')
     parser.add_argument('--window', type=int, default=15, help='Window size in minutes (default: 15)')
     parser.add_argument('--dry-run', action='store_true', help='No DB writes')
     parser.add_argument('--output', type=str, help='Output directory for reports')

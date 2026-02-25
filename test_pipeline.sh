@@ -37,7 +37,7 @@ echo "   - Send Teams notification"
 echo "   - Upload to Confluence"
 echo ""
 
-python3 scripts/backfill_v6.py --days 1 --force
+python3 scripts/backfill.py --days 1 --force
 
 BACKFILL_EXIT=$?
 if [ $BACKFILL_EXIT -ne 0 ]; then

@@ -8,10 +8,10 @@
 
 | Oprava | Soubor(y) | Status | Pozn. |
 |--------|-----------|--------|-------|
-| **DB Driver Missing** | backfill_v6.py | ✅ FIXED | Instalován `python3-psycopg2` globálně |
+| **DB Driver Missing** | backfill.py | ✅ FIXED | Instalován `python3-psycopg2` globálně |
 | **K8s Path Error** | cronjob.yaml | ✅ FIXED | `python` → `python3`, `scripts/` → `/app/scripts/` |
 | **Timezone Bugs** | table_exporter.py | ✅ PARTIAL | Fixed lines 118, 127, 556 (datetime.now → UTC-aware) |
-| **Teams Webhook Integration** | teams_notifier.py, backfill_v6.py, regular_phase_v6.py | ⚠️ PARTIAL | Module vytvořen, import fallback nefunguje |
+| **Teams Webhook Integration** | teams_notifier.py, backfill.py, regular_phase.py | ⚠️ PARTIAL | Module vytvořen, import fallback nefunguje |
 | **TEAMS_WEBHOOK_URL Config** | .env, values.yaml, cronjob.yaml | ✅ FIXED | Webhook URL přidán do all env configs |
 
 ### ❌ Zbývající problémy
@@ -37,7 +37,7 @@
 ⚠️ Features Not Yet Verified:
    - Teams notifications (import issue prevents testing)
    - Export functionality (category bug prevents completion)
-   - regular_phase_v6.py in K8s (code added, not deployed)
+   - regular_phase.py in K8s (code added, not deployed)
 ```
 
 ### 📋 Co dělat dál
@@ -45,7 +45,7 @@
 **Pro příští session:**
 1. Vyřešit Teams notification import (move get_notifier call?) nebo dočasně deaktivovat
 2. Opravit PeakEntry.category bug v table_exporter.py
-3. Testovat regular_phase_v6.py na real K8s clusterem
+3. Testovat regular_phase.py na real K8s clusterem
 4. Ověřit end-to-end: Backfill → Registry → Export → Teams
 
 **Technické detaily:**
@@ -122,8 +122,8 @@ Příklady:
 
 | Soubor | Popis |
 |--------|-------|
-| `backfill_v6.py` | Backfill s kompletní registry integrací |
-| `regular_phase_v6.py` | 15-min pipeline s registry |
+| `backfill.py` | Backfill s kompletní registry integrací |
+| `regular_phase.py` | 15-min pipeline s registry |
 | `migrate_registry.py` | Migrace starého formátu registry |
 
 ---
@@ -162,10 +162,10 @@ Automaticky vytvoří backup.
 
 ```bash
 # Backfill
-python backfill_v6.py --days 14 --workers 4
+python backfill.py --days 14 --workers 4
 
 # Regular phase (cron)
-python regular_phase_v6.py
+python regular_phase.py
 ```
 
 ---
@@ -176,7 +176,7 @@ python regular_phase_v6.py
 
 **Předtím:**
 ```python
-pipeline = PipelineV6()  # known_fingerprints = empty set
+pipeline = Pipeline()  # known_fingerprints = empty set
 ```
 
 **Nyní:**
@@ -326,7 +326,7 @@ spec:
             image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r1
             command:
             - python
-            - backfill_v6.py
+            - backfill.py
             - --days
             - "7"
             - --workers
@@ -352,7 +352,7 @@ spec:
             image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r1
             command:
             - python
-            - regular_phase_v6.py
+            - regular_phase.py
           restartPolicy: OnFailure
 ```
 
@@ -363,7 +363,7 @@ spec:
 ### Dry-run backfill
 
 ```bash
-python backfill_v6.py --days 3 --dry-run
+python backfill.py --days 3 --dry-run
 ```
 
 Ověří:
@@ -374,7 +374,7 @@ Ověří:
 ### Forced re-processing
 
 ```bash
-python backfill_v6.py --days 14 --force
+python backfill.py --days 14 --force
 ```
 
 Zpracuje i dny, které už jsou v DB (pro regeneraci s novými pravidly).

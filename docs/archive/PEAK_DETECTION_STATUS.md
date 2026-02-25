@@ -1,7 +1,7 @@
 # Peak Detection Implementation Status
 
 **Datum analýzy:** 2026-02-23  
-**Analyzováno:** regular_phase_v6.py, backfill_v6.py, pipeline/phase_b_measure.py
+**Analyzováno:** regular_phase.py, backfill.py, pipeline/phase_b_measure.py
 
 ---
 
@@ -9,7 +9,7 @@
 
 ### FIX A: Baseline Loading from DB ✅
 
-**Regular phase (`scripts/regular_phase_v6.py`) má FIX implementovaný správně:**
+**Regular phase (`scripts/regular_phase.py`) má FIX implementovaný správně:**
 
 1. **Import BaselineLoader** (řádek 37):
    ```python
@@ -47,7 +47,7 @@
 
 ### Problém:
 
-**Backfill (`scripts/backfill_v6.py`) NEPOUŽÍVÁ BaselineLoader!**
+**Backfill (`scripts/backfill.py`) NEPOUŽÍVÁ BaselineLoader!**
 
 **Co chybí:**
 
@@ -58,10 +58,10 @@
    pipeline.phase_b.historical_baseline = historical_baseline
    ```
 
-### Současný kód v backfill_v6.py (řádky 427-437):
+### Současný kód v backfill.py (řádky 427-437):
 
 ```python
-pipeline = PipelineV6(
+pipeline = Pipeline(
     spike_threshold=float(os.getenv('SPIKE_THRESHOLD', 3.0)),
     ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
 )
@@ -125,7 +125,7 @@ Ze souboru `ai-data/peaks_detected_last_24h_strict_summary.json`:
 
 ### 1. FIX BACKFILL - Přidat BaselineLoader (PRIORITY: HIGH)
 
-Do `backfill_v6.py` přidat stejnou logiku jako v `regular_phase_v6.py`:
+Do `backfill.py` přidat stejnou logiku jako v `regular_phase.py`:
 
 **A) Import:**
 ```python
@@ -182,11 +182,11 @@ Do tabulky peaků přidat:
 
 | Komponenta | FIX A (BaselineLoader) | Status |
 |------------|------------------------|--------|
-| `regular_phase_v6.py` | ✅ Implementováno | ✅ Funguje |
-| `backfill_v6.py` | ❌ CHYBÍ | ❌ **Potřebuje opravu** |
+| `regular_phase.py` | ✅ Implementováno | ✅ Funguje |
+| `backfill.py` | ❌ CHYBÍ | ❌ **Potřebuje opravu** |
 | `core/baseline_loader.py` | ✅ Existuje | ✅ Funkční |
 | `pipeline/phase_b_measure.py` | ✅ Podporuje | ✅ Funkční |
 
 **Regular phase detekuje peaky správně, ale backfill NE!**
 
-Pro konzistenci je nutné přidat BaselineLoader do backfill_v6.py podle stejného vzoru jako v regular_phase_v6.py.
+Pro konzistenci je nutné přidat BaselineLoader do backfill.py podle stejného vzoru jako v regular_phase.py.

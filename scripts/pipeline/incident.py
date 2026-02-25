@@ -133,7 +133,7 @@ class ScoreBreakdown:
 @dataclass
 class PropagationInfo:
     """
-    Informace o propagaci incidentu (V6).
+    Informace o propagaci incidentu.
 
     Propagace = incident se šíří přes více services (detekováno přes traceId).
     """
@@ -156,7 +156,7 @@ class PropagationInfo:
 @dataclass
 class TraceInfo:
     """
-    Agregované trace informace pro incident (V6).
+    Agregované trace informace pro incident.
     """
     trace_ids: List[str] = field(default_factory=list)    # Všechny trace IDs
     trace_count: int = 0                                  # Počet unikátních traces
@@ -201,18 +201,18 @@ class Incident:
     # Affected entities
     apps: List[str] = field(default_factory=list)           # deployment_labels (mohou obsahovat -v1)
     namespaces: List[str] = field(default_factory=list)
-    environments: List[str] = field(default_factory=list)   # V6: prod/uat/sit/dev
+    environments: List[str] = field(default_factory=list)   # prod/uat/sit/dev
 
-    # V6: Oddělené verze a deploymenty
-    deployment_labels: List[str] = field(default_factory=list)  # V6: explicitní deployment labels
-    app_versions: List[str] = field(default_factory=list)       # V6: POUZE semantic versions (X.Y.Z)
+    # Oddělené verze a deploymenty
+    deployment_labels: List[str] = field(default_factory=list)  # Explicitní deployment labels
+    app_versions: List[str] = field(default_factory=list)       # POUZE semantic versions (X.Y.Z)
     versions: List[str] = field(default_factory=list)           # DEPRECATED: pro zpětnou kompatibilitu
 
-    # V6: Trace info
+    # Trace info
     trace_ids: List[str] = field(default_factory=list)
     trace_info: TraceInfo = field(default_factory=TraceInfo)
 
-    # V6: Propagation
+    # Propagation
     propagation: PropagationInfo = field(default_factory=PropagationInfo)
     
     # === FÁZE C: Detect ===
@@ -233,7 +233,7 @@ class Incident:
     
     # === METADATA ===
     created_at: datetime = field(default_factory=datetime.utcnow)
-    pipeline_version: str = "4.0"
+    pipeline_version: str = "1.0"
     
     # === LINKAGE ===
     known_issue_id: Optional[str] = None
@@ -290,7 +290,7 @@ class Incident:
             "app_versions": self.app_versions,
             "versions": self.versions,  # DEPRECATED
 
-            # V6: Trace & Propagation
+            # Trace & Propagation
             "trace_info": self.trace_info.to_dict(),
             "propagation": self.propagation.to_dict(),
             
@@ -394,7 +394,7 @@ class IncidentCollection:
     
     run_id: str = ""
     run_timestamp: datetime = field(default_factory=datetime.utcnow)
-    pipeline_version: str = "4.0"
+    pipeline_version: str = "1.0"
     
     # Input info
     input_file: str = ""

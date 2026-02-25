@@ -16,8 +16,7 @@
 | `regular_phase.py`, `regular_phase_v5.3.py` | Smazano |
 | `/analyze_incidents.py` (root) | Smazano |
 | `*:Zone.Identifier` | Smazano |
-| `phase_c_detect.py` (puvodni) | Nahrazeno v2 verzi |
-| `phase_c_detect_v2.py` | Prejmenovano na phase_c_detect.py |
+| `phase_c_detect.py` (puvodni) | Nahrazeno novou verzi |
 
 ---
 
@@ -25,10 +24,10 @@
 
 | Skript | Popis |
 |--------|-------|
-| `backfill_v6.py` | Backfill s registry integraci |
-| `regular_phase_v6.py` | 15-min pipeline s registry |
+| `backfill.py` | Backfill s registry integraci |
+| `regular_phase.py` | 15-min pipeline s registry |
 | `migrate_registry.py` | Migrace 700k -> stovky problem_keys |
-| `phase_c_detect.py` | V2 s registry integraci |
+| `phase_c_detect.py` | S registry integraci |
 
 ---
 
@@ -39,18 +38,18 @@ ai-log-analyzer/
 ├── config/
 │   └── known_issues/          # Knowledge base
 ├── docs/
-├── incident_analysis/         # V5.3 (propagation, version change)
+├── incident_analysis/         # Propagation, version change
 ├── k8s/
-├── registry/                  # V6 problem registry
+├── registry/                  # Problem registry
 ├── scripts/
 │   ├── core/
-│   │   ├── problem_registry.py   # NOVY
+│   │   ├── problem_registry.py
 │   │   └── ...
 │   ├── pipeline/
-│   │   ├── phase_c_detect.py     # V2 s registry
+│   │   ├── phase_c_detect.py     # S registry
 │   │   └── ...
-│   ├── backfill_v6.py
-│   ├── regular_phase_v6.py
+│   ├── backfill.py
+│   ├── regular_phase.py
 │   └── migrate_registry.py
 └── README.md
 ```

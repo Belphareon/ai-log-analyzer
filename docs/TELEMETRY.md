@@ -1,4 +1,4 @@
-# Telemetry Context V6
+# Telemetry Context
 
 Jednotná normalizační vrstva pro extrakci a validaci telemetry dat z Elasticsearch eventů.
 

@@ -92,7 +92,7 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
         return IncidentCollection(
             run_id=f"db-{date_from.strftime('%Y%m%d')}-{date_to.strftime('%Y%m%d')}",
             run_timestamp=datetime.now(timezone.utc),
-            pipeline_version="4.0",
+            pipeline_version="1.0",
             input_records=0,
         )
     
@@ -111,7 +111,7 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
     collection = IncidentCollection(
         run_id=f"db-{date_from.strftime('%Y%m%d')}-{date_to.strftime('%Y%m%d')}",
         run_timestamp=datetime.now(timezone.utc),
-        pipeline_version="4.0",
+        pipeline_version="1.0",
         input_records=len(rows),
     )
     
@@ -132,7 +132,7 @@ def load_from_db(date_from: datetime, date_to: datetime) -> IncidentCollection:
         inc = Incident(
             id=f"db-{fp[:8]}",
             fingerprint=fp,
-            pipeline_version="4.0",
+            pipeline_version="1.0",
         )
         
         inc.normalized_message = error_message or ''

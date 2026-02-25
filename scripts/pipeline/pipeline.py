@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Pipeline V6 - Incident Detection Pipeline
-==========================================
+Incident Detection Pipeline
+============================
 
 Striktně oddělené fáze:
 A: Parse & Normalize
@@ -19,10 +19,10 @@ Podporuje:
 Použití:
     # Normální běh
     python pipeline.py data/batches/2026-01-20/
-    
+
     # S uložením snapshotu
     python pipeline.py data/batches/2026-01-20/ --save-snapshot /tmp/snapshots/
-    
+
     # Replay a porovnání
     python pipeline.py data/batches/2026-01-20/ --replay /tmp/snapshots/summary_20260120.json
 """
@@ -53,13 +53,13 @@ from phase_e_classify import PhaseE_Classify, ClassificationResult
 from phase_f_report import PhaseF_Report
 
 
-class PipelineV6:
+class Pipeline:
     """
-    Incident Detection Pipeline V6
-    
+    Incident Detection Pipeline
+
     Orchestruje 6 fází:
     A → B → C → D → E → F
-    
+
     Každá fáze jen přidává data, nic neodstraňuje.
     """
     
@@ -69,12 +69,15 @@ class PipelineV6:
         window_minutes: int = 15,
         ewma_alpha: float = 0.3,
         baseline_windows: int = 20,
-        
+
         # Phase C config
         spike_threshold: float = 3.0,
         spike_mad_threshold: float = 3.0,
         cross_ns_threshold: int = 2,
-        
+
+        # P93/CAP peak detection
+        peak_detector = None,
+
         # Database connection (optional)
         db_conn = None,
     ):
@@ -89,13 +92,14 @@ class PipelineV6:
             spike_threshold=spike_threshold,
             spike_mad_threshold=spike_mad_threshold,
             cross_ns_threshold=cross_ns_threshold,
+            peak_detector=peak_detector,
         )
         self.phase_d = PhaseD_Score()
         self.phase_e = PhaseE_Classify()
         self.phase_f = PhaseF_Report()
-        
+
         self.db_conn = db_conn
-        
+
         # Load known data from DB
         if db_conn:
             self._load_known_data()
@@ -126,7 +130,7 @@ class PipelineV6:
             run_id = f"run-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         
         print(f"\n{'='*80}")
-        print(f"🚀 PIPELINE V4 - Run ID: {run_id}")
+        print(f"🚀 PIPELINE - Run ID: {run_id}")
         print(f"{'='*80}")
         print(f"   Input: {len(errors):,} errors")
         
@@ -260,7 +264,7 @@ class PipelineV6:
         collection = IncidentCollection(
             run_id=run_id,
             run_timestamp=datetime.utcnow(),
-            pipeline_version="4.0",
+            pipeline_version="1.0",
             input_records=len(errors),
         )
         
@@ -286,7 +290,7 @@ class PipelineV6:
             inc = Incident(
                 id=generate_incident_id(collection.run_timestamp, incident_seq),
                 fingerprint=fp,
-                pipeline_version="4.0",
+                pipeline_version="1.0",
             )
             incident_seq += 1
             
@@ -435,7 +439,7 @@ def load_batch_files(batch_dir: str) -> List[dict]:
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Pipeline V4 - Incident Detection')
+    parser = argparse.ArgumentParser(description='Incident Detection Pipeline')
     parser.add_argument('input', help='Input directory with batch JSON files')
     parser.add_argument('--save-snapshot', type=str, help='Save snapshot to directory')
     parser.add_argument('--save-intermediate', action='store_true', help='Save intermediate phase outputs')
@@ -461,7 +465,7 @@ def main():
     print(f"\n✅ Loaded {len(errors):,} total errors")
     
     # Create pipeline
-    pipeline = PipelineV6(
+    pipeline = Pipeline(
         spike_threshold=args.spike_threshold,
         ewma_alpha=args.ewma_alpha,
     )

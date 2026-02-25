@@ -5,7 +5,7 @@
 -- USAGE:
 -- 1. Run this SQL to create tables
 -- 2. Run calculate_peak_thresholds.py to populate from peak_raw_data
--- 3. peak_detection_v3.py reads thresholds from these tables
+-- 3. peak_detection.py reads thresholds from these tables
 
 -- ============================================================================
 -- TABLE: peak_thresholds

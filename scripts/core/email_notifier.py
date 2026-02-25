@@ -77,7 +77,7 @@ class EmailNotifier:
         if summary:
             body = f"{summary.strip()}\n"
         else:
-            body = f"""AI Log Analyzer - Backfill V6 Completed
+            body = f"""AI Log Analyzer - Backfill Completed
 {'='*70}
 
 Status: {status}

@@ -15,7 +15,7 @@ Report output:
     - 3.5.0: 2 113
     - 3.5.1: 9 874 (↑ +367%)
 
-Verze: 6.0
+
 """
 
 from dataclasses import dataclass, field

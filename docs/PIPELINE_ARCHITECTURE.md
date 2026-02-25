@@ -1,11 +1,11 @@
-# Pipeline Architecture v6
+# Pipeline Architecture
 
 ## Přehled
 
 Systém se skládá ze dvou hlavních částí:
 
-1. **Detection Pipeline (v6)** - statistická detekce anomálií (6 fází: A-F)
-2. **Incident Analysis (v6.0.1)** - kauzální analýza a reporting
+1. **Detection Pipeline** - statistická detekce anomálií (6 fází: A-F)
+2. **Incident Analysis** - kauzální analýza a reporting
 
 ## Celková architektura
 
@@ -18,7 +18,7 @@ Systém se skládá ze dvou hlavních částí:
                      fetch_unlimited()
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                DETECTION PIPELINE (v6)                           │
+│                DETECTION PIPELINE                                │
 │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐           │
 │  │ Phase A │→ │ Phase B │→ │ Phase C │→ │ Phase D │           │
 │  │ Parse   │  │ Measure │  │ Detect  │  │ Score   │           │
@@ -33,7 +33,7 @@ Systém se skládá ze dvou hlavních částí:
                     IncidentCollection
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│              INCIDENT ANALYSIS (v6.0.1)                         │
+│              INCIDENT ANALYSIS                                  │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
 │  │ TimelineBuilder│→ │  ScopeBuilder  │→ │ CausalInference│    │
 │  │                │  │ + Propagation  │  │                │    │
@@ -45,7 +45,7 @@ Systém se skládá ze dvou hlavních částí:
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                    OUTPUT (v6.0.1)                               │
+│                    OUTPUT                                        │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
 │  │ scripts/reports│  │   registry/    │  │  PostgreSQL DB │    │
 │  │   (reporty)    │  │ (append-only)  │  │ (peak_invest.) │    │
@@ -55,9 +55,9 @@ Systém se skládá ze dvou hlavních částí:
 
 ---
 
-## Detection Pipeline (v6)
+## Detection Pipeline
 
-Orchestrátor: `scripts/pipeline/pipeline.py` - třída `PipelineV6`
+Orchestrátor: `scripts/pipeline/pipeline.py` - třída `Pipeline`
 
 ### Phase A: Parse & Normalize
 
@@ -116,19 +116,19 @@ class NormalizedRecord:
      `historical_rates = error_type_baseline[error_type] + current_window_historical`
    - Bez DB baseline (1. spuštění nebo nový error_type) se počítá jen z aktuálního okna
 
-4. **EWMA (Exponential Weighted Moving Average):**
+4. **EWMA (Exponential Weighted Moving Average):** (informativni metrika, NE pro spike detekci)
    ```
    ewma[0] = rates[0]
    ewma[i] = alpha * rates[i] + (1-alpha) * ewma[i-1]
    ```
-   Default: `alpha = 0.3`. Vyšší alpha = rychlejší reakce na změny.
+   Default: `alpha = 0.3`. Pouziva se pro trend_ratio a trend_direction.
 
-5. **MAD (Median Absolute Deviation):**
+5. **MAD (Median Absolute Deviation):** (informativni metrika, NE pro spike detekci)
    ```
    median = median(historical_rates)
    MAD = median(|rate_i - median| for each rate_i)
    ```
-   Robustnější než stddev - méně citlivá na outliers.
+   Robustnejsi nez stddev. Pouziva se jako informativni metrika.
 
 **Datový model:**
 ```python
@@ -154,24 +154,27 @@ class MeasurementResult:
 **Soubor:** `scripts/pipeline/phase_c_detect.py`
 **Třída:** `PhaseC_Detect`
 
-- **Vstup:** `Dict[fingerprint, MeasurementResult]` + records + registry
+- **Vstup:** `Dict[fingerprint, MeasurementResult]` + records + registry + PeakDetector
 - **Výstup:** `Dict[fingerprint, DetectionResult]` s boolean flagy
-- **Činnost:** Aplikuje detekční pravidla na každý fingerprint
+- **Činnost:** Spike detekce na urovni namespace (P93/CAP), ostatni pravidla per fingerprint
 
-Detekce vrací booleovské flagy. Jeden fingerprint může mít více flagů současně.
+**Spike detekce (P93/CAP):**
+1. `detect_batch()` agreguje error count per namespace
+2. `PeakDetector.is_peak(ns_total, namespace, day_of_week)` per namespace
+3. Fingerprinty v "peak" namespace -> `is_spike=True`
 
-Podrobný popis detekčních algoritmů viz [PEAK_DETECTION.md](PEAK_DETECTION.md).
+Podrobny popis viz [PEAK_DETECTION.md](PEAK_DETECTION.md).
 
 **Detection flags:**
 
 | Flag | Pravidlo | Popis |
 |------|----------|-------|
-| `is_spike` | EWMA / MAD / Fallback | Aktuální rate výrazně převyšuje historický baseline |
-| `is_burst` | Sliding window | Náhlá lokální koncentrace v krátkém časovém okně |
-| `is_new` | Registry lookup | Fingerprint/problem_key dosud nebyl viděn |
-| `is_cross_namespace` | NS count | Stejný error se objevuje v >=2 namespacech |
-| `is_silence` | Absence check | Očekávaný error se neobjevil (baseline > 5, current = 0) |
-| `is_regression` | Version check | Error, který byl opraven, se znovu objevil |
+| `is_spike` | P93/CAP (namespace-level) | Namespace ma celkovy error rate nad P93 percentilem |
+| `is_burst` | Sliding window | Nahla lokalni koncentrace v kratkem casovem okne |
+| `is_new` | Registry lookup | Fingerprint/problem_key dosud nebyl viden |
+| `is_cross_namespace` | NS count | Stejny error se objevuje v >=2 namespacech |
+| `is_silence` | Absence check | Ocekavany error se neobjevil (baseline > 5, current = 0) |
+| `is_regression` | Version check | Error, ktery byl opraven, se znovu objevil |
 
 ### Phase D: Score
 
@@ -237,7 +240,7 @@ Pravidla jsou seřazena podle priority. Každé pravidlo má regex patterns pro 
 
 ---
 
-## Incident Analysis (v6.0.1)
+## Incident Analysis
 
 ### Datový model
 
@@ -267,7 +270,7 @@ class IncidentAnalysis:
 
 ## Orchestrace
 
-### regular_phase_v6.py (15min)
+### regular_phase.py (15min)
 
 ```python
 def run_regular_pipeline():
@@ -279,35 +282,54 @@ def run_regular_pipeline():
     historical_baseline = baseline_loader.load_historical_rates(...)
     # historical_baseline = {error_type: [rate1, rate2, ...]}
 
-    # 3. Detection pipeline
-    pipeline = PipelineV6()
-    pipeline.phase_b.error_type_baseline = historical_baseline  # keyed by error_type
+    # 3. Create PeakDetector (P93/CAP thresholds z DB)
+    peak_detector = PeakDetector(conn=get_db_connection())
+
+    # 4. Detection pipeline
+    pipeline = Pipeline(peak_detector=peak_detector, ewma_alpha=0.3)
+    pipeline.phase_b.error_type_baseline = historical_baseline
     pipeline.phase_c.registry = registry
     collection = pipeline.run(errors)
 
-    # 4. Save to DB
+    # 5. Save to DB
     save_incidents_to_db(collection)
 
-    # 5. Registry update
+    # 6. Save namespace totals to peak_raw_data (pro P93 přepočet)
+    save_namespace_totals_to_raw_data(collection)
+
+    # 7. Registry update
     registry.update_from_incidents(collection.incidents)
 
-    # 6. Problem Analysis + Reporting
+    # 8. Problem Analysis + Reporting
     problems = aggregate_by_problem_key(collection.incidents)
     report = ProblemReportGenerator(problems, ...).generate_text_report()
 
-    # 7. Notifikace (Teams/Email) - jen při detekci peaků
+    # 9. Notifikace (Teams/Email) - jen při detekci peaků
 ```
 
-### backfill_v6.py (daily)
+### backfill.py (daily)
 
 ```python
 def run_backfill():
     # Pro každý den:
     #   1. Fetch 24h dat po 15-min oknech
-    #   2. Pipeline pro každé okno
-    #   3. DB save
-    #   4. Registry update
+    #   2. Create PeakDetector(conn=get_db_connection())
+    #   3. Pipeline = Pipeline(peak_detector=peak_detector, ...)
+    #   4. Pipeline pro každé okno
+    #   5. DB save
+    #   6. Registry update
     # Na konci: daily report + Teams notifikace
+```
+
+### calculate_peak_thresholds.py (týdně)
+
+```python
+def recalculate_thresholds():
+    # 1. Čte peak_raw_data za posledních N týdnů
+    # 2. Počítá P93 per (namespace, day_of_week)
+    # 3. Počítá CAP = (median_P93 + avg_P93) / 2 per namespace
+    # 4. Ukládá do peak_thresholds + peak_threshold_caps
+    # Viz: python3 scripts/core/calculate_peak_thresholds.py --weeks 4
 ```
 
 ---
@@ -345,4 +367,6 @@ scripts/exports/latest/
 4. **Registry = append-only** - nikdy se nemaže
 5. **Scope != Propagation** - oddělené datové struktury
 6. **FACT vs HYPOTHESIS** - jasně oddělené v reportech
-7. **Baseline z DB** - regular phase načítá 7-denní historii pro detekci
+7. **Baseline z DB** - regular phase načítá 7-denní historii pro EWMA/MAD informativní metriky
+8. **P93/CAP spike detekce** - na úrovni namespace, thresholds z DB (peak_thresholds + peak_threshold_caps)
+9. **Samozdokonalovací smyčka** - regular phase ukládá namespace totaly do peak_raw_data, periodický přepočet P93/CAP
