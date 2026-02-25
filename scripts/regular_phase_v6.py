@@ -350,15 +350,20 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
         data = []
         for incident in collection.incidents:
             ts = incident.time.first_seen or datetime.now(timezone.utc)
+            # reference_value: store actual count (for BaselineLoader to use as historical data)
+            # For regular phase: current_count = total_count = per-window count (correct granularity)
+            ref_value = incident.stats.current_count if incident.stats.current_count > 0 else None
+            # baseline_mean: use EWMA baseline rate (not median which is 0 for sparse windows)
+            baseline_mean = round(incident.stats.baseline_rate, 2) if incident.stats.baseline_rate > 0 else None
             data.append((
                 ts,
                 ts.weekday(),
                 ts.hour,
                 ts.minute // 15,
                 incident.namespaces[0] if incident.namespaces else 'unknown',
-                incident.stats.current_count,
-                int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else 0,
-                incident.stats.baseline_median if incident.stats.baseline_median > 0 else None,
+                incident.stats.current_count,                         # original_value
+                ref_value,                                            # reference_value
+                baseline_mean,                                        # baseline_mean
                 incident.flags.is_new,
                 incident.flags.is_spike,
                 incident.flags.is_burst,
