@@ -86,6 +86,7 @@ class BaselineLoader:
                 error_type = ANY(%s)
                 AND timestamp > %s
                 AND reference_value IS NOT NULL
+                AND reference_value > 0
             ORDER BY error_type, timestamp ASC
             """
             

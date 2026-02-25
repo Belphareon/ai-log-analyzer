@@ -256,7 +256,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
                 ts.minute // 15,
                 incident.namespaces[0] if incident.namespaces else 'unknown',
                 incident.stats.current_count,
-                int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else incident.stats.current_count,
+                int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else 0,
                 incident.stats.baseline_median if incident.stats.baseline_median > 0 else None,
                 incident.flags.is_new,
                 incident.flags.is_spike,
