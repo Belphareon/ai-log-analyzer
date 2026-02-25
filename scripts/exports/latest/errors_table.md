@@ -1,6 +1,6 @@
 # Error Problems Table
 
-**Generated:** 2026-02-25 10:57:29
+**Generated:** 2026-02-25 11:39:51
 **Total problems:** 345
 
 ## Summary by Category
@@ -27,49 +27,53 @@
 
 | ID | Category | Flow | Apps | Occurrences | Last Seen | Status |
 |-------|----------|------|------|-------------|-----------|--------|
-| KP-000118 | business | event_processing | bl-pcb-event-processor-relay-v... | 24 | 2026-02-25 | OPEN |
-| KP-000056 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 150 | 2026-02-25 | OPEN |
-| KP-000053 | business | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 67 | 2026-02-25 | OPEN |
-| KP-000052 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 63 | 2026-02-25 | OPEN |
-| KP-000146 | auth | unknown | bl-pcb-v1 | 0 | 2026-02-25 | OPEN |
-| KP-000017 | unknown | batch_processing | bff-pcb-ch-design-servicing-v1... | 150,204 | 2026-02-25 | OPEN |
-| KP-000015 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 504,264 | 2026-02-25 | OPEN |
-| KP-000174 | auth | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-25 | OPEN |
-| KP-000010 | unknown | click2pay | bff-pcb-ch-click2pay-v1, bl-pc... | 691 | 2026-02-25 | OPEN |
-| KP-000065 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 12 | 2026-02-25 | OPEN |
-| KP-000121 | unknown | unknown | bl-pcb-v1 | 0 | 2026-02-25 | OPEN |
-| KP-000012 | unknown | billing | bff-pcb-ch-card-sensitive-data... | 3,360 | 2026-02-25 | OPEN |
-| KP-000030 | unknown | client_segment | bl-pcb-card-client-segment-v1,... | 30 | 2026-02-25 | OPEN |
-| KP-000117 | business | client_segment | bl-pcb-card-client-segment-v1,... | 0 | 2026-02-25 | OPEN |
-| KP-000003 | unknown | card_opening | bff-pcb-ch-card-opening-v2, bf... | 53,120 | 2026-02-25 | OPEN |
-| KP-000041 | unknown | client_status | bl-pcb-client-rainbow-status-v... | 4,420 | 2026-02-25 | OPEN |
+| KP-000015 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 504,292 | 2026-02-25 | OPEN |
+| KP-000017 | unknown | batch_processing | bff-pcb-ch-design-servicing-v1... | 150,214 | 2026-02-25 | OPEN |
+| KP-000001 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 89,411 | 2026-02-25 | OPEN |
+| KP-000065 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 28 | 2026-02-25 | OPEN |
+| KP-000004 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 472 | 2026-02-25 | OPEN |
+| KP-000058 | auth | card_servicing | bff-pcb-ch-card-servicing-admi... | 66 | 2026-02-25 | OPEN |
+| KP-000057 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 154 | 2026-02-25 | OPEN |
+| KP-000068 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 84 | 2026-02-25 | OPEN |
+| KP-000064 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 1 | 2026-02-25 | OPEN |
+| KP-000070 | unknown | card_servicing | bff-pcb-ch-card-servicing-admi... | 1 | 2026-02-25 | OPEN |
+| KP-000030 | unknown | client_segment | bl-pcb-card-client-segment-v1,... | 36 | 2026-02-25 | OPEN |
+| KP-000053 | business | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 10,410 | 2026-02-25 | OPEN |
+| KP-000305 | network | atm_locator | bl-pcb-atm-locator-v1 | 8 | 2026-02-25 | OPEN |
+| KP-000304 | business | atm_locator | bl-pcb-atm-locator-v1 | 8 | 2026-02-25 | OPEN |
+| KP-000119 | unknown | atm_locator | bl-pcb-atm-locator-v1, bl-pcb-... | 28 | 2026-02-25 | OPEN |
+| KP-000024 | unknown | document_signing | bff-pcb-ch-card-sensitive-data... | 137 | 2026-02-25 | OPEN |
+| KP-000120 | unknown | georisk | bl-pcb-card-georisk-v1 | 4 | 2026-02-25 | OPEN |
+| KP-000034 | unknown | notification | bl-pcb-notification-v1, bl-pcb... | 26 | 2026-02-25 | OPEN |
+| KP-000052 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 10,402 | 2026-02-25 | OPEN |
+| KP-000069 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000145 | auth | unknown | bl-pcb-v1, feapi-pca-v1 | 0 | 2026-02-25 | OPEN |
-| KP-000001 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 89,336 | 2026-02-25 | OPEN |
-| KP-000004 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 429 | 2026-02-25 | OPEN |
-| KP-000058 | auth | card_servicing | bff-pcb-ch-card-servicing-admi... | 22 | 2026-02-25 | OPEN |
-| KP-000057 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 66 | 2026-02-25 | OPEN |
-| KP-000068 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 36 | 2026-02-25 | OPEN |
-| KP-000063 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 4 | 2026-02-25 | OPEN |
-| KP-000064 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 0 | 2026-02-25 | OPEN |
-| KP-000305 | network | atm_locator | bl-pcb-atm-locator-v1 | 4 | 2026-02-25 | OPEN |
-| KP-000304 | business | atm_locator | bl-pcb-atm-locator-v1 | 4 | 2026-02-25 | OPEN |
-| KP-000119 | unknown | atm_locator | bl-pcb-atm-locator-v1, bl-pcb-... | 16 | 2026-02-25 | OPEN |
-| KP-000024 | unknown | document_signing | bff-pcb-ch-card-sensitive-data... | 130 | 2026-02-25 | OPEN |
-| KP-000120 | unknown | georisk | bl-pcb-card-georisk-v1 | 2 | 2026-02-25 | OPEN |
-| KP-000034 | unknown | notification | bl-pcb-notification-v1, bl-pcb... | 23 | 2026-02-25 | OPEN |
+| KP-000056 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 20,682 | 2026-02-25 | OPEN |
 | KP-000045 | unknown | design_lifecycle | bff-pcb-ch-design-servicing-v1... | 153 | 2026-02-25 | OPEN |
+| KP-000010 | unknown | click2pay | bff-pcb-ch-click2pay-v1, bl-pc... | 696 | 2026-02-25 | OPEN |
+| KP-000118 | business | event_processing | bl-pcb-event-processor-relay-v... | 10,353 | 2026-02-25 | OPEN |
+| KP-000146 | auth | unknown | bl-pcb-v1 | 131 | 2026-02-25 | OPEN |
+| KP-000117 | business | client_segment | bl-pcb-card-client-segment-v1,... | 1 | 2026-02-25 | OPEN |
+| KP-000003 | unknown | card_opening | bff-pcb-ch-card-opening-v2, bf... | 53,121 | 2026-02-25 | OPEN |
+| KP-000012 | unknown | billing | bff-pcb-ch-card-sensitive-data... | 3,360 | 2026-02-25 | OPEN |
+| KP-000041 | unknown | client_status | bl-pcb-client-rainbow-status-v... | 4,422 | 2026-02-25 | OPEN |
+| KP-000112 | external | unknown | bl-pcb-v1, feapi-pca-v1 | 40 | 2026-02-25 | OPEN |
+| KP-000170 | unknown | unknown | bl-pcb-v1 | 6 | 2026-02-25 | OPEN |
+| KP-000031 | unknown | event_processing | bl-pcb-card-georisk-v1, bl-pcb... | 25,536 | 2026-02-25 | OPEN |
+| KP-000062 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 1 | 2026-02-25 | OPEN |
+| KP-000174 | auth | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-25 | OPEN |
+| KP-000121 | unknown | unknown | bl-pcb-v1 | 0 | 2026-02-25 | OPEN |
+| KP-000063 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 4 | 2026-02-25 | OPEN |
 | KP-000101 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000255 | external | token | bl-pcb-token-v1 | 10 | 2026-02-25 | OPEN |
 | KP-000023 | unknown | token | bl-pcb-token-v1, bl-pcb-v1, fe... | 3,160 | 2026-02-25 | OPEN |
 | KP-000082 | business | card_opening | bff-pcb-ch-card-opening-v2, bl... | 0 | 2026-02-25 | OPEN |
 | KP-000067 | auth | card_opening | bff-pcb-ch-card-opening-v2, bl... | 0 | 2026-02-25 | OPEN |
 | KP-000078 | unknown | card_opening | bff-pcb-ch-card-opening-v2, bl... | 0 | 2026-02-25 | OPEN |
-| KP-000062 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 1 | 2026-02-25 | OPEN |
 | KP-000061 | auth | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 0 | 2026-02-25 | OPEN |
 | KP-000198 | auth | document_signing | bl-pcb-document-signing-v1, bl... | 0 | 2026-02-25 | OPEN |
 | KP-000334 | unknown | billing | bl-pcb-billing-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000333 | auth | billing | bl-pcb-billing-v1 | 0 | 2026-02-25 | OPEN |
-| KP-000070 | unknown | card_servicing | bff-pcb-ch-card-servicing-admi... | 0 | 2026-02-25 | OPEN |
 | KP-000332 | auth | billing | bl-pcb-billing-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000199 | unknown | unknown | bl-pcb-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000105 | unknown | card_servicing | bff-pcb-ch-card-opening-v2, bf... | 0 | 2026-02-25 | OPEN |
@@ -93,14 +97,12 @@
 | KP-000079 | business | card_opening | bff-pcb-ch-card-opening-v2, bl... | 0 | 2026-02-25 | OPEN |
 | KP-000187 | auth | card_opening | bff-pcb-ch-card-opening-v2 | 0 | 2026-02-25 | OPEN |
 | KP-000106 | unknown | card_opening | bff-pcb-ch-card-opening-v2 | 0 | 2026-02-25 | OPEN |
-| KP-000069 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000202 | auth | notification | bl-pcb-notification-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000018 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 1,419 | 2026-02-25 | OPEN |
 | KP-000115 | auth | unknown | bl-pcb-v1, feapi-pca-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000261 | unknown | document_signing | bl-pcb-document-signing-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000165 | unknown | notification | bl-pcb-notification-v1 | 0 | 2026-02-25 | OPEN |
 | KP-000147 | unknown | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-25 | OPEN |
-| KP-000112 | external | unknown | bl-pcb-v1, feapi-pca-v1 | 32 | 2026-02-25 | OPEN |
 | KP-000209 | unknown | document_signing | bl-pcb-document-signing-v1, bl... | 0 | 2026-02-24 | OPEN |
 | KP-000055 | external | unknown | bl-pcb-v1, feapi-pca-v1 | 33 | 2026-02-24 | OPEN |
 | KP-000054 | timeout | unknown | bl-pcb-v1, feapi-pca-v1 | 0 | 2026-02-24 | OPEN |
@@ -182,7 +184,6 @@
 | KP-000245 | database | card_validation | bff-pcb-ch-card-validation-v1 | 0 | 2026-02-24 | OPEN |
 | KP-000244 | unknown | card_validation | bff-pcb-ch-card-validation-v1 | 0 | 2026-02-24 | OPEN |
 | KP-000243 | unknown | card_servicing | bff-pcb-ch-card-servicing-admi... | 0 | 2026-02-24 | OPEN |
-| KP-000170 | unknown | unknown | bl-pcb-v1 | 0 | 2026-02-24 | OPEN |
 | KP-000241 | unknown | card_opening | bff-pcb-ch-card-opening-v2 | 0 | 2026-02-24 | OPEN |
 | KP-000242 | auth | unknown | bl-pcb-v1 | 0 | 2026-02-24 | OPEN |
 | KP-000184 | external | unknown | bl-pcb-v1 | 0 | 2026-02-24 | OPEN |
@@ -233,7 +234,6 @@
 | KP-000227 | auth | notification | bl-pcb-notification-v1 | 0 | 2026-02-11 | OPEN |
 | KP-000086 | external | card_opening | bff-pcb-ch-card-opening-v2 | 0 | 2026-02-11 | OPEN |
 | KP-000085 | auth | card_opening | bff-pcb-ch-card-opening-v2 | 0 | 2026-02-11 | OPEN |
-| KP-000031 | unknown | event_processing | bl-pcb-card-georisk-v1, bl-pcb... | 25,528 | 2026-02-11 | OPEN |
 | KP-000314 | database | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-11 | OPEN |
 | KP-000313 | unknown | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-11 | OPEN |
 | KP-000257 | timeout | design_lifecycle | bl-pcb-design-lifecycle-v1 | 0 | 2026-02-11 | OPEN |
@@ -375,202 +375,202 @@
 
 ## Recent Problems
 
-### KP-000118: business/event_processing
+### KP-000015: unknown/unknown
 
-- **Error class:** not_found
+- **Error class:** unclassified
 - **Scope:** SYSTEMIC
-- **Occurrences:** 24
-- **Apps:** bl-pcb-event-processor-relay-v1
-- **Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-15 14:33
-- **Last seen:** 2026-02-25 10:15
-
-### KP-000056: business/unknown
-
-- **Error class:** not_found
-- **Scope:** SYSTEMIC
-- **Occurrences:** 150
+- **Occurrences:** 504,292
 - **Apps:** bl-pcb-v1, feapi-pca-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-15 04:54
-- **Last seen:** 2026-02-25 10:15
-
-### KP-000053: business/card_servicing
-
-- **Error class:** business_exception
-- **Scope:** SYSTEMIC
-- **Occurrences:** 67
-- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-click2pay-v1, bl-pcb-atm-locator-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pca-uat-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-26 00:05
-- **Last seen:** 2026-02-25 10:15
-
-### KP-000052: business/unknown
-
-- **Error class:** business_exception
-- **Scope:** SYSTEMIC
-- **Occurrences:** 63
-- **Apps:** bl-pcb-v1, feapi-pca-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pca-uat-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-13 19:38
-- **Last seen:** 2026-02-25 10:15
-
-### KP-000146: auth/unknown
-
-- **Error class:** not_found
-- **Scope:** SYSTEMIC
-- **Occurrences:** 0
-- **Apps:** bl-pcb-v1
-- **Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-15 19:36
-- **Last seen:** 2026-02-25 10:14
+- **Namespaces:** pca-dev-01-app, pca-fat-01-app, pca-sit-01-app, pca-uat-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-14 10:01
+- **Last seen:** 2026-02-25 11:25
 
 ### KP-000017: unknown/batch_processing
 
 - **Error class:** unclassified
 - **Scope:** SYSTEMIC
-- **Occurrences:** 150,204
+- **Occurrences:** 150,214
 - **Apps:** bff-pcb-ch-design-servicing-v1, bl-pcb-batch-processor-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-client-rainbow-status-v1, bl-pcb-design-lifecycle-v1, bl-pcb-design-v1, bl-pcb-dispute-v1, bl-pcb-event-processor-relay-v1, bl-pcb-v1
 - **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 - **First seen:** 2026-01-14 17:00
-- **Last seen:** 2026-02-25 10:10
-
-### KP-000015: unknown/unknown
-
-- **Error class:** unclassified
-- **Scope:** SYSTEMIC
-- **Occurrences:** 504,264
-- **Apps:** bl-pcb-v1, feapi-pca-v1
-- **Namespaces:** pca-dev-01-app, pca-fat-01-app, pca-sit-01-app, pca-uat-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-14 10:01
-- **Last seen:** 2026-02-25 10:08
-
-### KP-000174: auth/design_lifecycle
-
-- **Error class:** unauthorized_error
-- **Scope:** LOCAL
-- **Occurrences:** 0
-- **Apps:** bl-pcb-design-lifecycle-v1
-- **Namespaces:** pcb-dev-01-app
-- **First seen:** 2026-01-26 04:08
-- **Last seen:** 2026-02-25 10:08
-
-### KP-000010: unknown/click2pay
-
-- **Error class:** unclassified
-- **Scope:** SYSTEMIC
-- **Occurrences:** 691
-- **Apps:** bff-pcb-ch-click2pay-v1, bl-pcb-billing-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-card-read-model-v1, bl-pcb-click2pay-v1, bl-pcb-client-rainbow-status-v1, bl-pcb-codelist-v1, bl-pcb-design-lifecycle-v1, bl-pcb-design-v1
-- **Namespaces:** pca-dev-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-13 19:54
-- **Last seen:** 2026-02-25 10:07
-
-### KP-000065: unknown/card_servicing
-
-- **Error class:** constraint_violation
-- **Scope:** SYSTEMIC
-- **Occurrences:** 12
-- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1, bff-pcb-ch-design-servicing-v1, bff-pcb-ch-document-signing-v1, bl-pcb-card-client-segment-v1
-- **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-- **First seen:** 2026-01-19 13:19
-- **Last seen:** 2026-02-25 10:06
-
-### KP-000121: unknown/unknown
-
-- **Error class:** constraint_violation
-- **Scope:** CROSS_NS
-- **Occurrences:** 0
-- **Apps:** bl-pcb-v1
-- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-- **First seen:** 2026-01-14 21:22
-- **Last seen:** 2026-02-25 10:06
-
-### KP-000012: unknown/billing
-
-- **Error class:** unclassified
-- **Scope:** SYSTEMIC
-- **Occurrences:** 3,360
-- **Apps:** bff-pcb-ch-card-sensitive-data-v1, bl-pcb-atm-locator-v1, bl-pcb-batch-processor-v1, bl-pcb-billing-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-client-rainbow-status-v1, bl-pcb-codelist-v1, bl-pcb-design-lifecycle-v1, bl-pcb-design-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-16 00:10
-- **Last seen:** 2026-02-25 10:05
-
-### KP-000030: unknown/client_segment
-
-- **Error class:** unclassified
-- **Scope:** SYSTEMIC
-- **Occurrences:** 30
-- **Apps:** bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-v1
-- **Namespaces:** pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-17 18:19
-- **Last seen:** 2026-02-25 10:05
-
-### KP-000117: business/client_segment
-
-- **Error class:** business_exception
-- **Scope:** CROSS_NS
-- **Occurrences:** 0
-- **Apps:** bl-pcb-card-client-segment-v1, bl-pcb-v1
-- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
-- **First seen:** 2026-01-14 18:20
-- **Last seen:** 2026-02-25 10:05
-
-### KP-000003: unknown/card_opening
-
-- **Error class:** unclassified
-- **Scope:** SYSTEMIC
-- **Occurrences:** 53,120
-- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1, bl-pcb-atm-locator-v1, bl-pcb-batch-processor-v1, bl-pcb-billing-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-card-read-model-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-fat-01-app, pcb-ch-sit-01-app, pcb-ch-uat-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-13 19:30
-- **Last seen:** 2026-02-25 10:05
-
-### KP-000041: unknown/client_status
-
-- **Error class:** unclassified
-- **Scope:** SYSTEMIC
-- **Occurrences:** 4,420
-- **Apps:** bl-pcb-client-rainbow-status-v1, bl-pcb-v1
-- **Namespaces:** pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-16 07:35
-- **Last seen:** 2026-02-25 10:00
-
-### KP-000145: auth/unknown
-
-- **Error class:** forbidden_error
-- **Scope:** SYSTEMIC
-- **Occurrences:** 0
-- **Apps:** bl-pcb-v1, feapi-pca-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-14 19:28
-- **Last seen:** 2026-02-25 09:44
+- **Last seen:** 2026-02-25 11:25
 
 ### KP-000001: unknown/card_servicing
 
 - **Error class:** unclassified
 - **Scope:** SYSTEMIC
-- **Occurrences:** 89,336
+- **Occurrences:** 89,411
 - **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1
 - **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-ch-uat-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 - **First seen:** 2026-01-13 09:00
-- **Last seen:** 2026-02-25 09:30
+- **Last seen:** 2026-02-25 11:25
+
+### KP-000065: unknown/card_servicing
+
+- **Error class:** constraint_violation
+- **Scope:** SYSTEMIC
+- **Occurrences:** 28
+- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1, bff-pcb-ch-design-servicing-v1, bff-pcb-ch-document-signing-v1, bl-pcb-card-client-segment-v1
+- **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+- **First seen:** 2026-01-19 13:19
+- **Last seen:** 2026-02-25 11:25
 
 ### KP-000004: auth/card_servicing
 
 - **Error class:** unclassified
 - **Scope:** SYSTEMIC
-- **Occurrences:** 429
+- **Occurrences:** 472
 - **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1
 - **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 - **First seen:** 2026-01-14 06:01
-- **Last seen:** 2026-02-25 09:30
+- **Last seen:** 2026-02-25 11:25
 
 ### KP-000058: auth/card_servicing
 
 - **Error class:** forbidden
 - **Scope:** CROSS_NS
-- **Occurrences:** 22
+- **Occurrences:** 66
 - **Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3
 - **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
 - **First seen:** 2026-01-13 09:05
-- **Last seen:** 2026-02-25 09:30
+- **Last seen:** 2026-02-25 11:25
+
+### KP-000057: unknown/card_servicing
+
+- **Error class:** access_denied
+- **Scope:** SYSTEMIC
+- **Occurrences:** 154
+- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1
+- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+- **First seen:** 2026-01-21 10:56
+- **Last seen:** 2026-02-25 11:25
+
+### KP-000068: unknown/card_servicing
+
+- **Error class:** json_parse_exception
+- **Scope:** SYSTEMIC
+- **Occurrences:** 84
+- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-v1, bl-pcb-notification-v1
+- **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
+- **First seen:** 2026-01-26 00:25
+- **Last seen:** 2026-02-25 11:25
+
+### KP-000064: auth/card_servicing
+
+- **Error class:** server_error
+- **Scope:** SYSTEMIC
+- **Occurrences:** 1
+- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-card-validation-v1, bff-pcb-ch-click2pay-v1
+- **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+- **First seen:** 2026-01-26 04:25
+- **Last seen:** 2026-02-25 11:25
+
+### KP-000070: unknown/card_servicing
+
+- **Error class:** not_found_error
+- **Scope:** CROSS_NS
+- **Occurrences:** 1
+- **Apps:** bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-click2pay-v1
+- **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
+- **First seen:** 2026-01-13 16:30
+- **Last seen:** 2026-02-25 11:25
+
+### KP-000030: unknown/client_segment
+
+- **Error class:** unclassified
+- **Scope:** SYSTEMIC
+- **Occurrences:** 36
+- **Apps:** bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-v1
+- **Namespaces:** pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-17 18:19
+- **Last seen:** 2026-02-25 11:24
+
+### KP-000053: business/card_servicing
+
+- **Error class:** business_exception
+- **Scope:** SYSTEMIC
+- **Occurrences:** 10,410
+- **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v2, bff-pcb-ch-card-servicing-v3, bff-pcb-ch-click2pay-v1, bl-pcb-atm-locator-v1
+- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pca-uat-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-26 00:05
+- **Last seen:** 2026-02-25 11:21
+
+### KP-000305: network/atm_locator
+
+- **Error class:** ssl_handshake_exception
+- **Scope:** CROSS_NS
+- **Occurrences:** 8
+- **Apps:** bl-pcb-atm-locator-v1
+- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-02-03 16:16
+- **Last seen:** 2026-02-25 11:21
+
+### KP-000304: business/atm_locator
+
+- **Error class:** business_exception
+- **Scope:** CROSS_NS
+- **Occurrences:** 8
+- **Apps:** bl-pcb-atm-locator-v1
+- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-02-03 16:16
+- **Last seen:** 2026-02-25 11:21
+
+### KP-000119: unknown/atm_locator
+
+- **Error class:** unclassified
+- **Scope:** CROSS_NS
+- **Occurrences:** 28
+- **Apps:** bl-pcb-atm-locator-v1, bl-pcb-v1
+- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-26 00:16
+- **Last seen:** 2026-02-25 11:21
+
+### KP-000024: unknown/document_signing
+
+- **Error class:** unclassified
+- **Scope:** SYSTEMIC
+- **Occurrences:** 137
+- **Apps:** bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-design-servicing-v1, bff-pcb-ch-document-signing-v1, bl-pcb-atm-locator-v1, bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-client-rainbow-status-v1, bl-pcb-design-lifecycle-v1, bl-pcb-document-signing-v1, bl-pcb-notification-v1
+- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-15 19:30
+- **Last seen:** 2026-02-25 11:21
+
+### KP-000120: unknown/georisk
+
+- **Error class:** unclassified
+- **Scope:** CROSS_NS
+- **Occurrences:** 4
+- **Apps:** bl-pcb-card-georisk-v1
+- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app
+- **First seen:** 2026-01-15 20:19
+- **Last seen:** 2026-02-25 11:20
+
+### KP-000034: unknown/notification
+
+- **Error class:** unclassified
+- **Scope:** SYSTEMIC
+- **Occurrences:** 26
+- **Apps:** bl-pcb-notification-v1, bl-pcb-v1, feapi-pca-v1
+- **Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-16 14:03
+- **Last seen:** 2026-02-25 11:15
+
+### KP-000052: business/unknown
+
+- **Error class:** business_exception
+- **Scope:** SYSTEMIC
+- **Occurrences:** 10,402
+- **Apps:** bl-pcb-v1, feapi-pca-v1
+- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pca-uat-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-13 19:38
+- **Last seen:** 2026-02-25 11:13
+
+### KP-000069: unknown/unknown
+
+- **Error class:** not_found_error
+- **Scope:** SYSTEMIC
+- **Occurrences:** 0
+- **Apps:** bl-pcb-v1, feapi-pca-v1
+- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-14 22:06
+- **Last seen:** 2026-02-25 11:12

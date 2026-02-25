@@ -1,0 +1,349 @@
+{{/*
+=============================================================================
+Log Analyzer v6 - CronJobs (Regular Phase + Backfill)
+=============================================================================
+*/}}
+---
+# =============================================================================
+# CronJob 1: Regular Phase - every 15 min 
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.app.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    job-type: regular
+spec:
+  schedule: "*/15 * * * *"  # Každých 15 minut
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: {{ .Values.app.name }}
+        job-type: regular
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600  # Max 1 hodina
+      template:
+        metadata:
+          labels:
+            app: {{ .Values.app.name }}
+            job-type: regular
+        spec:
+          serviceAccountName: log-analyzer
+          restartPolicy: Never
+          
+          containers:
+            - name: {{ .Values.app.name }}
+              image: {{ .Values.app.image }}
+              imagePullPolicy: {{ .Values.app.imagePullPolicy }}
+              workingDir: /app
+              command:
+                - python3
+                - /app/scripts/regular_phase_v6.py
+              
+              env:
+                # === Application Config ===
+                - name: ENVIRONMENT
+                  value: {{ .Values.env.ENVIRONMENT | quote }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.env.LOG_LEVEL | default "INFO" | quote }}
+                - name: REGISTRY_DIR
+                  value: {{ .Values.env.REGISTRY_DIR | quote }}
+                - name: EXPORT_DIR
+                  value: {{ .Values.env.EXPORT_DIR | quote }}
+                
+                # === Database ===
+                - name: DB_HOST
+                  value: {{ .Values.env.DB_HOST | quote }}
+                - name: DB_PORT
+                  value: {{ .Values.env.DB_PORT | quote }}
+                - name: DB_NAME
+                  value: {{ .Values.env.DB_NAME | quote }}
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_PASSWORD
+                - name: DB_DDL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_DDL_USER
+                - name: DB_DDL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_DDL_PASSWORD
+                
+                # === Elasticsearch ===
+                - name: ES_HOST
+                  value: {{ .Values.env.ES_HOST | quote }}
+                - name: ES_INDEX
+                  value: {{ .Values.env.ES_INDEX | quote }}
+                - name: ES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: ES_USER
+                - name: ES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: ES_PASSWORD
+                
+                # === Confluence ===
+                - name: CONFLUENCE_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: CONFLUENCE_USERNAME
+                - name: CONFLUENCE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: CONFLUENCE_PASSWORD
+                - name: CONFLUENCE_URL
+                  value: {{ .Values.env.CONFLUENCE_URL | quote }}
+                - name: CONFLUENCE_PROXY
+                  value: {{ .Values.env.CONFLUENCE_PROXY | quote }}
+                - name: HTTPS_PROXY
+                  value: {{ .Values.env.HTTPS_PROXY | quote }}
+                - name: HTTP_PROXY
+                  value: {{ .Values.env.HTTP_PROXY | default .Values.env.CONFLUENCE_PROXY | quote }}
+                
+                # === Peak Detection ===
+                - name: SPIKE_THRESHOLD
+                  value: {{ .Values.env.SPIKE_THRESHOLD | quote }}
+                - name: EWMA_ALPHA
+                  value: {{ .Values.env.EWMA_ALPHA | quote }}
+                - name: WINDOW_MINUTES
+                  value: {{ .Values.env.WINDOW_MINUTES | quote }}
+                - name: PERCENTILE_LEVEL
+                  value: {{ .Values.env.PERCENTILE_LEVEL | quote }}
+                - name: MIN_SAMPLES_FOR_THRESHOLD
+                  value: {{ .Values.env.MIN_SAMPLES_FOR_THRESHOLD | quote }}
+                - name: DEFAULT_THRESHOLD
+                  value: {{ .Values.env.DEFAULT_THRESHOLD | quote }}
+                - name: TEAMS_WEBHOOK_URL
+                  value: {{ .Values.teams.webhook_url | quote }}
+                - name: TEAMS_EMAIL
+                  value: {{ .Values.teams.email | quote }}
+                - name: SMTP_HOST
+                  value: "css-smtp-prod-os.sos.kb.cz"
+                - name: SMTP_PORT
+                  value: "25"
+                - name: EMAIL_FROM
+                  value: "ai-log-analyzer@kb.cz"
+                - name: TEAMS_ENABLED
+                  value: "true"
+                - name: TEAMS_USE_EMAIL_PRIMARY
+                  value: "true"
+              
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              
+              volumeMounts:
+                - name: data
+                  mountPath: {{ .Values.persistence.mountPath }}
+          
+          volumes:
+            - name: data
+              {{- if .Values.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ .Values.persistence.claimName }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+          
+          imagePullSecrets:
+            - name: dockerhub
+
+---
+# =============================================================================
+# CronJob 2: Backfill Phase (denně v 09:00 UTC = 11:00 CET)
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.app.name }}-backfill
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    job-type: backfill
+spec:
+  schedule: "0 9 * * *"  # Každý den v 09:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: {{ .Values.app.name }}
+        job-type: backfill
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600  # Max 1 hodina
+      template:
+        metadata:
+          labels:
+            app: {{ .Values.app.name }}
+            job-type: backfill
+        spec:
+          serviceAccountName: log-analyzer
+          restartPolicy: Never
+          
+          containers:
+            - name: {{ .Values.app.name }}-backfill
+              image: {{ .Values.app.image }}
+              imagePullPolicy: {{ .Values.app.imagePullPolicy }}
+              workingDir: /app
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+                  echo "📊 Running Backfill V6..."
+                  python3 /app/scripts/backfill_v6.py --days 1 --force --output /app/scripts/reports
+                  
+                  echo ""
+                  echo "📋 Publishing to Confluence..."
+                  python3 /app/scripts/recent_incidents_publisher.py || echo "⚠️ Recent Incidents publish failed (non-critical)"
+                  python3 /app/scripts/confluence_csv_uploader.py || echo "⚠️ CSV upload failed (non-critical)"
+                  
+                  echo ""
+                  echo "✅ Confluence published successfully"
+              
+              env:
+                # === Application Config ===
+                - name: ENVIRONMENT
+                  value: {{ .Values.env.ENVIRONMENT | quote }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.env.LOG_LEVEL | default "INFO" | quote }}
+                - name: REGISTRY_DIR
+                  value: {{ .Values.env.REGISTRY_DIR | quote }}
+                - name: EXPORT_DIR
+                  value: {{ .Values.env.EXPORT_DIR | quote }}
+                
+                # === Database ===
+                - name: DB_HOST
+                  value: {{ .Values.env.DB_HOST | quote }}
+                - name: DB_PORT
+                  value: {{ .Values.env.DB_PORT | quote }}
+                - name: DB_NAME
+                  value: {{ .Values.env.DB_NAME | quote }}
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_PASSWORD
+                - name: DB_DDL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_DDL_USER
+                - name: DB_DDL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_DDL_PASSWORD
+                
+                # === Elasticsearch ===
+                - name: ES_HOST
+                  value: {{ .Values.env.ES_HOST | quote }}
+                - name: ES_INDEX
+                  value: {{ .Values.env.ES_INDEX | quote }}
+                - name: ES_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: ES_USER
+                - name: ES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: ES_PASSWORD
+                
+                # === Confluence ===
+                - name: CONFLUENCE_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: CONFLUENCE_USERNAME
+                - name: CONFLUENCE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: CONFLUENCE_PASSWORD
+                - name: CONFLUENCE_URL
+                  value: {{ .Values.env.CONFLUENCE_URL | quote }}
+                - name: CONFLUENCE_PROXY
+                  value: {{ .Values.env.CONFLUENCE_PROXY | quote }}
+                - name: HTTPS_PROXY
+                  value: {{ .Values.env.HTTPS_PROXY | quote }}
+                - name: HTTP_PROXY
+                  value: {{ .Values.env.HTTP_PROXY | default .Values.env.CONFLUENCE_PROXY | quote }}
+                - name: CONFLUENCE_KNOWN_ERRORS_PAGE_ID
+                  value: {{ .Values.env.CONFLUENCE_KNOWN_ERRORS_PAGE_ID | quote }}
+                - name: CONFLUENCE_KNOWN_PEAKS_PAGE_ID
+                  value: {{ .Values.env.CONFLUENCE_KNOWN_PEAKS_PAGE_ID | quote }}
+                # === Peak Detection ===
+                - name: SPIKE_THRESHOLD
+                  value: {{ .Values.env.SPIKE_THRESHOLD | quote }}
+                - name: EWMA_ALPHA
+                  value: {{ .Values.env.EWMA_ALPHA | quote }}
+                - name: WINDOW_MINUTES
+                  value: {{ .Values.env.WINDOW_MINUTES | quote }}
+                - name: PERCENTILE_LEVEL
+                  value: {{ .Values.env.PERCENTILE_LEVEL | quote }}
+                - name: MIN_SAMPLES_FOR_THRESHOLD
+                  value: {{ .Values.env.MIN_SAMPLES_FOR_THRESHOLD | quote }}
+                - name: DEFAULT_THRESHOLD
+                  value: {{ .Values.env.DEFAULT_THRESHOLD | quote }}
+                - name: TEAMS_WEBHOOK_URL
+                  value: {{ .Values.teams.webhook_url | quote }}
+                - name: TEAMS_EMAIL
+                  value: {{ .Values.teams.email | quote }}
+                - name: SMTP_HOST
+                  value: "css-smtp-prod-os.sos.kb.cz"
+                - name: SMTP_PORT
+                  value: "25"
+                - name: EMAIL_FROM
+                  value: "ai-log-analyzer@kb.cz"
+                - name: TEAMS_ENABLED
+                  value: "true"
+                - name: TEAMS_USE_EMAIL_PRIMARY
+                  value: "true"
+              
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              
+              volumeMounts:
+                - name: data
+                  mountPath: {{ .Values.persistence.mountPath }}
+          
+          volumes:
+            - name: data
+              {{- if .Values.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ .Values.persistence.claimName }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+          
+          imagePullSecrets:
+            - name: dockerhub

@@ -1,0 +1,121 @@
+# =============================================================================
+# Log Analyzer v6 - Kubernetes Values (OPRAVENO podle showcase)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# POVINNÉ - VYPLNIT PŘED DEPLOYEM
+# -----------------------------------------------------------------------------
+namespace: ai-log-analyzer          # např: ai-log-analyzer-app
+environment: nprod                  # nprod | prod (ovlivňuje Conjur URL)
+
+# -----------------------------------------------------------------------------
+# Application Image
+# -----------------------------------------------------------------------------
+app:
+  name: log-analyzer
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r36
+  imagePullPolicy: IfNotPresent
+  secretName: log-analyzer-secrets  
+
+# -----------------------------------------------------------------------------
+# CronJob Schedule
+# -----------------------------------------------------------------------------
+schedule: "*/15 * * * *"             # Každých 15 minut
+
+# -----------------------------------------------------------------------------
+# Resources
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# -----------------------------------------------------------------------------
+# Persistent Storage
+# -----------------------------------------------------------------------------
+persistence:
+  enabled: true
+  claimName: log-analyzer-data       # PVC pro registry/exports (z pvc.yaml)
+  mountPath: /data
+  subPaths:
+    registry: registry                # /data/registry - YAML fingerprinty a známé chyby
+    exports: exports                  # /data/exports - JSON/MD reporty
+    reports: reports                  # /data/reports - dočasné výstupy
+
+# -----------------------------------------------------------------------------
+# Conjur Configuration (podle showcase)
+# -----------------------------------------------------------------------------
+conjur:
+  # KB interní image - NEPOUŽÍVAT veřejný cyberark image!
+  image: dockerhub.kb.cz/ps-sq008-pub/cyberark/secrets-provider-for-k8s:1.7.3-kb.1
+  imagePullPolicy: IfNotPresent
+  containerName: conjur-secrets-provider
+  
+  # Conjur Application Identity (registrace přes PSIAM)
+  applicationId: AI-LOG-ANALYZER      # Tvá registrovaná aplikace v Conjur
+  componentId: restricted             # nebo jiný component podle registrace
+  
+  # EPV/CyberArk Safe konfigurace
+  lobUser: CAR_TA_LOBUser_TEST           # např: CAR_TA_LOBUser_PROD
+  safeName: DAN_AI-LOG-ANALYZER          # např: DAN_AI_LOG_ANALYZER
+  
+  # Účty v CyberArk safe
+  accounts:
+    confluence: XX_CONFLUENCE_USER
+    database: ailog_analyzer_user_d1       # PostgreSQL DML: username = ailog_analyzer_user_d1
+    database_ddl: ailog_analyzer_ddl_user_d1   # PostgreSQL DDL: username = ailog_analyzer_ddl_user_d1
+    elastic: XX_PCBS_ES_READ              # Elasticsearch: username = XX_PCBS_ES_READ
+
+# -----------------------------------------------------------------------------
+# Environment Variables pro aplikaci
+# -----------------------------------------------------------------------------
+env:
+  # === General ===
+  ENVIRONMENT: nprod
+  LOG_LEVEL: INFO
+  
+  # === Directories (mapované na PVC) ===
+  REGISTRY_DIR: /data/registry
+  EXPORT_DIR: /data/exports
+  
+  # === PostgreSQL Database ===
+  DB_HOST: P050TD01.DEV.KB.CZ          # PostgreSQL hostname (liší se podle env)
+  DB_NAME: ailog_analyzer              # Název databáze
+  DB_PORT: "5432"                      # Port (default)
+  
+  # === Elasticsearch ===
+  ES_HOST: https://elasticsearch-test.kb.cz:9500  # ES endpoint URL (liší se podle env)
+  ES_INDEX: "cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*"
+
+  # === Confluence Proxy (CNTLM in WSL) ===
+  # Example: http://<wsl-host>:<port>
+  CONFLUENCE_URL: "https://wiki.kb.cz"
+  CONFLUENCE_PROXY: "http://cntlm.speed-default:3128"
+  HTTP_PROXY: "http://cntlm.speed-default:3128"
+  HTTPS_PROXY: "http://cntlm.speed-default:3128"
+  CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "1334314201"   # Known Errors page
+  CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "1334314203"    # Known Peaks page
+  
+  # === Error Detection Algorithm ===
+  SPIKE_THRESHOLD: "3.0"               # Násobek baseline pro spike detekci (default: 3.0)
+  EWMA_ALPHA: "0.3"                    # EWMA smoothing faktor pro baseline (default: 0.3)
+  WINDOW_MINUTES: "15"                 # Časové okno pro analýzu (default: 15 min)
+  
+  # === Peak Detection Algorithm (P93 OR CAP) ===
+  PERCENTILE_LEVEL: "0.93"             # Percentil pro peak thresholds (P93 = 0.93)
+  MIN_SAMPLES_FOR_THRESHOLD: "10"      # Min počet vzorků pro spolehlivý threshold
+  DEFAULT_THRESHOLD: "100"             # Fallback threshold pokud není data v DB
+  
+  # === Telemetry & Context ===
+  # Odvozování environment z namespace (viz TELEMETRY_V6.md)
+  # Podporované patterny: -prod-, -uat-, -sit-, -dev-
+
+# ============================================================================
+# Teams Webhook
+# ============================================================================
+teams:
+  webhook_url: "https://sgcz.webhook.office.com/webhookb2/54a63e23-321f-41da-aebf-c6297b257519@c79e7c80-cff5-4503-b468-3702cea89272/IncomingWebhook/5191045a6b60470f986bef32667a1618/a91fa8b7-5d02-4808-a8ec-71b71211304c/V24B9RzJIJB98T3cFwWy3-jWDCNu-Q_RO3DTCYzgUEBAk1"
+  email: "68152a24.sgcz.onmicrosoft.com@emea.teams.ms"

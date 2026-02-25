@@ -1,23 +1,30 @@
 # Peak Events Table
 
-**Generated:** 2026-02-25 10:57:29
-**Total peaks:** 52
+**Generated:** 2026-02-25 11:39:51
+**Total peaks:** 59
 
 | ID | Category | Type | Apps | Peak Ratio | Last Seen | Status |
 |-------|----------|------|------|------------|-----------|--------|
-| PK-000046 | PEAK | SPIKE | bl-pcb-v1 | 4.2x | 2026-02-25 | OPEN |
-| PK-000045 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 0.8x | 2026-02-25 | OPEN |
+| PK-000052 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 909994695178722.1x | 2026-02-25 | OPEN |
+| PK-000043 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 3661919.4x | 2026-02-25 | OPEN |
+| PK-000007 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 2.9x | 2026-02-25 | OPEN |
+| PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 3.0x | 2026-02-25 | OPEN |
+| PK-000044 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 35.7x | 2026-02-25 | OPEN |
+| PK-000059 | PEAK | SPIKE | bl-pcb-batch-processor-v1 | 204832105406450.0x | 2026-02-25 | OPEN |
+| PK-000058 | PEAK | SPIKE | bl-pcb-card-client-segmen... | 204832105406450.0x | 2026-02-25 | OPEN |
+| PK-000049 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-25 | OPEN |
+| PK-000048 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-25 | OPEN |
+| PK-000047 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-25 | OPEN |
+| PK-000050 | PEAK | SPIKE | bl-pcb-atm-locator-v1, bl... | 7.4x | 2026-02-25 | OPEN |
+| PK-000051 | PEAK | SPIKE | bl-pcb-card-georisk-v1 | 7.4x | 2026-02-25 | OPEN |
+| PK-000057 | PEAK | SPIKE | bl-pcb-notification-v1 | 7.4x | 2026-02-25 | OPEN |
 | PK-000002 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-25 | OPEN |
-| PK-000007 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 2.0x | 2026-02-25 | OPEN |
-| PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 2.4x | 2026-02-25 | OPEN |
-| PK-000043 | PEAK | SPIKE | bff-pcb-ch-card-servicing... | 286.8x | 2026-02-24 | OPEN |
-| PK-000044 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 34.4x | 2026-02-24 | OPEN |
-| PK-000052 | PEAK | SPIKE | bl-pcb-v1 | 7.4x | 2026-02-24 | OPEN |
-| PK-000049 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-24 | OPEN |
-| PK-000048 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-24 | OPEN |
-| PK-000047 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-24 | OPEN |
-| PK-000051 | PEAK | SPIKE | bl-pcb-card-georisk-v1 | 7.4x | 2026-02-24 | OPEN |
-| PK-000050 | PEAK | SPIKE | bl-pcb-document-signing-v... | 7.4x | 2026-02-24 | OPEN |
+| PK-000045 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 0.8x | 2026-02-25 | OPEN |
+| PK-000046 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 276769887598703.9x | 2026-02-25 | OPEN |
+| PK-000053 | PEAK | SPIKE | bl-pcb-event-processor-re... | 3.8x | 2026-02-25 | OPEN |
+| PK-000054 | PEAK | SPIKE | bl-pcb-v1 | 0.9x | 2026-02-25 | OPEN |
+| PK-000056 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 28792333174285.3x | 2026-02-25 | OPEN |
+| PK-000055 | PEAK | SPIKE | bl-pcb-event-processor-re... | 6.7x | 2026-02-25 | OPEN |
 | PK-000006 | PEAK | SPIKE | bl-pcb-design-lifecycle-v... | 3.0x | 2026-02-23 | OPEN |
 | PK-000001 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-23 | OPEN |
 | PK-000010 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-19 | OPEN |

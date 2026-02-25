@@ -1,0 +1,60 @@
+---
+# =============================================================================
+# AI Log Analyzer - Persistent Volume Claim
+# =============================================================================
+# Používá se pro uložení registry, exports a reports
+#
+# Deploy:
+#   kubectl apply -f pvc.yaml -n ai-log-analyzer
+#
+# Ověření:
+#   kubectl get pvc -n ai-log-analyzer
+#   kubectl describe pvc log-analyzer-data -n ai-log-analyzer
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: log-analyzer-data
+  namespace: ai-log-analyzer
+  labels:
+    app: ai-log-analyzer
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce       # RWO - pouze 1 pod může připojit (stačí pro CronJob)
+    # - ReadWriteMany     # RWX - více podů najednou (pokud třeba)
+  
+  resources:
+    requests:
+      storage: 20Gi       # 20 GB pro registry + exports
+  
+  # Storage Class (volitelné - použije default pokud není uvedeno)
+  # storageClassName: kb-standard-rwo
+  # storageClassName: kb-fast-ssd
+  
+  # Pro statické připojení k existujícímu PV (pokud máš předpřipravený)
+  # volumeName: existing-pv-name
+
+---
+# POZNÁMKY:
+# ---------
+# 1. Storage Class:
+#    - Nespecifikované = použije se default storage class clusteru
+#    - kb-standard-rwo = standardní RWO storage v KB
+#    - kb-fast-ssd = rychlejší SSD storage (pro výkon)
+#
+# 2. Access Modes:
+#    - ReadWriteOnce (RWO): Jeden pod může R/W - vhodné pro CronJob
+#    - ReadWriteMany (RWX): Více podů může R/W - pokud běží paralelně
+#    - ReadOnlyMany (ROX): Více podů může číst
+#
+# 3. Kapacita:
+#    - registry/: ~5-10 GB (YAML soubory s fingerprinty)
+#    - exports/: ~1-5 GB (JSON/MD reporty)
+#    - data/: ~5 GB (dočasné soubory)
+#    => Celkem 20 GB je bezpečná rezerva
+#
+# 4. Backup:
+#    - PVC data je potřeba zálohovat (Velero nebo KB backup služba)
+#    - Registry obsahuje historical patterns - kritická data

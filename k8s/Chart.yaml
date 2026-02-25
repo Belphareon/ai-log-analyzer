@@ -1,0 +1,12 @@
+apiVersion: v2
+name: log-analyzer
+description: AI Log Analyzer v6 - CronJob with Conjur integration
+type: application
+version: 0.2.0
+appVersion: "6.0.0"
+keywords:
+  - log-analyzer
+  - conjur
+  - cronjob
+maintainers:
+  - name: Belfik
