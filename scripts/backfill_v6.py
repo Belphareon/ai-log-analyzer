@@ -257,6 +257,8 @@ def save_incidents_to_db(collection, date_str: str) -> int:
                 incident.namespaces[0] if incident.namespaces else 'unknown',
                 incident.stats.current_count,
                 int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else incident.stats.current_count,
+                incident.stats.baseline_median if incident.stats.baseline_median > 0 else None,
+                incident.stats.baseline_mad if incident.stats.baseline_mad > 0 else None,
                 incident.flags.is_new,
                 incident.flags.is_spike,
                 incident.flags.is_burst,
@@ -271,7 +273,7 @@ def save_incidents_to_db(collection, date_str: str) -> int:
         execute_values(cursor, """
             INSERT INTO ailog_peak.peak_investigation
             (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-             original_value, reference_value, 
+             original_value, reference_value, baseline_mean, baseline_mad,
              is_new, is_spike, is_burst, is_cross_namespace,
              error_type, error_message, detection_method, score, severity)
             VALUES %s

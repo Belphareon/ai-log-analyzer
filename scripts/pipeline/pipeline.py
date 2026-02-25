@@ -307,6 +307,7 @@ class PipelineV6:
             inc.time.duration_sec = measurement.duration_sec
             
             inc.stats.baseline_rate = measurement.baseline_ewma
+            inc.stats.baseline_median = measurement.baseline_median
             inc.stats.baseline_mad = measurement.baseline_mad
             inc.stats.current_rate = measurement.current_rate
             inc.stats.current_count = measurement.current_count

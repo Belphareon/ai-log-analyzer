@@ -54,6 +54,7 @@ class Stats:
     """Měřené statistiky (FÁZE B)"""
     # Baseline
     baseline_rate: float = 0.0       # EWMA baseline
+    baseline_median: float = 0.0     # Median baseline value
     baseline_mad: float = 0.0        # Median Absolute Deviation
     
     # Current
