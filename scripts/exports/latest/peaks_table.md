@@ -1,16 +1,26 @@
 # Peak Events Table
 
-**Generated:** 2026-02-24 09:34:49
-**Total peaks:** 42
+**Generated:** 2026-02-25 10:30:43
+**Total peaks:** 52
 
 | ID | Category | Type | Apps | Peak Ratio | Last Seen | Status |
 |-------|----------|------|------|------------|-----------|--------|
+| PK-000045 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 0.8x | 2026-02-25 | OPEN |
+| PK-000046 | PEAK | SPIKE | bl-pcb-v1 | 4.2x | 2026-02-25 | OPEN |
+| PK-000002 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-25 | OPEN |
+| PK-000007 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 2.0x | 2026-02-25 | OPEN |
+| PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 2.4x | 2026-02-25 | OPEN |
+| PK-000043 | PEAK | SPIKE | bff-pcb-ch-card-servicing... | 286.8x | 2026-02-24 | OPEN |
+| PK-000044 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 34.4x | 2026-02-24 | OPEN |
+| PK-000052 | PEAK | SPIKE | bl-pcb-v1 | 7.4x | 2026-02-24 | OPEN |
+| PK-000049 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-24 | OPEN |
+| PK-000048 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-24 | OPEN |
+| PK-000047 | PEAK | SPIKE | bl-pcb-atm-locator-v1 | 7.5x | 2026-02-24 | OPEN |
+| PK-000051 | PEAK | SPIKE | bl-pcb-card-georisk-v1 | 7.4x | 2026-02-24 | OPEN |
+| PK-000050 | PEAK | SPIKE | bl-pcb-document-signing-v... | 7.4x | 2026-02-24 | OPEN |
 | PK-000006 | PEAK | SPIKE | bl-pcb-design-lifecycle-v... | 3.0x | 2026-02-23 | OPEN |
-| PK-000007 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-23 | OPEN |
-| PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-23 | OPEN |
 | PK-000001 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-23 | OPEN |
 | PK-000023 | PEAK | BURST | bl-pcb-pilot-context-v1 | 0.0x | 2026-02-11 | OPEN |
-| PK-000002 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-11 | OPEN |
 | PK-000010 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-11 | OPEN |
 | PK-000003 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 0.0x | 2026-02-11 | OPEN |
 | PK-000020 | PEAK | BURST | bl-pcb-v1 | 0.0x | 2026-02-11 | OPEN |
