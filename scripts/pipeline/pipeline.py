@@ -310,7 +310,10 @@ class PipelineV6:
             inc.stats.baseline_median = measurement.baseline_median
             inc.stats.baseline_mad = measurement.baseline_mad
             inc.stats.current_rate = measurement.current_rate
-            inc.stats.current_count = measurement.current_count
+            # Use total_count (sum across ALL windows) for DB storage
+            # For regular phase (1 window): total_count == current_count
+            # For backfill (96 windows): total_count = real total, current_count = last window only (often 0)
+            inc.stats.current_count = measurement.total_count if measurement.total_count > 0 else measurement.current_count
             inc.stats.namespaces = measurement.namespace_count
             inc.stats.trend_direction = measurement.trend_direction
             inc.stats.trend_ratio = measurement.trend_ratio

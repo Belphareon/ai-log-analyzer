@@ -249,15 +249,34 @@ def save_incidents_to_db(collection, date_str: str) -> int:
         data = []
         for incident in collection.incidents:
             ts = incident.time.first_seen or datetime.now(timezone.utc)
+            total_count = incident.stats.current_count  # = total_count from pipeline (sum of ALL windows)
+
+            # reference_value for backfill: per-window average rate
+            # Backfill processes 24h = 96 windows, but total_count is sum across all.
+            # Normalize to per-15-min-window average so BaselineLoader gets comparable
+            # values to regular phase (which stores per-window count).
+            duration = incident.time.duration_sec if incident.time.duration_sec else 0
+            if duration > 0 and total_count > 0:
+                num_windows = max(1, duration / (15 * 60))
+                ref_value = max(1, round(total_count / num_windows))
+            elif total_count > 0:
+                ref_value = total_count
+            else:
+                ref_value = None
+
+            # baseline_mean: use per-window average (same as ref_value) for backfill
+            # EWMA baseline_rate is ~0 in backfill (sparse 96-window array), so use ref_value
+            baseline_mean = ref_value
+
             data.append((
                 ts,
                 ts.weekday(),
                 ts.hour,
                 ts.minute // 15,
                 incident.namespaces[0] if incident.namespaces else 'unknown',
-                incident.stats.current_count,
-                int(incident.stats.baseline_rate) if incident.stats.baseline_rate > 0 else 0,
-                incident.stats.baseline_median if incident.stats.baseline_median > 0 else None,
+                total_count,                                          # original_value
+                ref_value,                                            # reference_value
+                baseline_mean,                                        # baseline_mean
                 incident.flags.is_new,
                 incident.flags.is_spike,
                 incident.flags.is_burst,

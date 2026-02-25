@@ -75,6 +75,10 @@ class MeasurementResult:
     apps: List[str] = field(default_factory=list)
     app_count: int = 0
     
+    # Totals (across ALL windows, not just current)
+    total_count: int = 0
+    active_windows: int = 0
+
     # Time
     first_seen: Optional[datetime] = None
     last_seen: Optional[datetime] = None
@@ -313,10 +317,14 @@ class PhaseB_Measure:
             last_seen = fp_last_seen.get(fp)
             duration_sec = int((last_seen - first_seen).total_seconds()) if first_seen and last_seen else 0
             
+            # Totals across ALL windows
+            total_count = sum(window_counts.values())
+            active_windows = sum(1 for v in window_counts.values() if v > 0)
+
             # Result
             namespaces = list(fp_namespaces[fp])
             apps = list(fp_apps[fp])
-            
+
             results[fp] = MeasurementResult(
                 fingerprint=fp,
                 current_count=current_count,
@@ -326,6 +334,8 @@ class PhaseB_Measure:
                 baseline_median=baseline.median_rate if baseline else 0,
                 trend_ratio=trend_ratio,
                 trend_direction=trend_direction,
+                total_count=total_count,
+                active_windows=active_windows,
                 namespaces=namespaces,
                 namespace_count=len(namespaces),
                 apps=apps,
