@@ -445,11 +445,11 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 from pipeline.phase_a_parse import PhaseA_Parser
                 parser = PhaseA_Parser()
                 
-                # Extract ALL error types from all errors (not just first 1000!)
+                # Extract ALL error types using rich extraction (same as Phase A pipeline)
+                # extract_error_type_rich() checks exception.type, error.type, stack_trace, then message
                 all_error_types = set()
                 for error in errors:
-                    msg = error.get('message', '')
-                    error_type = parser.extract_error_type(msg)
+                    error_type = parser.extract_error_type_rich(error)
                     if error_type and error_type != 'Unknown':
                         all_error_types.add(error_type)
 

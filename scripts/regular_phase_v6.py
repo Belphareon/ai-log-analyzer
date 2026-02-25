@@ -563,8 +563,9 @@ def run_regular_phase(
             parser = PhaseA_Parser()
             all_error_types = set()
             for error in errors:
-                msg = error.get('message', '')
-                error_type = parser.extract_error_type(msg)
+                # Use extract_error_type_rich() to match Phase A pipeline behavior
+                # (checks exception.type, error.type, stack_trace, then message)
+                error_type = parser.extract_error_type_rich(error)
                 if error_type and error_type != 'Unknown':
                     all_error_types.add(error_type)
             
