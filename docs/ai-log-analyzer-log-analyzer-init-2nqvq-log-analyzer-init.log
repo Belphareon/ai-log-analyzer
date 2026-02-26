@@ -17,9 +17,9 @@
  DB insert: MAIN THREAD (not workers)
 
 📋 Registry loaded:
-   Problems: 309
+   Problems: 310
    Peaks: 140
-   Known fingerprints: 28923
+   Known fingerprints: 29219
 
 🚀 Starting 21 days with 4 parallel workers...
  📅 [ThreadPoolExecutor-0_0] 2026-02-05 - Fetching...
@@ -30,20 +30,22 @@
  📅 [ThreadPoolExecutor-0_1] 2026-02-06 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-06T00:00:00Z to 2026-02-06T23:59:59Z
-   Batch size: 10,000
-
- 📅 [ThreadPoolExecutor-0_2] 2026-02-07 - Fetching...
+   Batch size: 10,000 📅 [ThreadPoolExecutor-0_2] 2026-02-07 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
+
+
    Time range: 2026-02-07T00:00:00Z to 2026-02-07T23:59:59Z
    Batch size: 10,000
 
  📅 [ThreadPoolExecutor-0_3] 2026-02-08 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
+ 📤 Submitted 21 tasks
+
    Time range: 2026-02-08T00:00:00Z to 2026-02-08T23:59:59Z
    Batch size: 10,000
 
- 📤 Submitted 21 tasks
-
+📊 Expected total hits: 0
+🔄 Batch   1... ✅ DONE (no more hits)
 📊 Expected total hits: 0
 🔄 Batch   1... ✅ DONE (no more hits)
 📊 Expected total hits: 0
@@ -53,114 +55,116 @@
 
 ✅ Total fetched: 0 errors
 ✅ Completeness check: fetched count matches hits.total
- 📅 [ThreadPoolExecutor-0_3] 2026-02-09 - Fetching...
+ 📅 [ThreadPoolExecutor-0_1] 2026-02-09 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
- ✓ [1/21] 2026-02-08 - no_data
    Time range: 2026-02-09T00:00:00Z to 2026-02-09T23:59:59Z
+ ✓ [1/21] 2026-02-06 - no_data
    Batch size: 10,000
 
-📊 Expected total hits: 0
-🔄 Batch   1... ✅ DONE (no more hits)
 
 ✅ Total fetched: 0 errors
 ✅ Completeness check: fetched count matches hits.total
- 📅 [ThreadPoolExecutor-0_1] 2026-02-10 - Fetching...
+ 📅 [ThreadPoolExecutor-0_3] 2026-02-10 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
-   Time range: 2026-02-10T00:00:00Z to 2026-02-10T23:59:59Z
- ✓ [2/21] 2026-02-06 - no_data
+   Time range: 2026-02-10T00:00:00Z to 2026-02-10T23:59:59Z ✓ [2/21] 2026-02-08 - no_data
+
    Batch size: 10,000
 
 
 ✅ Total fetched: 0 errors
 ✅ Completeness check: fetched count matches hits.total
  📅 [ThreadPoolExecutor-0_0] 2026-02-11 - Fetching...
-🔄 Fetcher - UNLIMITED via search_after
+🔄 Fetcher - UNLIMITED via search_after ✓ [3/21] 2026-02-05 - no_data
+
    Time range: 2026-02-11T00:00:00Z to 2026-02-11T23:59:59Z
    Batch size: 10,000
 
- ✓ [3/21] 2026-02-05 - no_data
 
 ✅ Total fetched: 0 errors
 ✅ Completeness check: fetched count matches hits.total
  📅 [ThreadPoolExecutor-0_2] 2026-02-12 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-12T00:00:00Z to 2026-02-12T23:59:59Z
-   Batch size: 10,000 ✓ [4/21] 2026-02-07 - no_data
-
+ ✓ [4/21] 2026-02-07 - no_data
+   Batch size: 10,000
 
 📊 Expected total hits: 0
 🔄 Batch   1... ✅ DONE (no more hits)
+
+✅ Total fetched: 0 errors
+✅ Completeness check: fetched count matches hits.total
+ 📅 [ThreadPoolExecutor-0_1] 2026-02-13 - Fetching...
+🔄 Fetcher - UNLIMITED via search_after
+   Time range: 2026-02-13T00:00:00Z to 2026-02-13T23:59:59Z
+ ✓ [5/21] 2026-02-09 - no_data
+   Batch size: 10,000
+
 📊 Expected total hits: 70,036
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
 📊 Expected total hits: 342,393
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-
-✅ Total fetched: 0 errors
-✅ Completeness check: fetched count matches hits.total
- 📅 [ThreadPoolExecutor-0_3] 2026-02-13 - Fetching...
-🔄 Fetcher - UNLIMITED via search_after
- ✓ [5/21] 2026-02-09 - no_data
-   Time range: 2026-02-13T00:00:00Z to 2026-02-13T23:59:59Z
-   Batch size: 10,000
-
 📊 Expected total hits: 332,252
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
 🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
 📊 Expected total hits: 191,928
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
 🔄 Batch   3... ✅ 10,000 | Total: 30,000
 🔄 Batch   3... ✅ 10,000 | Total: 30,000
 🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
 🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
 🔄 Batch   5... ✅ 10,000 | Total: 50,000
 🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
 🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch   8... ✅ 10,000 | Total: 80,000
-🔄 Batch   8... ✅ 36 | Total: 70,036
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
 🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   8... ✅ 36 | Total: 70,036
 🔄 Batch   8... ✅ 10,000 | Total: 80,000
 
 ✅ Total fetched: 70,036 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_1] 2026-02-10 - 70,036 errors, running pipeline...
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ MarshalException: 74 historical rates
-✓ NotFoundError: 8170 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2420 historical rates
-✓ ServiceBusinessException: 5909 historical rates
-✓ SimpleError: 174 historical rates
-✓ UnauthorizedError: 860 historical rates
-✓ UnknownError: 34516 historical rates
-✓ ValidationException: 44 historical rates
-   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 21/22 error types
+ 📥 [ThreadPoolExecutor-0_3] 2026-02-10 - 70,036 errors, running pipeline...
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+✓ AccessDeniedException: 1474 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7983 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7373 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ MarshalException: 94 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39449 historical rates
+✓ ValidationException: 56 historical rates
+   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 21/22 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260210
@@ -168,7 +172,6 @@
    Input: 70,036 errors
 
 📋 PHASE A: Parse & Normalize
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
    ✅ Parsed 70,036 records
    ✅ Found 2368 unique fingerprints
 
@@ -219,101 +222,96 @@
 
 🔨 Building Incident Objects
    ✅ Built 2368 incidents
-   📊 [ThreadPoolExecutor-0_1] 2026-02-10 - Saved 132 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_1] 2026-02-10 - 2368 incidents
- 📅 [ThreadPoolExecutor-0_1] 2026-02-14 - Fetching...
+   📊 [ThreadPoolExecutor-0_3] 2026-02-10 - Saved 132 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_3] 2026-02-10 - 2368 incidents
+ 📅 [ThreadPoolExecutor-0_3] 2026-02-14 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-14T00:00:00Z to 2026-02-14T23:59:59Z
    Batch size: 10,000
 
  ✓ [6/21] 2026-02-10 - success
 🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  11... ✅ 10,000 | Total: 110,000
 🔄 Batch  11... ✅ 10,000 | Total: 110,000
 🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
 📊 Expected total hits: 185,357
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
 🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch  11... ✅ 10,000 | Total: 110,000
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
 🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
 🔄 Batch  14... ✅ 10,000 | Total: 140,000
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
+🔄 Batch  14... ✅ 10,000 | Total: 140,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch  15... ✅ 10,000 | Total: 150,000
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
+🔄 Batch  15... ✅ 10,000 | Total: 150,000
+🔄 Batch  16... ✅ 10,000 | Total: 160,000
 🔄 Batch   4... ✅ 10,000 | Total: 40,000
 🔄 Batch  14... ✅ 10,000 | Total: 140,000
-🔄 Batch  14... ✅ 10,000 | Total: 140,000
-🔄 Batch  15... ✅ 10,000 | Total: 150,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
 🔄 Batch  16... ✅ 10,000 | Total: 160,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
 🔄 Batch  15... ✅ 10,000 | Total: 150,000
-🔄 Batch  15... ✅ 10,000 | Total: 150,000
+🔄 Batch  17... ✅ 10,000 | Total: 170,000
 🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch  17... ✅ 10,000 | Total: 170,000
 🔄 Batch  16... ✅ 10,000 | Total: 160,000
-🔄 Batch  16... ✅ 10,000 | Total: 160,000
+🔄 Batch  18... ✅ 10,000 | Total: 180,000
 🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch  18... ✅ 10,000 | Total: 180,000
 🔄 Batch  17... ✅ 10,000 | Total: 170,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
-🔄 Batch  17... ✅ 10,000 | Total: 170,000
 🔄 Batch  19... ✅ 10,000 | Total: 190,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
 🔄 Batch  18... ✅ 10,000 | Total: 180,000
-🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch  19... ✅ 10,000 | Total: 190,000
 🔄 Batch  20... ✅ 10,000 | Total: 200,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch  20... ✅ 10,000 | Total: 200,000
 🔄 Batch  19... ✅ 10,000 | Total: 190,000
 🔄 Batch  21... ✅ 10,000 | Total: 210,000
-🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch  19... ✅ 10,000 | Total: 190,000
-🔄 Batch  22... ✅ 10,000 | Total: 220,000
-🔄 Batch  20... ✅ 10,000 | Total: 200,000
 🔄 Batch  20... ✅ 1,928 | Total: 191,928
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
+🔄 Batch  21... ✅ 10,000 | Total: 210,000
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  22... ✅ 10,000 | Total: 220,000
 
 ✅ Total fetched: 191,928 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_3] 2026-02-13 - 191,928 errors, running pipeline...
-🔄 Batch  23... ✅ 10,000 | Total: 230,000
-🔄 Batch  21... ✅ 10,000 | Total: 210,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MessageProcessingException: 4 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8170 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2420 historical rates
-✓ ServiceBusinessException: 5909 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 92 historical rates
-✓ UnauthorizedError: 860 historical rates
-✓ UnknownError: 34512 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 29/31 error types
+ 📥 [ThreadPoolExecutor-0_1] 2026-02-13 - 191,928 errors, running pipeline...
+🔄 Batch  11... ✅ 10,000 | Total: 110,000
+🔄 Batch  22... ✅ 10,000 | Total: 220,000
+✓ AccessDeniedException: 1472 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7980 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7364 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1846 historical rates
+✓ MarshalException: 94 historical rates
+✓ MessageProcessingException: 6 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39437 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 29/31 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260213
@@ -321,6 +319,7 @@
    Input: 191,928 errors
 
 📋 PHASE A: Parse & Normalize
+🔄 Batch  23... ✅ 10,000 | Total: 230,000
    ✅ Parsed 191,928 records
    ✅ Found 1840 unique fingerprints
 
@@ -369,69 +368,73 @@
 
 🔨 Building Incident Objects
    ✅ Built 1840 incidents
-🔄 Batch  14... ✅ 10,000 | Total: 140,000
-🔄 Batch  24... ✅ 10,000 | Total: 240,000
-🔄 Batch  22... ✅ 10,000 | Total: 220,000
-   📊 [ThreadPoolExecutor-0_3] 2026-02-13 - Saved 446 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_3] 2026-02-13 - 1840 incidents
- 📅 [ThreadPoolExecutor-0_3] 2026-02-15 - Fetching...
+🔄 Batch  23... ✅ 10,000 | Total: 230,000🔄 Batch  24... ✅ 10,000 | Total: 240,000
+
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
+   📊 [ThreadPoolExecutor-0_1] 2026-02-13 - Saved 446 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_1] 2026-02-13 - 1840 incidents
+ 📅 [ThreadPoolExecutor-0_1] 2026-02-15 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-15T00:00:00Z to 2026-02-15T23:59:59Z
    Batch size: 10,000
 
  ✓ [7/21] 2026-02-13 - success
 🔄 Batch  25... ✅ 10,000 | Total: 250,000
-🔄 Batch  15... ✅ 10,000 | Total: 150,000
-🔄 Batch  23... ✅ 10,000 | Total: 230,000
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
+🔄 Batch  24... ✅ 10,000 | Total: 240,000
+🔄 Batch  26... ✅ 10,000 | Total: 260,000
+🔄 Batch  25... ✅ 10,000 | Total: 250,000
 📊 Expected total hits: 31,943
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch  16... ✅ 10,000 | Total: 160,000
-🔄 Batch  26... ✅ 10,000 | Total: 260,000
-🔄 Batch  24... ✅ 10,000 | Total: 240,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch  14... ✅ 10,000 | Total: 140,000
 🔄 Batch  27... ✅ 10,000 | Total: 270,000
-🔄 Batch  17... ✅ 10,000 | Total: 170,000
-🔄 Batch  25... ✅ 10,000 | Total: 250,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch  28... ✅ 10,000 | Total: 280,000
-🔄 Batch  18... ✅ 10,000 | Total: 180,000
 🔄 Batch  26... ✅ 10,000 | Total: 260,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch  28... ✅ 10,000 | Total: 280,000
+🔄 Batch  27... ✅ 10,000 | Total: 270,000
+🔄 Batch  15... ✅ 10,000 | Total: 150,000
+🔄 Batch  29... ✅ 10,000 | Total: 290,000
+🔄 Batch  28... ✅ 10,000 | Total: 280,000
+🔄 Batch  16... ✅ 10,000 | Total: 160,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch  30... ✅ 10,000 | Total: 300,000
 🔄 Batch  29... ✅ 10,000 | Total: 290,000
 🔄 Batch   4... ✅ 1,943 | Total: 31,943
-🔄 Batch  19... ✅ 5,357 | Total: 185,357
+🔄 Batch  17... ✅ 10,000 | Total: 170,000
+🔄 Batch  31... ✅ 10,000 | Total: 310,000
+🔄 Batch  30... ✅ 10,000 | Total: 300,000
 
 ✅ Total fetched: 31,943 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_3] 2026-02-15 - 31,943 errors, running pipeline...
-🔄 Batch  27... ✅ 10,000 | Total: 270,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8170 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2420 historical rates
-✓ ServiceBusinessException: 5909 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 92 historical rates
-✓ UnauthorizedError: 860 historical rates
-✓ UnknownError: 34512 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-✓ WebServiceException: 9 historical rates
-   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 27/28 error types
+ 📥 [ThreadPoolExecutor-0_1] 2026-02-15 - 31,943 errors, running pipeline...
+✓ AccessDeniedException: 1472 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7980 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7364 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1846 historical rates
+✓ MarshalException: 94 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39437 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+✓ WebServiceException: 12 historical rates
+   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 27/28 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260215
@@ -456,10 +459,6 @@
  Phase B: Grouping: 100% (31,940/31,943)
  Phase B: Stats: 0% (0/1,462)
  Phase B: Stats: 10% (146/1,462)
-
-✅ Total fetched: 185,357 errors
-✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_1] 2026-02-14 - 185,357 errors, running pipeline...
  Phase B: Stats: 20% (292/1,462)
  Phase B: Stats: 30% (438/1,462)
  Phase B: Stats: 40% (584/1,462)
@@ -493,44 +492,54 @@
 
 🔨 Building Incident Objects
    ✅ Built 1462 incidents
-   📊 [ThreadPoolExecutor-0_3] 2026-02-15 - Saved 436 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_3] 2026-02-15 - 1462 incidents
- 📅 [ThreadPoolExecutor-0_3] 2026-02-16 - Fetching...
-🔄 Fetcher - UNLIMITED via search_after ✓ [8/21] 2026-02-15 - success
-
+   📊 [ThreadPoolExecutor-0_1] 2026-02-15 - Saved 436 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_1] 2026-02-15 - 1462 incidents
+ 📅 [ThreadPoolExecutor-0_1] 2026-02-16 - Fetching...
+🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-16T00:00:00Z to 2026-02-16T23:59:59Z
+ ✓ [8/21] 2026-02-15 - success
    Batch size: 10,000
 
-🔄 Batch  28... ✅ 10,000 | Total: 280,000
-🔄 Batch  30... ✅ 10,000 | Total: 300,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8170 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2420 historical rates
-✓ ServiceBusinessException: 5909 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 92 historical rates
-✓ UnauthorizedError: 860 historical rates
-✓ UnknownError: 34512 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 27/27 error types
+🔄 Batch  32... ✅ 10,000 | Total: 320,000
+🔄 Batch  31... ✅ 10,000 | Total: 310,000
+🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch  19... ✅ 5,357 | Total: 185,357
+🔄 Batch  32... ✅ 10,000 | Total: 320,000
+🔄 Batch  33... ✅ 10,000 | Total: 330,000
+📊 Expected total hits: 94,218
+
+✅ Total fetched: 185,357 errors
+✅ Completeness check: fetched count matches hits.total🔄 Batch   1... ✅ 10,000 | Total: 10,000
+
+ 📥 [ThreadPoolExecutor-0_3] 2026-02-14 - 185,357 errors, running pipeline...
+✓ AccessDeniedException: 1472 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7980 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7364 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1846 historical rates
+✓ MarshalException: 94 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39437 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 27/27 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260214
@@ -538,6 +547,8 @@
    Input: 185,357 errors
 
 📋 PHASE A: Parse & Normalize
+🔄 Batch  33... ✅ 10,000 | Total: 330,000
+🔄 Batch  34... ✅ 10,000 | Total: 340,000
    ✅ Parsed 185,357 records
    ✅ Found 1603 unique fingerprints
 
@@ -557,8 +568,10 @@
  Phase B: Stats: 10% (160/1,603)
  Phase B: Stats: 20% (320/1,603)
  Phase B: Stats: 30% (480/1,603)
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
  Phase B: Stats: 40% (640/1,603)
  Phase B: Stats: 50% (800/1,603)
+🔄 Batch  34... ✅ 2,252 | Total: 332,252
  Phase B: Stats: 60% (960/1,603)
  Phase B: Stats: 70% (1,120/1,603)
  Phase B: Stats: 80% (1,280/1,603)
@@ -584,170 +597,54 @@
    ✅ Score distribution: {'critical': 0, 'high': 2, 'medium': 797, 'low': 804, 'info': 0}
 
 🏷️  PHASE E: Classify
+
+✅ Total fetched: 332,252 errors
+✅ Completeness check: fetched count matches hits.total
+ 📥 [ThreadPoolExecutor-0_0] 2026-02-11 - 332,252 errors, running pipeline...
    ✅ Category distribution: {'unknown': 1111, 'business': 247, 'timeout': 5, 'auth': 185, 'external': 47, 'network': 1, 'database': 7}
 
 🔨 Building Incident Objects
    ✅ Built 1603 incidents
-🔄 Batch  31... ✅ 10,000 | Total: 310,000
-🔄 Batch  29... ✅ 10,000 | Total: 290,000
-   📊 [ThreadPoolExecutor-0_1] 2026-02-14 - Saved 437 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_1] 2026-02-14 - 1603 incidents
- 📅 [ThreadPoolExecutor-0_1] 2026-02-17 - Fetching...
+   📊 [ThreadPoolExecutor-0_3] 2026-02-14 - Saved 437 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_3] 2026-02-14 - 1603 incidents
+ 📅 [ThreadPoolExecutor-0_3] 2026-02-17 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-17T00:00:00Z to 2026-02-17T23:59:59Z
    Batch size: 10,000
- ✓ [9/21] 2026-02-14 - success
 
-📊 Expected total hits: 94,218
-🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch  32... ✅ 10,000 | Total: 320,000
-🔄 Batch  30... ✅ 10,000 | Total: 300,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-📊 Expected total hits: 344,858
-🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch  33... ✅ 10,000 | Total: 330,000
-🔄 Batch  31... ✅ 10,000 | Total: 310,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch  34... ✅ 10,000 | Total: 340,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch  32... ✅ 10,000 | Total: 320,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
+ ✓ [9/21] 2026-02-14 - success
 🔄 Batch  35... ✅ 2,393 | Total: 342,393
 
 ✅ Total fetched: 342,393 errors
 ✅ Completeness check: fetched count matches hits.total
  📥 [ThreadPoolExecutor-0_2] 2026-02-12 - 342,393 errors, running pipeline...
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MessageProcessingException: 4 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8169 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2420 historical rates
-✓ ServiceBusinessException: 5907 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 92 historical rates
-✓ UnauthorizedError: 860 historical rates
-✓ UnknownError: 34508 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_2] Loaded baseline for 28/35 error types
-
-================================================================================
-🚀 PIPELINE - Run ID: backfill-20260212
-================================================================================
-   Input: 342,393 errors
-
-📋 PHASE A: Parse & Normalize
-🔄 Batch  33... ✅ 10,000 | Total: 330,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch  34... ✅ 2,252 | Total: 332,252
-   ✅ Parsed 342,393 records
-   ✅ Found 1790 unique fingerprints
-
-📊 PHASE B: Measure
- Phase B: Grouping: 0% (0/342,393)
- Phase B: Grouping: 10% (34,239/342,393)
- Phase B: Grouping: 20% (68,478/342,393)
- Phase B: Grouping: 30% (102,717/342,393)
- Phase B: Grouping: 40% (136,956/342,393)
-
-✅ Total fetched: 332,252 errors
-✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_0] 2026-02-11 - 332,252 errors, running pipeline...
- Phase B: Grouping: 50% (171,195/342,393)
- Phase B: Grouping: 60% (205,434/342,393)
- Phase B: Grouping: 70% (239,673/342,393)
- Phase B: Grouping: 80% (273,912/342,393)
- Phase B: Grouping: 90% (308,151/342,393)
- Phase B: Grouping: 100% (342,390/342,393)
- Phase B: Stats: 0% (0/1,790)
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
- Phase B: Stats: 10% (179/1,790)
- Phase B: Stats: 20% (358/1,790)
- Phase B: Stats: 30% (537/1,790)
- Phase B: Stats: 40% (716/1,790)
- Phase B: Stats: 50% (895/1,790)
- Phase B: Stats: 60% (1,074/1,790)
- Phase B: Stats: 70% (1,253/1,790)
- Phase B: Stats: 80% (1,432/1,790)
- Phase B: Stats: 90% (1,611/1,790)
-   ✅ Measured 1790 fingerprints
-
-🔍 PHASE C: Detect
-      Phase C: Detect: 0/1,790
-      Phase C: Detect: 179/1,790
-      Phase C: Detect: 358/1,790
-      Phase C: Detect: 537/1,790
-      Phase C: Detect: 716/1,790
-      Phase C: Detect: 895/1,790
-      Phase C: Detect: 1,074/1,790
-      Phase C: Detect: 1,253/1,790
-      Phase C: Detect: 1,432/1,790
-      Phase C: Detect: 1,611/1,790
-   ✅ Detected flags: new=0, spike=1790, burst=10, cross_ns=862
-
-📈 PHASE D: Score
-   ✅ Score distribution: {'critical': 0, 'high': 7, 'medium': 858, 'low': 925, 'info': 0}
-
-🏷️  PHASE E: Classify
-   ✅ Category distribution: {'unknown': 1243, 'business': 268, 'external': 58, 'auth': 201, 'timeout': 9, 'database': 7, 'network': 4}
-
-🔨 Building Incident Objects
-   ✅ Built 1790 incidents
-   📊 [ThreadPoolExecutor-0_2] 2026-02-12 - Saved 455 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_2] 2026-02-12 - 1790 incidents
- 📅 [ThreadPoolExecutor-0_2] 2026-02-18 - Fetching...
-🔄 Fetcher - UNLIMITED via search_after
-   Time range: 2026-02-18T00:00:00Z to 2026-02-18T23:59:59Z
-   Batch size: 10,000
-
- ✓ [10/21] 2026-02-12 - success
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8164 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2420 historical rates
-✓ ServiceBusinessException: 5906 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ TimeoutException: 92 historical rates
-✓ UnauthorizedError: 860 historical rates
-✓ UnknownError: 34506 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
+✓ AccessDeniedException: 1472 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7980 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7364 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1846 historical rates
+✓ MarshalException: 94 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39437 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
    📊 [ThreadPoolExecutor-0_0] Loaded baseline for 27/34 error types
 
 ================================================================================
@@ -756,7 +653,45 @@
    Input: 332,252 errors
 
 📋 PHASE A: Parse & Normalize
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
+✓ AccessDeniedException: 1472 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7980 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7364 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1846 historical rates
+✓ MarshalException: 94 historical rates
+✓ MessageProcessingException: 6 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39437 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_2] Loaded baseline for 28/35 error types
+
+================================================================================
+🚀 PIPELINE - Run ID: backfill-20260212
+================================================================================
+   Input: 342,393 errors
+
+📋 PHASE A: Parse & Normalize
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+📊 Expected total hits: 344,858
+🔄 Batch   1... ✅ 10,000 | Total: 10,000
    ✅ Parsed 332,252 records
    ✅ Found 2319 unique fingerprints
 
@@ -775,20 +710,43 @@
  Phase B: Stats: 0% (0/2,319)
  Phase B: Stats: 10% (231/2,319)
  Phase B: Stats: 20% (462/2,319)
+   ✅ Parsed 342,393 records
+   ✅ Found 1790 unique fingerprints
+
+📊 PHASE B: Measure
+ Phase B: Grouping: 0% (0/342,393)
+ Phase B: Grouping: 10% (34,239/342,393)
+ Phase B: Grouping: 20% (68,478/342,393)
+ Phase B: Grouping: 30% (102,717/342,393)
+ Phase B: Grouping: 40% (136,956/342,393)
  Phase B: Stats: 30% (693/2,319)
+ Phase B: Grouping: 50% (171,195/342,393)
+ Phase B: Grouping: 60% (205,434/342,393)
+ Phase B: Grouping: 70% (239,673/342,393)
+ Phase B: Grouping: 80% (273,912/342,393)
+ Phase B: Grouping: 90% (308,151/342,393)
+ Phase B: Grouping: 100% (342,390/342,393)
+ Phase B: Stats: 0% (0/1,790)
  Phase B: Stats: 40% (924/2,319)
+ Phase B: Stats: 10% (179/1,790)
+ Phase B: Stats: 20% (358/1,790)
  Phase B: Stats: 50% (1,155/2,319)
-📊 Expected total hits: 212,562
-🔄 Batch   1... ✅ 10,000 | Total: 10,000
+ Phase B: Stats: 30% (537/1,790)
  Phase B: Stats: 60% (1,386/2,319)
+ Phase B: Stats: 40% (716/1,790)
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+ Phase B: Stats: 50% (895/1,790)
  Phase B: Stats: 70% (1,617/2,319)
+ Phase B: Stats: 60% (1,074/1,790)
  Phase B: Stats: 80% (1,848/2,319)
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
+ Phase B: Stats: 70% (1,253/1,790)
  Phase B: Stats: 90% (2,079/2,319)
+ Phase B: Stats: 80% (1,432/1,790)
  Phase B: Stats: 100% (2,310/2,319)
    ✅ Measured 2319 fingerprints
 
 🔍 PHASE C: Detect
+ Phase B: Stats: 90% (1,611/1,790)
       Phase C: Detect: 0/2,319
       Phase C: Detect: 231/2,319
       Phase C: Detect: 462/2,319
@@ -806,72 +764,120 @@
    ✅ Score distribution: {'critical': 0, 'high': 1, 'medium': 802, 'low': 1516, 'info': 0}
 
 🏷️  PHASE E: Classify
+   ✅ Measured 1790 fingerprints
+
+🔍 PHASE C: Detect
    ✅ Category distribution: {'unknown': 1470, 'business': 515, 'external': 67, 'auth': 159, 'database': 50, 'timeout': 58}
 
 🔨 Building Incident Objects
+      Phase C: Detect: 0/1,790
    ✅ Built 2319 incidents
+      Phase C: Detect: 179/1,790
+      Phase C: Detect: 358/1,790
+      Phase C: Detect: 537/1,790
+      Phase C: Detect: 716/1,790
+      Phase C: Detect: 895/1,790
+      Phase C: Detect: 1,074/1,790
+      Phase C: Detect: 1,253/1,790
+      Phase C: Detect: 1,432/1,790
+      Phase C: Detect: 1,611/1,790
+   ✅ Detected flags: new=0, spike=1790, burst=10, cross_ns=862
+
+📈 PHASE D: Score
+   ✅ Score distribution: {'critical': 0, 'high': 7, 'medium': 858, 'low': 925, 'info': 0}
+
+🏷️  PHASE E: Classify
+   ✅ Category distribution: {'unknown': 1243, 'business': 268, 'external': 58, 'auth': 201, 'timeout': 9, 'database': 7, 'network': 4}
+
+🔨 Building Incident Objects
    📊 [ThreadPoolExecutor-0_0] 2026-02-11 - Saved 400 rows to peak_raw_data
  ✅ [ThreadPoolExecutor-0_0] 2026-02-11 - 2319 incidents
- 📅 [ThreadPoolExecutor-0_0] 2026-02-19 - Fetching...
+ 📅 [ThreadPoolExecutor-0_0] 2026-02-18 - Fetching...
+🔄 Fetcher - UNLIMITED via search_after
+   Time range: 2026-02-18T00:00:00Z to 2026-02-18T23:59:59Z
+   Batch size: 10,000
+ ✓ [10/21] 2026-02-11 - success
+
+   ✅ Built 1790 incidents
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+   📊 [ThreadPoolExecutor-0_2] 2026-02-12 - Saved 455 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_2] 2026-02-12 - 1790 incidents
+ 📅 [ThreadPoolExecutor-0_2] 2026-02-19 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-19T00:00:00Z to 2026-02-19T23:59:59Z
    Batch size: 10,000
 
- ✓ [11/21] 2026-02-11 - success
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
+ ✓ [11/21] 2026-02-12 - success
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+📊 Expected total hits: 212,562
+🔄 Batch   1... ✅ 10,000 | Total: 10,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
 📊 Expected total hits: 207,657
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch  10... ✅ 4,218 | Total: 94,218
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch  11... ✅ 10,000 | Total: 110,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch  10... ✅ 4,218 | Total: 94,218
 
 ✅ Total fetched: 94,218 errors
 ✅ Completeness check: fetched count matches hits.total
+ 📥 [ThreadPoolExecutor-0_1] 2026-02-16 - 94,218 errors, running pipeline...
 🔄 Batch  12... ✅ 10,000 | Total: 120,000
- 📥 [ThreadPoolExecutor-0_3] 2026-02-16 - 94,218 errors, running pipeline...
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InternalServerErrorException: 3 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ InvalidTypeIdException: 37 historical rates
-✓ JsonMappingException: 35 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8156 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2419 historical rates
-✓ ServiceBusinessException: 5905 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34487 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 32/35 error types
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
+✓ AccessDeniedException: 1472 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7980 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7364 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InternalServerErrorException: 5 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ InvalidTypeIdException: 41 historical rates
+✓ JsonMappingException: 46 historical rates
+✓ JsonParseException: 1846 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39437 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 32/35 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260216
@@ -895,6 +901,7 @@
  Phase B: Grouping: 90% (84,789/94,218)
  Phase B: Grouping: 100% (94,210/94,218)
  Phase B: Stats: 0% (0/7,977)
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
  Phase B: Stats: 10% (797/7,977)
  Phase B: Stats: 20% (1,594/7,977)
  Phase B: Stats: 30% (2,391/7,977)
@@ -904,6 +911,7 @@
  Phase B: Stats: 70% (5,579/7,977)
  Phase B: Stats: 80% (6,376/7,977)
  Phase B: Stats: 90% (7,173/7,977)
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
  Phase B: Stats: 100% (7,970/7,977)
    ✅ Measured 7977 fingerprints
 
@@ -913,7 +921,6 @@
       Phase C: Detect: 1,594/7,977
       Phase C: Detect: 2,391/7,977
       Phase C: Detect: 3,188/7,977
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
       Phase C: Detect: 3,985/7,977
       Phase C: Detect: 4,782/7,977
       Phase C: Detect: 5,579/7,977
@@ -930,110 +937,104 @@
 
 🔨 Building Incident Objects
    ✅ Built 7977 incidents
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
-   📊 [ThreadPoolExecutor-0_3] 2026-02-16 - Saved 439 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_3] 2026-02-16 - 7977 incidents
- 📅 [ThreadPoolExecutor-0_3] 2026-02-20 - Fetching...
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+   📊 [ThreadPoolExecutor-0_1] 2026-02-16 - Saved 439 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_1] 2026-02-16 - 7977 incidents
+ 📅 [ThreadPoolExecutor-0_1] 2026-02-20 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-20T00:00:00Z to 2026-02-20T23:59:59Z
-   Batch size: 10,000
+   Batch size: 10,000 ✓ [12/21] 2026-02-16 - success
 
- ✓ [12/21] 2026-02-16 - success
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
+
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
 🔄 Batch  14... ✅ 10,000 | Total: 140,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  15... ✅ 10,000 | Total: 150,000
 📊 Expected total hits: 183,361
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
-🔄 Batch  15... ✅ 10,000 | Total: 150,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch  11... ✅ 10,000 | Total: 110,000
 🔄 Batch  11... ✅ 10,000 | Total: 110,000
 🔄 Batch  16... ✅ 10,000 | Total: 160,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
 🔄 Batch  12... ✅ 10,000 | Total: 120,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
 🔄 Batch  17... ✅ 10,000 | Total: 170,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
 🔄 Batch  13... ✅ 10,000 | Total: 130,000
 🔄 Batch  18... ✅ 10,000 | Total: 180,000
-🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch  14... ✅ 10,000 | Total: 140,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch  14... ✅ 10,000 | Total: 140,000
+🔄 Batch  15... ✅ 10,000 | Total: 150,000
 🔄 Batch  19... ✅ 10,000 | Total: 190,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch  16... ✅ 10,000 | Total: 160,000
 🔄 Batch  15... ✅ 10,000 | Total: 150,000
 🔄 Batch  20... ✅ 10,000 | Total: 200,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
-🔄 Batch  16... ✅ 10,000 | Total: 160,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch  14... ✅ 10,000 | Total: 140,000
-🔄 Batch  21... ✅ 10,000 | Total: 210,000
-🔄 Batch  10... ✅ 10,000 | Total: 100,000
-🔄 Batch  22... ✅ 10,000 | Total: 220,000
 🔄 Batch  17... ✅ 10,000 | Total: 170,000
-🔄 Batch  15... ✅ 10,000 | Total: 150,000
-🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch  23... ✅ 10,000 | Total: 230,000
-🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch  21... ✅ 10,000 | Total: 210,000
 🔄 Batch  16... ✅ 10,000 | Total: 160,000
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
+🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch  17... ✅ 10,000 | Total: 170,000
+🔄 Batch  22... ✅ 10,000 | Total: 220,000
+🔄 Batch  19... ✅ 10,000 | Total: 190,000
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
+🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch  23... ✅ 10,000 | Total: 230,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch  20... ✅ 10,000 | Total: 200,000
 🔄 Batch  24... ✅ 10,000 | Total: 240,000
 🔄 Batch  19... ✅ 10,000 | Total: 190,000
-🔄 Batch  17... ✅ 10,000 | Total: 170,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
+🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  21... ✅ 10,000 | Total: 210,000
 🔄 Batch  25... ✅ 10,000 | Total: 250,000
 🔄 Batch  20... ✅ 10,000 | Total: 200,000
-🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch  11... ✅ 10,000 | Total: 110,000
 🔄 Batch  26... ✅ 10,000 | Total: 260,000
-🔄 Batch  14... ✅ 10,000 | Total: 140,000
-🔄 Batch  19... ✅ 10,000 | Total: 190,000
-🔄 Batch  21... ✅ 10,000 | Total: 210,000
-🔄 Batch  15... ✅ 10,000 | Total: 150,000
-🔄 Batch  27... ✅ 10,000 | Total: 270,000
-🔄 Batch  20... ✅ 10,000 | Total: 200,000
 🔄 Batch  22... ✅ 2,562 | Total: 212,562
-🔄 Batch  16... ✅ 10,000 | Total: 160,000
+🔄 Batch  21... ✅ 7,657 | Total: 207,657
+🔄 Batch  27... ✅ 10,000 | Total: 270,000
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
 
 ✅ Total fetched: 212,562 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_2] 2026-02-18 - 212,562 errors, running pipeline...
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ InvalidTypeIdException: 37 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SimpleError: 174 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_2] Loaded baseline for 27/31 error types
+ 📥 [ThreadPoolExecutor-0_0] 2026-02-18 - 212,562 errors, running pipeline...
+
+✅ Total fetched: 207,657 errors
+✅ Completeness check: fetched count matches hits.total
+ 📥 [ThreadPoolExecutor-0_2] 2026-02-19 - 207,657 errors, running pipeline...
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ InvalidTypeIdException: 41 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39421 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_0] Loaded baseline for 27/31 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260218
@@ -1041,12 +1042,48 @@
    Input: 212,562 errors
 
 📋 PHASE A: Parse & Normalize
-🔄 Batch  28... ✅ 10,000 | Total: 280,000
-🔄 Batch  21... ✅ 7,657 | Total: 207,657
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InternalServerErrorException: 5 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ InvalidTypeIdException: 41 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39421 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+✓ WebServiceException: 12 historical rates
+   📊 [ThreadPoolExecutor-0_2] Loaded baseline for 33/36 error types
 
-✅ Total fetched: 207,657 errors
-✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_0] 2026-02-19 - 207,657 errors, running pipeline...
+================================================================================
+🚀 PIPELINE - Run ID: backfill-20260219
+================================================================================
+   Input: 207,657 errors
+
+📋 PHASE A: Parse & Normalize
+🔄 Batch  28... ✅ 10,000 | Total: 280,000
    ✅ Parsed 212,562 records
    ✅ Found 5675 unique fingerprints
 
@@ -1058,62 +1095,79 @@
  Phase B: Grouping: 40% (85,024/212,562)
  Phase B: Grouping: 50% (106,280/212,562)
  Phase B: Grouping: 60% (127,536/212,562)
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
  Phase B: Grouping: 70% (148,792/212,562)
  Phase B: Grouping: 80% (170,048/212,562)
  Phase B: Grouping: 90% (191,304/212,562)
  Phase B: Grouping: 100% (212,560/212,562)
  Phase B: Stats: 0% (0/5,675)
-🔄 Batch  17... ✅ 10,000 | Total: 170,000
+   ✅ Parsed 207,657 records
+   ✅ Found 5027 unique fingerprints
+
+📊 PHASE B: Measure
+ Phase B: Grouping: 0% (0/207,657)
+ Phase B: Grouping: 10% (20,765/207,657)
+ Phase B: Grouping: 20% (41,530/207,657)
+ Phase B: Grouping: 30% (62,295/207,657)
+ Phase B: Grouping: 40% (83,060/207,657)
+ Phase B: Grouping: 50% (103,825/207,657)
+ Phase B: Grouping: 60% (124,590/207,657)
+ Phase B: Grouping: 70% (145,355/207,657)
+ Phase B: Grouping: 80% (166,120/207,657)
+ Phase B: Grouping: 90% (186,885/207,657)
+ Phase B: Grouping: 100% (207,650/207,657)
+ Phase B: Stats: 0% (0/5,027)
  Phase B: Stats: 10% (567/5,675)
  Phase B: Stats: 20% (1,134/5,675)
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InternalServerErrorException: 3 historical rates Phase B: Stats: 30% (1,701/5,675)
-
-✓ InvalidFormatException: 395 historical rates
-✓ InvalidTypeIdException: 37 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-✓ WebServiceException: 9 historical rates
-   📊 [ThreadPoolExecutor-0_0] Loaded baseline for 33/36 error types
-
-================================================================================
-🚀 PIPELINE - Run ID: backfill-20260219
-================================================================================
-   Input: 207,657 errors
-
-📋 PHASE A: Parse & Normalize
+ Phase B: Stats: 10% (502/5,027)
+ Phase B: Stats: 30% (1,701/5,675)
+ Phase B: Stats: 20% (1,004/5,027)
+ Phase B: Stats: 30% (1,506/5,027)
+ Phase B: Stats: 40% (2,008/5,027)
+ Phase B: Stats: 50% (2,510/5,027)
+ Phase B: Stats: 60% (3,012/5,027)
  Phase B: Stats: 40% (2,268/5,675)
+ Phase B: Stats: 70% (3,514/5,027)
  Phase B: Stats: 50% (2,835/5,675)
+ Phase B: Stats: 80% (4,016/5,027)
  Phase B: Stats: 60% (3,402/5,675)
  Phase B: Stats: 70% (3,969/5,675)
+ Phase B: Stats: 90% (4,518/5,027)
  Phase B: Stats: 80% (4,536/5,675)
+ Phase B: Stats: 100% (5,020/5,027)
+   ✅ Measured 5027 fingerprints
+
+🔍 PHASE C: Detect
+      Phase C: Detect: 0/5,027
+      Phase C: Detect: 502/5,027
+      Phase C: Detect: 1,004/5,027
+      Phase C: Detect: 1,506/5,027
+      Phase C: Detect: 2,008/5,027
+      Phase C: Detect: 2,510/5,027
+      Phase C: Detect: 3,012/5,027
+      Phase C: Detect: 3,514/5,027
+      Phase C: Detect: 4,016/5,027
+      Phase C: Detect: 4,518/5,027
+      Phase C: Detect: 5,020/5,027
+   ✅ Detected flags: new=0, spike=5027, burst=6, cross_ns=830
+
+📈 PHASE D: Score
+   ✅ Score distribution: {'critical': 0, 'high': 5, 'medium': 826, 'low': 4196, 'info': 0}
+
+🏷️  PHASE E: Classify
  Phase B: Stats: 90% (5,103/5,675)
+   ✅ Category distribution: {'unknown': 4076, 'business': 620, 'external': 80, 'timeout': 33, 'network': 1, 'auth': 213, 'database': 4}
+
+🔨 Building Incident Objects
+   ✅ Built 5027 incidents
+   📊 [ThreadPoolExecutor-0_2] 2026-02-19 - Saved 446 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_2] 2026-02-19 - 5027 incidents
+ 📅 [ThreadPoolExecutor-0_2] 2026-02-21 - Fetching...
+🔄 Fetcher - UNLIMITED via search_after
+   Time range: 2026-02-21T00:00:00Z to 2026-02-21T23:59:59Z
+   Batch size: 10,000
+
+ ✓ [13/21] 2026-02-19 - success
  Phase B: Stats: 100% (5,670/5,675)
    ✅ Measured 5675 fingerprints
 
@@ -1138,118 +1192,78 @@
    ✅ Category distribution: {'unknown': 1976, 'business': 3408, 'auth': 213, 'network': 1, 'external': 60, 'timeout': 9, 'database': 8}
 
 🔨 Building Incident Objects
-   ✅ Built 5675 incidents
-   📊 [ThreadPoolExecutor-0_2] 2026-02-18 - Saved 457 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_2] 2026-02-18 - 5675 incidents
- 📅 [ThreadPoolExecutor-0_2] 2026-02-21 - Fetching...
-🔄 Fetcher - UNLIMITED via search_after
-   Time range: 2026-02-21T00:00:00Z to 2026-02-21T23:59:59Z
- ✓ [13/21] 2026-02-18 - success
-   Batch size: 10,000
-
 🔄 Batch  29... ✅ 10,000 | Total: 290,000
-   ✅ Parsed 207,657 records
-   ✅ Found 5027 unique fingerprints
-
-📊 PHASE B: Measure
- Phase B: Grouping: 0% (0/207,657)
- Phase B: Grouping: 10% (20,765/207,657)
- Phase B: Grouping: 20% (41,530/207,657)
- Phase B: Grouping: 30% (62,295/207,657)
- Phase B: Grouping: 40% (83,060/207,657)
- Phase B: Grouping: 50% (103,825/207,657)
- Phase B: Grouping: 60% (124,590/207,657)
- Phase B: Grouping: 70% (145,355/207,657)
- Phase B: Grouping: 80% (166,120/207,657)
- Phase B: Grouping: 90% (186,885/207,657)
- Phase B: Grouping: 100% (207,650/207,657)
- Phase B: Stats: 0% (0/5,027)
- Phase B: Stats: 10% (502/5,027)
- Phase B: Stats: 20% (1,004/5,027)
- Phase B: Stats: 30% (1,506/5,027)
- Phase B: Stats: 40% (2,008/5,027)
- Phase B: Stats: 50% (2,510/5,027)
- Phase B: Stats: 60% (3,012/5,027)
- Phase B: Stats: 70% (3,514/5,027)
- Phase B: Stats: 80% (4,016/5,027)
- Phase B: Stats: 90% (4,518/5,027)
- Phase B: Stats: 100% (5,020/5,027)
-   ✅ Measured 5027 fingerprints
-
-🔍 PHASE C: Detect
-      Phase C: Detect: 0/5,027
-      Phase C: Detect: 502/5,027
-      Phase C: Detect: 1,004/5,027
-      Phase C: Detect: 1,506/5,027
-      Phase C: Detect: 2,008/5,027
-      Phase C: Detect: 2,510/5,027
-      Phase C: Detect: 3,012/5,027
-      Phase C: Detect: 3,514/5,027
-      Phase C: Detect: 4,016/5,027
-      Phase C: Detect: 4,518/5,027
-      Phase C: Detect: 5,020/5,027
-   ✅ Detected flags: new=0, spike=5027, burst=6, cross_ns=830
-
-📈 PHASE D: Score
-   ✅ Score distribution: {'critical': 0, 'high': 5, 'medium': 826, 'low': 4196, 'info': 0}
-
-🏷️  PHASE E: Classify
-   ✅ Category distribution: {'unknown': 4076, 'business': 620, 'external': 80, 'timeout': 33, 'network': 1, 'auth': 213, 'database': 4}
-
-🔨 Building Incident Objects
-   ✅ Built 5027 incidents
-🔄 Batch  18... ✅ 10,000 | Total: 180,000
-   📊 [ThreadPoolExecutor-0_0] 2026-02-19 - Saved 446 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_0] 2026-02-19 - 5027 incidents
+   ✅ Built 5675 incidents
+🔄 Batch  14... ✅ 10,000 | Total: 140,000
+   📊 [ThreadPoolExecutor-0_0] 2026-02-18 - Saved 457 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_0] 2026-02-18 - 5675 incidents
  📅 [ThreadPoolExecutor-0_0] 2026-02-22 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-22T00:00:00Z to 2026-02-22T23:59:59Z
    Batch size: 10,000
 
- ✓ [14/21] 2026-02-19 - success
-📊 Expected total hits: 61,731
+ ✓ [14/21] 2026-02-18 - success
 🔄 Batch  30... ✅ 10,000 | Total: 300,000
+📊 Expected total hits: 61,731
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
+🔄 Batch  15... ✅ 10,000 | Total: 150,000
+🔄 Batch  31... ✅ 10,000 | Total: 310,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+📊 Expected total hits: 157,395
+🔄 Batch  16... ✅ 10,000 | Total: 160,000
+🔄 Batch   1... ✅ 10,000 | Total: 10,000
+🔄 Batch  32... ✅ 10,000 | Total: 320,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch  17... ✅ 10,000 | Total: 170,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch  18... ✅ 10,000 | Total: 180,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch  33... ✅ 10,000 | Total: 330,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
 🔄 Batch  19... ✅ 3,361 | Total: 183,361
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch  34... ✅ 10,000 | Total: 340,000
 
 ✅ Total fetched: 183,361 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_3] 2026-02-20 - 183,361 errors, running pipeline...🔄 Batch   2... ✅ 10,000 | Total: 20,000
-
-🔄 Batch  31... ✅ 10,000 | Total: 310,000
-✓ AccessDeniedException: 1344 historical rates
-✓ ArithmeticException: 8 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ InvalidTypeIdException: 37 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MessageProcessingException: 4 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 32/33 error types
+ 📥 [ThreadPoolExecutor-0_1] 2026-02-20 - 183,361 errors, running pipeline...
+🔄 Batch  35... ✅ 4,858 | Total: 344,858
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+✓ AccessDeniedException: 1470 historical rates
+✓ ArithmeticException: 10 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ InvalidTypeIdException: 41 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MessageProcessingException: 6 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ ServiceUnavailableException: 3 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39421 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 33/33 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260220
@@ -1257,117 +1271,46 @@
    Input: 183,361 errors
 
 📋 PHASE A: Parse & Normalize
-📊 Expected total hits: 157,395
-🔄 Batch   1... ✅ 10,000 | Total: 10,000
-   ✅ Parsed 183,361 records
-   ✅ Found 1720 unique fingerprints
-
-📊 PHASE B: Measure
- Phase B: Grouping: 0% (0/183,361)
- Phase B: Grouping: 10% (18,336/183,361)
- Phase B: Grouping: 20% (36,672/183,361)
- Phase B: Grouping: 30% (55,008/183,361)
- Phase B: Grouping: 40% (73,344/183,361)
- Phase B: Grouping: 50% (91,680/183,361)
- Phase B: Grouping: 60% (110,016/183,361)
- Phase B: Grouping: 70% (128,352/183,361)
- Phase B: Grouping: 80% (146,688/183,361)
- Phase B: Grouping: 90% (165,024/183,361)
- Phase B: Grouping: 100% (183,360/183,361)
- Phase B: Stats: 0% (0/1,720)
- Phase B: Stats: 10% (172/1,720)
- Phase B: Stats: 20% (344/1,720)
- Phase B: Stats: 30% (516/1,720)
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch  32... ✅ 10,000 | Total: 320,000
- Phase B: Stats: 40% (688/1,720)
- Phase B: Stats: 50% (860/1,720)
- Phase B: Stats: 60% (1,032/1,720)
- Phase B: Stats: 70% (1,204/1,720)
- Phase B: Stats: 80% (1,376/1,720)
- Phase B: Stats: 90% (1,548/1,720)
-   ✅ Measured 1720 fingerprints
-
-🔍 PHASE C: Detect
-      Phase C: Detect: 0/1,720
-      Phase C: Detect: 172/1,720
-      Phase C: Detect: 344/1,720
-      Phase C: Detect: 516/1,720
-      Phase C: Detect: 688/1,720
-      Phase C: Detect: 860/1,720
-      Phase C: Detect: 1,032/1,720
-      Phase C: Detect: 1,204/1,720
-      Phase C: Detect: 1,376/1,720
-      Phase C: Detect: 1,548/1,720
-   ✅ Detected flags: new=0, spike=1720, burst=4, cross_ns=801
-
-📈 PHASE D: Score
-   ✅ Score distribution: {'critical': 0, 'high': 4, 'medium': 797, 'low': 919, 'info': 0}
-
-🏷️  PHASE E: Classify
-   ✅ Category distribution: {'unknown': 1156, 'business': 308, 'auth': 176, 'network': 1, 'timeout': 5, 'external': 62, 'database': 12}
-
-🔨 Building Incident Objects
-   ✅ Built 1720 incidents
-   📊 [ThreadPoolExecutor-0_3] 2026-02-20 - Saved 464 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_3] 2026-02-20 - 1720 incidents
- 📅 [ThreadPoolExecutor-0_3] 2026-02-23 - Fetching...
-🔄 Fetcher - UNLIMITED via search_after ✓ [15/21] 2026-02-20 - success
-
-   Time range: 2026-02-23T00:00:00Z to 2026-02-23T23:59:59Z
-   Batch size: 10,000
-
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch  33... ✅ 10,000 | Total: 330,000
 🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch  34... ✅ 10,000 | Total: 340,000
-📊 Expected total hits: 69,120
-🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
-🔄 Batch  35... ✅ 4,858 | Total: 344,858
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   7... ✅ 1,731 | Total: 61,731
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
 
 ✅ Total fetched: 344,858 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_1] 2026-02-17 - 344,858 errors, running pipeline...
+ 📥 [ThreadPoolExecutor-0_3] 2026-02-17 - 344,858 errors, running pipeline...
+🔄 Batch   7... ✅ 1,731 | Total: 61,731
 
 ✅ Total fetched: 61,731 errors
 ✅ Completeness check: fetched count matches hits.total
  📥 [ThreadPoolExecutor-0_2] 2026-02-21 - 61,731 errors, running pipeline...
-✓ AccessDeniedException: 1344 historical rates
-✓ ArithmeticException: 8 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonMappingException: 35 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
+✓ AccessDeniedException: 1470 historical rates
+✓ ArithmeticException: 10 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonMappingException: 46 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39421 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
    📊 [ThreadPoolExecutor-0_2] Loaded baseline for 30/30 error types
 
 ================================================================================
@@ -1395,44 +1338,57 @@
  Phase B: Stats: 10% (155/1,553)
  Phase B: Stats: 20% (310/1,553)
  Phase B: Stats: 30% (465/1,553)
+   ✅ Parsed 183,361 records
+   ✅ Found 1720 unique fingerprints
+
+📊 PHASE B: Measure
+ Phase B: Grouping: 0% (0/183,361)
+ Phase B: Grouping: 10% (18,336/183,361)
+ Phase B: Grouping: 20% (36,672/183,361)
+ Phase B: Grouping: 30% (55,008/183,361)
+ Phase B: Grouping: 40% (73,344/183,361)
+ Phase B: Grouping: 50% (91,680/183,361)
+ Phase B: Grouping: 60% (110,016/183,361)
+ Phase B: Grouping: 70% (128,352/183,361)
+ Phase B: Grouping: 80% (146,688/183,361)
+ Phase B: Grouping: 90% (165,024/183,361)
+ Phase B: Grouping: 100% (183,360/183,361)
+ Phase B: Stats: 0% (0/1,720)
  Phase B: Stats: 40% (620/1,553)
- Phase B: Stats: 50% (775/1,553)
- Phase B: Stats: 60% (930/1,553)
- Phase B: Stats: 70% (1,085/1,553)
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IbanFormatException: 21 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ InvalidTypeIdException: 37 historical rates
-✓ JsonMappingException: 35 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 33/36 error types
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IbanFormatException: 27 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ InvalidTypeIdException: 41 historical rates
+✓ JsonMappingException: 46 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9262 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6600 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39421 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 33/36 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260217
@@ -1440,8 +1396,17 @@
    Input: 344,858 errors
 
 📋 PHASE A: Parse & Normalize
+ Phase B: Stats: 10% (172/1,720)
+ Phase B: Stats: 50% (775/1,553)
+ Phase B: Stats: 20% (344/1,720)
+ Phase B: Stats: 60% (930/1,553)
+ Phase B: Stats: 30% (516/1,720)
+ Phase B: Stats: 70% (1,085/1,553)
+ Phase B: Stats: 40% (688/1,720)
  Phase B: Stats: 80% (1,240/1,553)
+ Phase B: Stats: 50% (860/1,720)
  Phase B: Stats: 90% (1,395/1,553)
+ Phase B: Stats: 60% (1,032/1,720)
  Phase B: Stats: 100% (1,550/1,553)
    ✅ Measured 1553 fingerprints
 
@@ -1467,16 +1432,49 @@
 
 🔨 Building Incident Objects
    ✅ Built 1553 incidents
+ Phase B: Stats: 70% (1,204/1,720)
    📊 [ThreadPoolExecutor-0_2] 2026-02-21 - Saved 428 rows to peak_raw_data
  ✅ [ThreadPoolExecutor-0_2] 2026-02-21 - 1553 incidents
- 📅 [ThreadPoolExecutor-0_2] 2026-02-24 - Fetching...
+ 📅 [ThreadPoolExecutor-0_2] 2026-02-23 - Fetching...
+🔄 Fetcher - UNLIMITED via search_after
+   Time range: 2026-02-23T00:00:00Z to 2026-02-23T23:59:59Z
+ ✓ [15/21] 2026-02-21 - success
+   Batch size: 10,000
+
+ Phase B: Stats: 80% (1,376/1,720)
+ Phase B: Stats: 90% (1,548/1,720)
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+   ✅ Measured 1720 fingerprints
+
+🔍 PHASE C: Detect
+      Phase C: Detect: 0/1,720
+      Phase C: Detect: 172/1,720
+      Phase C: Detect: 344/1,720
+      Phase C: Detect: 516/1,720
+      Phase C: Detect: 688/1,720
+      Phase C: Detect: 860/1,720
+      Phase C: Detect: 1,032/1,720
+      Phase C: Detect: 1,204/1,720
+      Phase C: Detect: 1,376/1,720
+      Phase C: Detect: 1,548/1,720
+   ✅ Detected flags: new=0, spike=1720, burst=4, cross_ns=801
+
+📈 PHASE D: Score
+   ✅ Score distribution: {'critical': 0, 'high': 4, 'medium': 797, 'low': 919, 'info': 0}
+
+🏷️  PHASE E: Classify
+   ✅ Category distribution: {'unknown': 1156, 'business': 308, 'auth': 176, 'network': 1, 'timeout': 5, 'external': 62, 'database': 12}
+
+🔨 Building Incident Objects
+   ✅ Built 1720 incidents
+   📊 [ThreadPoolExecutor-0_1] 2026-02-20 - Saved 464 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_1] 2026-02-20 - 1720 incidents
+ 📅 [ThreadPoolExecutor-0_1] 2026-02-24 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-24T00:00:00Z to 2026-02-24T23:59:59Z
    Batch size: 10,000
 
- ✓ [16/21] 2026-02-21 - success
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
+ ✓ [16/21] 2026-02-20 - success
    ✅ Parsed 344,858 records
    ✅ Found 2683 unique fingerprints
 
@@ -1498,11 +1496,12 @@
  Phase B: Stats: 30% (804/2,683)
  Phase B: Stats: 40% (1,072/2,683)
  Phase B: Stats: 50% (1,340/2,683)
+📊 Expected total hits: 69,120
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch   1... ✅ 10,000 | Total: 10,000
  Phase B: Stats: 60% (1,608/2,683)
  Phase B: Stats: 70% (1,876/2,683)
  Phase B: Stats: 80% (2,144/2,683)
-📊 Expected total hits: 334,632
-🔄 Batch   1... ✅ 10,000 | Total: 10,000
  Phase B: Stats: 90% (2,412/2,683)
  Phase B: Stats: 100% (2,680/2,683)
    ✅ Measured 2683 fingerprints
@@ -1528,66 +1527,75 @@
    ✅ Category distribution: {'unknown': 1620, 'business': 775, 'external': 77, 'network': 2, 'auth': 195, 'database': 8, 'timeout': 6}
 
 🔨 Building Incident Objects
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
    ✅ Built 2683 incidents
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-   📊 [ThreadPoolExecutor-0_1] 2026-02-17 - Saved 440 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_1] 2026-02-17 - 2683 incidents
- 📅 [ThreadPoolExecutor-0_1] 2026-02-25 - Fetching...
+📊 Expected total hits: 334,632
+🔄 Batch   1... ✅ 10,000 | Total: 10,000
+   📊 [ThreadPoolExecutor-0_3] 2026-02-17 - Saved 440 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_3] 2026-02-17 - 2683 incidents
+ 📅 [ThreadPoolExecutor-0_3] 2026-02-25 - Fetching...
 🔄 Fetcher - UNLIMITED via search_after
    Time range: 2026-02-25T00:00:00Z to 2026-02-25T23:59:59Z
    Batch size: 10,000
 
  ✓ [17/21] 2026-02-17 - success
 🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
 🔄 Batch   8... ✅ 10,000 | Total: 80,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
 📊 Expected total hits: 467,879
 🔄 Batch   1... ✅ 10,000 | Total: 10,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch   2... ✅ 10,000 | Total: 20,000
-🔄 Batch   7... ✅ 9,120 | Total: 69,120
 🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   2... ✅ 10,000 | Total: 20,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch  11... ✅ 10,000 | Total: 110,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch   3... ✅ 10,000 | Total: 30,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
+🔄 Batch  12... ✅ 10,000 | Total: 120,000
 🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
+🔄 Batch   4... ✅ 10,000 | Total: 40,000
+🔄 Batch   7... ✅ 9,120 | Total: 69,120
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
+🔄 Batch   5... ✅ 10,000 | Total: 50,000
 
 ✅ Total fetched: 69,120 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_3] 2026-02-23 - 69,120 errors, running pipeline...
-🔄 Batch   3... ✅ 10,000 | Total: 30,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 28/28 error types
+ 📥 [ThreadPoolExecutor-0_2] 2026-02-23 - 69,120 errors, running pipeline...
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9261 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6598 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39419 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_2] Loaded baseline for 28/28 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260223
@@ -1644,60 +1652,52 @@
 
 🔨 Building Incident Objects
    ✅ Built 1648 incidents
-   📊 [ThreadPoolExecutor-0_3] 2026-02-23 - Saved 438 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_3] 2026-02-23 - 1648 incidents
+   📊 [ThreadPoolExecutor-0_2] 2026-02-23 - Saved 438 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_2] 2026-02-23 - 1648 incidents
  ✓ [18/21] 2026-02-23 - success
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
-🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch   4... ✅ 10,000 | Total: 40,000
-🔄 Batch  12... ✅ 10,000 | Total: 120,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
-🔄 Batch   5... ✅ 10,000 | Total: 50,000
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
 🔄 Batch   9... ✅ 10,000 | Total: 90,000
-🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch  14... ✅ 10,000 | Total: 140,000
+🔄 Batch   6... ✅ 10,000 | Total: 60,000
 🔄 Batch  10... ✅ 10,000 | Total: 100,000
-🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch  15... ✅ 10,000 | Total: 150,000
+🔄 Batch   7... ✅ 10,000 | Total: 70,000
 🔄 Batch  11... ✅ 10,000 | Total: 110,000
-🔄 Batch   8... ✅ 10,000 | Total: 80,000
 🔄 Batch  16... ✅ 7,395 | Total: 157,395
+🔄 Batch   8... ✅ 10,000 | Total: 80,000
 🔄 Batch  12... ✅ 10,000 | Total: 120,000
-🔄 Batch   9... ✅ 10,000 | Total: 90,000
 
 ✅ Total fetched: 157,395 errors
 ✅ Completeness check: fetched count matches hits.total
  📥 [ThreadPoolExecutor-0_0] 2026-02-22 - 157,395 errors, running pipeline...
-🔄 Batch  13... ✅ 10,000 | Total: 130,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
+🔄 Batch   9... ✅ 10,000 | Total: 90,000
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7355 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9261 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6598 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39419 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
    📊 [ThreadPoolExecutor-0_0] Loaded baseline for 28/28 error types
 
 ================================================================================
@@ -1756,11 +1756,12 @@
 
 🔨 Building Incident Objects
    ✅ Built 1567 incidents
+🔄 Batch  13... ✅ 10,000 | Total: 130,000
    📊 [ThreadPoolExecutor-0_0] 2026-02-22 - Saved 440 rows to peak_raw_data
  ✅ [ThreadPoolExecutor-0_0] 2026-02-22 - 1567 incidents
  ✓ [19/21] 2026-02-22 - success
-🔄 Batch  14... ✅ 10,000 | Total: 140,000
 🔄 Batch  10... ✅ 10,000 | Total: 100,000
+🔄 Batch  14... ✅ 10,000 | Total: 140,000
 🔄 Batch  15... ✅ 10,000 | Total: 150,000
 🔄 Batch  11... ✅ 10,000 | Total: 110,000
 🔄 Batch  16... ✅ 10,000 | Total: 160,000
@@ -1772,75 +1773,74 @@
 🔄 Batch  19... ✅ 10,000 | Total: 190,000
 🔄 Batch  15... ✅ 10,000 | Total: 150,000
 🔄 Batch  20... ✅ 10,000 | Total: 200,000
-🔄 Batch  16... ✅ 10,000 | Total: 160,000
 🔄 Batch  21... ✅ 10,000 | Total: 210,000
+🔄 Batch  16... ✅ 10,000 | Total: 160,000
 🔄 Batch  22... ✅ 10,000 | Total: 220,000
 🔄 Batch  17... ✅ 10,000 | Total: 170,000
 🔄 Batch  23... ✅ 10,000 | Total: 230,000
 🔄 Batch  18... ✅ 10,000 | Total: 180,000
 🔄 Batch  24... ✅ 10,000 | Total: 240,000
-🔄 Batch  19... ✅ 10,000 | Total: 190,000
 🔄 Batch  25... ✅ 10,000 | Total: 250,000
-🔄 Batch  20... ✅ 10,000 | Total: 200,000
+🔄 Batch  19... ✅ 10,000 | Total: 190,000
 🔄 Batch  26... ✅ 10,000 | Total: 260,000
-🔄 Batch  21... ✅ 10,000 | Total: 210,000
+🔄 Batch  20... ✅ 10,000 | Total: 200,000
 🔄 Batch  27... ✅ 10,000 | Total: 270,000
-🔄 Batch  22... ✅ 10,000 | Total: 220,000
+🔄 Batch  21... ✅ 10,000 | Total: 210,000
 🔄 Batch  28... ✅ 10,000 | Total: 280,000
-🔄 Batch  23... ✅ 10,000 | Total: 230,000
+🔄 Batch  22... ✅ 10,000 | Total: 220,000
 🔄 Batch  29... ✅ 10,000 | Total: 290,000
 🔄 Batch  30... ✅ 10,000 | Total: 300,000
-🔄 Batch  24... ✅ 10,000 | Total: 240,000
+🔄 Batch  23... ✅ 10,000 | Total: 230,000
 🔄 Batch  31... ✅ 10,000 | Total: 310,000
-🔄 Batch  25... ✅ 10,000 | Total: 250,000
+🔄 Batch  24... ✅ 10,000 | Total: 240,000
 🔄 Batch  32... ✅ 10,000 | Total: 320,000
-🔄 Batch  26... ✅ 10,000 | Total: 260,000
-🔄 Batch  27... ✅ 10,000 | Total: 270,000
+🔄 Batch  25... ✅ 10,000 | Total: 250,000
 🔄 Batch  33... ✅ 10,000 | Total: 330,000
 🔄 Batch  34... ✅ 4,632 | Total: 334,632
+🔄 Batch  26... ✅ 10,000 | Total: 260,000
 
 ✅ Total fetched: 334,632 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_2] 2026-02-24 - 334,632 errors, running pipeline...
-🔄 Batch  28... ✅ 10,000 | Total: 280,000
-🔄 Batch  29... ✅ 10,000 | Total: 290,000
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IbanFormatException: 21 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InternalServerErrorException: 3 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonMappingException: 35 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MessageProcessingException: 4 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5902 historical rates
-✓ SimpleError: 174 historical rates
-✓ SocketException: 9 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 204 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34479 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-✓ WebServiceException: 9 historical rates
-   📊 [ThreadPoolExecutor-0_2] Loaded baseline for 36/37 error types
+ 📥 [ThreadPoolExecutor-0_1] 2026-02-24 - 334,632 errors, running pipeline...
+🔄 Batch  27... ✅ 10,000 | Total: 270,000
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7354 historical rates
+✓ HTTPException: 3 historical rates
+✓ IbanFormatException: 27 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InternalServerErrorException: 5 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonMappingException: 46 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MessageProcessingException: 6 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9248 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6595 historical rates
+✓ SimpleError: 226 historical rates
+✓ SocketException: 10 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39416 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+✓ WebServiceException: 12 historical rates
+   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 37/37 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260224
@@ -1898,10 +1898,12 @@
 
 🔨 Building Incident Objects
    ✅ Built 1942 incidents
-🔄 Batch  30... ✅ 10,000 | Total: 300,000
-   📊 [ThreadPoolExecutor-0_2] 2026-02-24 - Saved 421 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_2] 2026-02-24 - 1942 incidents
+🔄 Batch  28... ✅ 10,000 | Total: 280,000
+   📊 [ThreadPoolExecutor-0_1] 2026-02-24 - Saved 421 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_1] 2026-02-24 - 1942 incidents
  ✓ [20/21] 2026-02-24 - success
+🔄 Batch  29... ✅ 10,000 | Total: 290,000
+🔄 Batch  30... ✅ 10,000 | Total: 300,000
 🔄 Batch  31... ✅ 10,000 | Total: 310,000
 🔄 Batch  32... ✅ 10,000 | Total: 320,000
 🔄 Batch  33... ✅ 10,000 | Total: 330,000
@@ -1922,41 +1924,41 @@
 
 ✅ Total fetched: 467,879 errors
 ✅ Completeness check: fetched count matches hits.total
- 📥 [ThreadPoolExecutor-0_1] 2026-02-25 - 467,879 errors, running pipeline...
-✓ AccessDeniedException: 1344 historical rates
-✓ AuthorizationDeniedException: 48 historical rates
-✓ BadRequestException: 32 historical rates
-✓ ConnectTimeoutException: 6 historical rates
-✓ ConstraintViolationException: 6758 historical rates
-✓ DataIntegrityViolationException: 117 historical rates
-✓ ExtractorException: 270 historical rates
-✓ ForbiddenError: 6558 historical rates
-✓ IbanFormatException: 21 historical rates
-✓ IllegalArgumentException: 1040 historical rates
-✓ InvalidFormatException: 395 historical rates
-✓ JsonMappingException: 35 historical rates
-✓ JsonParseException: 1814 historical rates
-✓ MarshalException: 74 historical rates
-✓ MIMEParsingException: 16 historical rates
-✓ MismatchedInputException: 751 historical rates
-✓ NotFoundError: 8153 historical rates
-✓ NotFoundException: 260 historical rates
-✓ NotSupportedException: 63 historical rates
-✓ NullPointerException: 44 historical rates
-✓ ParamException: 252 historical rates
-✓ PathParamException: 54 historical rates
-✓ QueryParamException: 44 historical rates
-✓ RedisTimeoutException: 19 historical rates
-✓ ServerError: 2413 historical rates
-✓ ServiceBusinessException: 5900 historical rates
-✓ SocketTimeoutException: 18 historical rates
-✓ SSLHandshakeException: 203 historical rates
-✓ TimeoutException: 91 historical rates
-✓ UnauthorizedError: 859 historical rates
-✓ UnknownError: 34472 historical rates
-✓ ValidationException: 44 historical rates
-✓ ValueInstantiationException: 48 historical rates
-   📊 [ThreadPoolExecutor-0_1] Loaded baseline for 33/33 error types
+ 📥 [ThreadPoolExecutor-0_3] 2026-02-25 - 467,879 errors, running pipeline...
+✓ AccessDeniedException: 1470 historical rates
+✓ AuthorizationDeniedException: 54 historical rates
+✓ BadRequestException: 44 historical rates
+✓ ConnectTimeoutException: 7 historical rates
+✓ ConstraintViolationException: 7976 historical rates
+✓ DataIntegrityViolationException: 150 historical rates
+✓ ExtractorException: 332 historical rates
+✓ ForbiddenError: 7354 historical rates
+✓ IbanFormatException: 27 historical rates
+✓ IllegalArgumentException: 1214 historical rates
+✓ InvalidFormatException: 501 historical rates
+✓ JsonMappingException: 46 historical rates
+✓ JsonParseException: 1841 historical rates
+✓ MarshalException: 94 historical rates
+✓ MIMEParsingException: 22 historical rates
+✓ MismatchedInputException: 1017 historical rates
+✓ NotFoundError: 9245 historical rates
+✓ NotFoundException: 284 historical rates
+✓ NotSupportedException: 81 historical rates
+✓ NullPointerException: 50 historical rates
+✓ ParamException: 300 historical rates
+✓ PathParamException: 60 historical rates
+✓ QueryParamException: 50 historical rates
+✓ RedisTimeoutException: 21 historical rates
+✓ ServerError: 3040 historical rates
+✓ ServiceBusinessException: 6594 historical rates
+✓ SocketTimeoutException: 24 historical rates
+✓ SSLHandshakeException: 209 historical rates
+✓ TimeoutException: 109 historical rates
+✓ UnauthorizedError: 1058 historical rates
+✓ UnknownError: 39414 historical rates
+✓ ValidationException: 56 historical rates
+✓ ValueInstantiationException: 60 historical rates
+   📊 [ThreadPoolExecutor-0_3] Loaded baseline for 33/33 error types
 
 ================================================================================
 🚀 PIPELINE - Run ID: backfill-20260225
@@ -2014,8 +2016,8 @@
 
 🔨 Building Incident Objects
    ✅ Built 2326 incidents
-   📊 [ThreadPoolExecutor-0_1] 2026-02-25 - Saved 455 rows to peak_raw_data
- ✅ [ThreadPoolExecutor-0_1] 2026-02-25 - 2326 incidents
+   📊 [ThreadPoolExecutor-0_3] 2026-02-25 - Saved 455 rows to peak_raw_data
+ ✅ [ThreadPoolExecutor-0_3] 2026-02-25 - 2326 incidents
  ✓ [21/21] 2026-02-25 - success
 
  🏁 All 21 workers completed
@@ -2025,16 +2027,16 @@
  💾 2026-02-13: 1840 saved
  💾 2026-02-15: 1462 saved
  💾 2026-02-14: 1603 saved
- 💾 2026-02-12: 1790 saved
  💾 2026-02-11: 2319 saved
+ 💾 2026-02-12: 1790 saved
  ⚠️ 2026-02-16 - DB error: A string literal cannot contain NUL (0x00) characters.
  💾 2026-02-16: 0 saved
- ⚠️ 2026-02-18 - DB error: A string literal cannot contain NUL (0x00) characters.
- 💾 2026-02-18: 0 saved
  ⚠️ 2026-02-19 - DB error: A string literal cannot contain NUL (0x00) characters.
  💾 2026-02-19: 0 saved
- 💾 2026-02-20: 1720 saved
+ ⚠️ 2026-02-18 - DB error: A string literal cannot contain NUL (0x00) characters.
+ 💾 2026-02-18: 0 saved
  💾 2026-02-21: 1553 saved
+ 💾 2026-02-20: 1720 saved
  💾 2026-02-17: 2683 saved
  💾 2026-02-23: 1648 saved
  💾 2026-02-22: 1567 saved
@@ -2045,7 +2047,7 @@
 📝 Updating registry with event timestamps...
 
 📝 Registry saved:
-   Problems: 310 (1 new)
+   Problems: 310 (0 new)
    Peaks: 140 (0 new)
    Reloading from disk to sync concurrent updates...
 
@@ -2107,8 +2109,8 @@
 PROBLEM ANALYSIS REPORT
 ======================================================================
 
-Period: 2026-02-05 11:00 - 2026-02-25 11:00
-Generated: 2026-02-26 11:18:00
+Period: 2026-02-05 12:23 - 2026-02-25 12:23
+Generated: 2026-02-26 12:41:08
 Run ID: backfill-20260205-20260225
 
 ----------------------------------------------------------------------
@@ -2125,7 +2127,7 @@ Total problems: 164
 Top issues (actionable):
   1. 🔴 [business] unknownerror (1,690,955 occ) [high]
   2. 🔴 [business] unknownerror (158,087 occ) [high]
-  3. 🟠 [business] servicebusinessexception (168,698 occ) [high]
+  3. 🟠 [business] servicebusinessexception (159,768 occ) [high]
   4. 🟠 [auth] accessdeniedexception (52,064 occ) [high]
   5. 🟠 [business] servicebusinessexception (160,435 occ) [high]
 
@@ -2176,14 +2178,15 @@ PROBLEM DETAILS
     Namespaces: pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
   Behavior (trace flow): 2 messages
-    TraceID: 00eea85dccfb2eeb288d47baa5654cc3
+    TraceID: 01ad50488908eef383b2266ad87afe0d
 
-    1) bl-pcb-click2pay-v1
-       "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=15,code=err.103,originalCode=<null>,message=Resource not found. Card with id <ID> not found.,uuid=<UUID>,detail=Error "
-    2) bl-pcb-v1 (same error)
+    1) bl-pcb-v1
+       "ITO-004#PCB#bl-pcb#bl-pcb-v1#n/a#n/a#n/a#n/a#004#Configuration error. Code 'B4' was not found in RDM codelist CB_PaymentCardSpecsName for locale cs_CZ."
+    2) bl-pcb-v1
+       "ITO-004#PCB#bl-pcb#bl-pcb-v1#n/a#n/a#n/a#n/a#004#Configuration error. Code 'B4' was not found in RDM codelist CB_PaymentCardSpecsName for locale cs."
 
   Inferred root cause [high]:
-    - bl-pcb-click2pay-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=15,code=err.103,originalCode=<null>,message=Resource not found. Card with id <ID> not found.,uuid=<UUID>,detail=Error detail: Resource not found. Card with id <ID> not found., cause: Resource not found. Card with id <I
+    - bl-pcb-v1: ITO-004#PCB#bl-pcb#bl-pcb-v1#n/a#n/a#n/a#n/a#004#Configuration error. Code 'B4' was not found in RDM codelist CB_PaymentCardSpecsName for locale cs_CZ.
 
   Propagation [linear]:
     bl-pcb-click2pay-v1 → bl-pcb-v1
@@ -2194,31 +2197,32 @@ PROBLEM DETAILS
 ──────────────────────────────────────────────────
   Problem key: business:card_servicing:servicebusinessexception
   Severity: HIGH (score: 75)
-  Occurrences: 168,698 across 197 incidents
+  Occurrences: 159,768 across 196 incidents
   Flags: SPIKE | BURST | CROSS_NS
-  Time: 2026-02-10 14:14 - 23:37 (1329812s)
+  Time: 2026-02-10 18:19 - 23:37 (1315121s)
   Scope: 20 apps, 8 namespaces
     Apps: bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1
     Namespaces: pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: d87a595423b297a3b9290cdef698ae1a
+    TraceID: 69932ad207fde34b7d84a18e7ce5df69
 
-    1) bl-pcb-card-client-segment-v1
+    1) bff-pcb-ch-card-servicing-admin-v1
        "ServiceBusinessException error handled."
-    2) bl-pcb-click2pay-v1 (same error)
+    2) feapi-pca-v1 (same error)
     ...
-    3) bl-pcb-card-client-segment-v1
-       "cz.kb.common.speed.exception.ServiceBusinessException: Validation error. Cardholder id must be passed for default calculation.
-	at cz.kb.common.speed.exception.ServiceBusinessException.createException"
+    3) bff-pcb-ch-click2pay-v1 (same error)
 
   Inferred root cause [high]:
-    - bl-pcb-card-client-segment-v1: ServiceBusinessException error handled.
+    - bff-pcb-ch-card-servicing-admin-v1: ServiceBusinessException error handled.
 
   Propagation [cascade]:
-    bl-pcb-card-client-segment-v1 → bl-pcb-click2pay-v1 → bl-pcb-card-georisk-v1 → bl-pcb-pilot-context-v1 → ... (20 total)
-    Duration: 49091234ms
-  Message: ServiceBusinessException error handled.
+    bff-pcb-ch-card-servicing-admin-v1 → feapi-pca-v1 → bl-pcb-v1 → bl-pcb-design-lifecycle-v1 → ... (20 total)
+  Message: cz.kb.common.speed.exception.ServiceBusinessException: Validation error. Cardholder id must be passed for default calculation.
+	at cz.kb.common.speed.exception.ServiceBusinessException.createException(ServiceBusinessException.java:268)
+	at cz.kb.common.speed.exception.ServiceBusinessException.validationError(ServiceBusinessException.java:233)
+	at cz.kb.common.speed.exception.ServiceBusinessException.validationError(ServiceBusinessException.java:243)
+	at cz.kb.pcb.card.client.segment.calculation.
 
 ──────────────────────────────────────────────────
 #4 🟠 AUTH: accessdeniedexception
@@ -2233,22 +2237,22 @@ PROBLEM DETAILS
     Namespaces: pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 0d91f79836b435c5f57e5e3d659a9529
+    TraceID: 0d3f74184403542ffaa24d25e4cf6e0f
 
-    1) bff-pcb-ch-card-sensitive-data-v1
+    1) bff-pcb-ch-card-servicing-v1
        "org.springframework.security.access.AccessDeniedException: Access is denied
 	at org.springframework.security.access.vote.AffirmativeBased.decide(AffirmativeBased.java:77)
 	at org.springframework.secur"
-    2) bff-pcb-ch-document-signing-v1 (same error)
+    2) bff-pcb-ch-card-opening-v2 (same error)
     ...
-    3) bff-pcb-ch-card-servicing-v2
+    3) bff-pcb-ch-design-servicing-v1
        "AccessDeniedException error handled."
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-sensitive-data-v1: org.springframework.security.access.AccessDeniedException: Access is denied at org.springframework.security.access.vote.AffirmativeBased.decide(AffirmativeBased.java:77) at org.springframework.security.access.intercept.AbstractSecurityInterceptor.attemptAuthorization(AbstractSecurityInterceptor.ja
+    - bff-pcb-ch-card-servicing-v1: org.springframework.security.access.AccessDeniedException: Access is denied at org.springframework.security.access.vote.AffirmativeBased.decide(AffirmativeBased.java:77) at org.springframework.security.access.intercept.AbstractSecurityInterceptor.attemptAuthorization(AbstractSecurityInterceptor.ja
 
   Propagation [cascade]:
-    bff-pcb-ch-card-sensitive-data-v1 → bff-pcb-ch-document-signing-v1 → bff-pcb-ch-card-servicing-notice-v1 → bff-pcb-ch-card-servicing-v3 → ... (15 total)
+    bff-pcb-ch-card-servicing-v1 → bff-pcb-ch-card-opening-v2 → bff-pcb-ch-card-servicing-admin-v1 → bff-pcb-ch-card-sensitive-data-v1 → ... (15 total)
   Message: org.springframework.security.access.AccessDeniedException: Access is denied
 	at org.springframework.security.access.vote.AffirmativeBased.decide(AffirmativeBased.java:77)
 	at org.springframework.security.access.intercept.AbstractSecurityInterceptor.attemptAuthorization(AbstractSecurityInterceptor.java:253)
@@ -2267,18 +2271,19 @@ PROBLEM DETAILS
     Apps: bl-pcb-atm-locator-v1, bl-pcb-click2pay-v1, bl-pcb-codelist-v1, bl-pcb-design-lifecycle-v1, bl-pcb-document-signing-v1
     Namespaces: pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
-  Behavior (trace flow): 2 messages
-    TraceID: 0e26321966926f9aa6fba81d3eb79b21
+  Behavior (trace flow): 3 messages
+    TraceID: 08845ac279e0a5cf8f85e08975ff643b
 
-    1) bl-pcb-click2pay-v1
-       "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id <ID> not found.
-	at cz.kb.common.speed.exception.ServiceBusinessException.createException(ServiceBusinessExcepti"
-    2) bl-pcb-v1
-       "cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card <ID> was not found.
-	at cz.kb.common.speed.exception.ServiceBusinessException.createException(ServiceBusinessException.j"
+    1) bl-pcb-document-signing-v1
+       "Handling route exception ServiceBusinessException with error Malformed message (the body has not right format) by ServiceBusinessExceptionProcessor."
+    2) bl-pcb-v1 (same error)
+    ...
+    3) bl-pcb-v1
+       "cz.kb.common.speed.exception.ServiceBusinessException: Malformed message (the body has not right format)
+	at cz.kb.common.speed.exception.ServiceBusinessException.createException(ServiceBusinessExcept"
 
   Inferred root cause [high]:
-    - bl-pcb-click2pay-v1: cz.kb.common.speed.exception.ServiceBusinessException: Resource not found. Card with id <ID> not found. at cz.kb.common.speed.exception.ServiceBusinessException.createException(ServiceBusinessException.java:268) at cz.kb.common.speed.exception.ServiceBusinessException.resourceNotFound(ServiceBusin
+    - bl-pcb-document-signing-v1: Handling route exception ServiceBusinessException with error Malformed message (the body has not right format) by ServiceBusinessExceptionProcessor.
 
   Propagation [linear]:
     bl-pcb-document-signing-v1 → bl-pcb-v1
@@ -2294,31 +2299,33 @@ PROBLEM DETAILS
 ──────────────────────────────────────────────────
   Problem key: unknown:card_servicing:constraintviolationexception
   Severity: HIGH (score: 66)
-  Occurrences: 27,698 across 884 incidents
+  Occurrences: 27,352 across 883 incidents
   Flags: SPIKE | BURST | CROSS_NS
-  Time: 2026-02-10 14:43 - 23:30 (1327629s)
+  Time: 2026-02-10 18:19 - 23:30 (1314675s)
   Scope: 18 apps, 5 namespaces
     Apps: bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-v1, bff-pcb-ch-card-servicing-v3
     Namespaces: pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 1c08d6179a47a74d23273c0210cf5037
+    TraceID: 1548be0bb9e24b193c837c3f3bee39a0
 
-    1) bff-pcb-ch-document-signing-v1
+    1) bff-pcb-ch-card-servicing-v1
        "ConstraintViolationException error handled."
-    2) bl-pcb-card-client-segment-v1 (same error)
+    2) bff-pcb-ch-card-opening-v2 (same error)
     ...
-    3) bff-pcb-ch-card-opening-v2
-       "jakarta.validation.ConstraintViolationException: getParametersForCardDistribution.cardProductCode: must not be null
-	at org.springframework.validation.beanvalidation.MethodValidationInterceptor.invoke"
+    3) bff-pcb-ch-card-servicing-v1
+       "jakarta.validation.ConstraintViolationException: cardTokenizationAuthorizedForUserAction.cardTokenizationAuthorizedForUserActionRequest.cardCaseId: nesmí mít hodnotu Null, cardTokenizationAuthorizedFo"
 
   Inferred root cause [high]:
-    - bff-pcb-ch-document-signing-v1: ConstraintViolationException error handled.
+    - bff-pcb-ch-card-servicing-v1: ConstraintViolationException error handled.
 
   Propagation [cascade]:
-    bff-pcb-ch-document-signing-v1 → bl-pcb-card-client-segment-v1 → bl-pcb-click2pay-v1 → bff-pcb-ch-card-servicing-admin-v1 → ... (17 total)
-    Duration: 68795228ms
-  Message: ConstraintViolationException error handled.
+    bff-pcb-ch-card-servicing-v1 → bff-pcb-ch-card-opening-v2 → bl-pcb-click2pay-v1 → bff-pcb-ch-card-servicing-admin-v1 → ... (17 total)
+    Duration: 3598398ms
+  Message: jakarta.validation.ConstraintViolationException: computeSegment.computeCardClientSegmentRequest.cardProduct: must not be null, computeSegment.computeCardClientSegmentRequest.channel: must not be null
+	at org.springframework.validation.beanvalidation.MethodValidationInterceptor.invoke(MethodValidationInterceptor.java:170)
+	at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:184)
+	at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvo
 
 ──────────────────────────────────────────────────
 #7 🟠 BUSINESS: notfounderror
@@ -2332,23 +2339,20 @@ PROBLEM DETAILS
     Apps: bl-pcb-click2pay-v1, bl-pcb-design-lifecycle-v1, bl-pcb-dispute-v1, bl-pcb-event-processor-relay-v1, bl-pcb-v1
     Namespaces: pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
-  Behavior (trace flow): 3 messages
-    TraceID: 698f363c46f1d843561ef483f48f2235
+  Behavior (trace flow): 2 messages
+    TraceID: 0e26321966926f9aa6fba81d3eb79b21
 
-    1) bl-pcb-v1
-       "SPEED-101#PCB#bl-pcb#bl-pcb-v1#POST#CardServiceImpl#getCardDetail#404#"
-    2) bl-pcb-event-processor-relay-v1
-       "SPEED-101#PCB#bl-pcb-event-processor-relay#bl-pcb-event-processor-relay-v1#POST#bl-pcb-v1.pcb-sit-01-app:<PORT>#/api/v1/card/<ID>#404#"
-    ...
-    3) bl-pcb-v1
-       "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=15,code=err.103,originalCode=<null>,message=Resource not found. Card with id <ID> and product instance null not found."
+    1) bl-pcb-click2pay-v1
+       "SPEED-101#PCB#bl-pcb-click2pay#bl-pcb-click2pay-v1#GET#ClickToPayApiImpl#getCardDetail#404#"
+    2) bl-pcb-v1
+       "SPEED-101#PCB#bl-pcb#bl-pcb-v1#POST#CardServiceV2Impl#getCardDetail#404#"
 
   Inferred root cause [high]:
-    - bl-pcb-v1: SPEED-101#PCB#bl-pcb#bl-pcb-v1#POST#CardServiceImpl#getCardDetail#404#
+    - bl-pcb-click2pay-v1: SPEED-101#PCB#bl-pcb-click2pay#bl-pcb-click2pay-v1#GET#ClickToPayApiImpl#getCardDetail#404#
 
   Propagation [linear]:
-    bl-pcb-v1 → bl-pcb-event-processor-relay-v1
-    Duration: 7262314ms
+    bl-pcb-click2pay-v1 → bl-pcb-v1
+    Duration: 23578569ms
   Message: SPEED-101#PCB#bl-pcb#bl-pcb-v1#POST#BatchProcessingServiceImpl#change#404#
 
 ──────────────────────────────────────────────────
@@ -2394,19 +2398,19 @@ PROBLEM DETAILS
     Namespaces: pcb-ch-dev-01-app, pcb-ch-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 0e1572e83129ce36b62e9b56e220e9e2
+    TraceID: 0d3f74184403542ffaa24d25e4cf6e0f
 
-    1) bff-pcb-ch-card-sensitive-data-v1
+    1) bff-pcb-ch-card-servicing-v1
        "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHOR"
-    2) bff-pcb-ch-document-signing-v1 (same error)
+    2) bff-pcb-ch-card-opening-v2 (same error)
     ...
-    3) bff-pcb-ch-card-servicing-v2 (same error)
+    3) bff-pcb-ch-design-servicing-v1 (same error)
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-sensitive-data-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHORIZED]
+    - bff-pcb-ch-card-servicing-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHORIZED]
 
   Propagation [cascade]:
-    bff-pcb-ch-card-sensitive-data-v1 → bff-pcb-ch-document-signing-v1 → bff-pcb-ch-card-servicing-notice-v1 → bff-pcb-ch-card-servicing-v3 → ... (12 total)
+    bff-pcb-ch-card-servicing-v1 → bff-pcb-ch-card-opening-v2 → bff-pcb-ch-card-servicing-admin-v1 → bff-pcb-ch-card-sensitive-data-v1 → ... (12 total)
   Message: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHORIZED]
 
 ──────────────────────────────────────────────────
@@ -2455,18 +2459,18 @@ PROBLEM DETAILS
   Behavior (trace flow): 3 messages
     TraceID: 04c6fd92c92834107165c5479598fa06
 
-    1) bff-pcb-ch-card-sensitive-data-v1
+    1) bff-pcb-ch-card-servicing-v1
        "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHOR"
-    2) bff-pcb-ch-card-servicing-init-v1 (same error)
+    2) bff-pcb-ch-card-opening-v2 (same error)
     ...
     3) bff-pcb-ch-card-servicing-init-v1
        "SPEED-101#PCB_CH#bff-pcb-ch-card-servicing-init#bff-pcb-ch-card-servicing-init-v1#GET#CardsServiceImpl#getEligibilityToActivateCard#403#"
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-sensitive-data-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHORIZED]
+    - bff-pcb-ch-card-servicing-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=ERR_RS_ERROR,originalCode=<null>,message=Not permitted to access the resource.,uuid=<UUID>,detail=ERR_UNAUTHORIZED]
 
   Propagation [cascade]:
-    bff-pcb-ch-card-servicing-admin-v1 → bff-pcb-ch-card-servicing-notice-v1 → bff-pcb-ch-card-opening-v2 → bff-pcb-ch-card-servicing-v1 → ... (6 total)
+    bff-pcb-ch-card-opening-v2 → bff-pcb-ch-card-servicing-admin-v1 → bff-pcb-ch-card-servicing-notice-v1 → bff-pcb-ch-card-servicing-v1 → ... (6 total)
     Duration: 22975ms
   Message: SPEED-101#PCB_CH#bff-pcb-ch-card-servicing#bff-pcb-ch-card-servicing-v1#GET#CardsServiceImpl#getCardOverview#403#
 
@@ -2483,23 +2487,51 @@ PROBLEM DETAILS
     Namespaces: pcb-ch-dev-01-app, pcb-ch-fat-01-app, pcb-ch-sit-01-app, pcb-ch-uat-01-app, pcb-dev-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 03e786a4612d3d9f76792dfb5dc45b02
+    TraceID: 134079dfb582ebc075525431c6619beb
 
-    1) bff-pcb-ch-card-sensitive-data-v1
+    1) bff-pcb-ch-card-servicing-v1
        "Actual security level is 0 less than minimal security level 1 for identity schema KBID."
-    2) bff-pcb-ch-document-signing-v1 (same error)
+    2) bff-pcb-ch-card-opening-v2 (same error)
     ...
-    3) bff-pcb-ch-card-servicing-v2 (same error)
+    3) bff-pcb-ch-card-validation-v1 (same error)
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-sensitive-data-v1: Actual security level is 0 less than minimal security level 1 for identity schema KBID.
+    - bff-pcb-ch-card-servicing-v1: Actual security level is 0 less than minimal security level 1 for identity schema KBID.
 
   Propagation [cascade]:
-    bff-pcb-ch-card-sensitive-data-v1 → bff-pcb-ch-document-signing-v1 → bff-pcb-ch-card-servicing-notice-v1 → bff-pcb-ch-card-servicing-admin-v1 → ... (11 total)
+    bff-pcb-ch-card-servicing-v1 → bff-pcb-ch-card-opening-v2 → bff-pcb-ch-card-servicing-admin-v1 → bff-pcb-ch-card-sensitive-data-v1 → ... (11 total)
   Message: ITO-154#PCB#bl-pcb-card-georisk#bl-pcb-card-georisk-v1#n/a#n/a#n/a#n/a#154#Events are too long in status REGISTERED.
 
 ──────────────────────────────────────────────────
-#13 🟡 BUSINESS: illegalargumentexception
+#13 🟡 BUSINESS: servicebusinessexception
+──────────────────────────────────────────────────
+  Problem key: business:notifications:servicebusinessexception
+  Severity: MEDIUM (score: 46)
+  Occurrences: 8,962 across 17 incidents
+  Flags: SPIKE | CROSS_NS
+  Time: 2026-02-10 14:14 - 20:55 (1320059s)
+  Scope: 8 apps, 4 namespaces
+    Apps: bl-pcb-card-client-segment-v1, bl-pcb-card-georisk-v1, bl-pcb-click2pay-v1, bl-pcb-codelist-v1, bl-pcb-design-lifecycle-v1
+    Namespaces: pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+  Behavior (trace flow): 3 messages
+    TraceID: 14fa946643c9a1663de0efac3f4c71df
+
+    1) bl-pcb-click2pay-v1
+       "ServiceBusinessException error handled."
+    2) bl-pcb-notification-v1 (same error)
+    ...
+    3) bl-pcb-card-client-segment-v1 (same error)
+
+  Inferred root cause [high]:
+    - bl-pcb-click2pay-v1: ServiceBusinessException error handled.
+
+  Propagation [cascade]:
+    bl-pcb-click2pay-v1 → bl-pcb-notification-v1 → bl-pcb-card-georisk-v1 → bl-pcb-token-v1 → ... (8 total)
+  Message: ServiceBusinessException error handled.
+
+──────────────────────────────────────────────────
+#14 🟡 BUSINESS: illegalargumentexception
 ──────────────────────────────────────────────────
   Problem key: business:card_servicing:illegalargumentexception
   Severity: MEDIUM (score: 46)
@@ -2511,25 +2543,25 @@ PROBLEM DETAILS
     Namespaces: pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: c225912660906f83442994f17af4ceec
+    TraceID: 1cfa4bfbc8148ca2082d59dac2f4cbca
 
-    1) bff-pcb-ch-card-servicing-admin-v1
+    1) bl-pcb-atm-locator-v1
        "IllegalArgumentException error handled."
-    2) bl-pcb-codelist-v1 (same error)
+    2) bff-pcb-ch-card-servicing-admin-v1 (same error)
     ...
     3) bff-pcb-ch-card-servicing-admin-v1
        "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=10,code=10,originalCode=<null>,message=Validation exception - bad request,uuid=<UUID>,detail=IllegalArgumentException "
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-servicing-admin-v1: IllegalArgumentException error handled.
+    - bl-pcb-atm-locator-v1: IllegalArgumentException error handled.
 
   Propagation [cascade]:
-    bff-pcb-ch-card-servicing-admin-v1 → bl-pcb-codelist-v1 → bl-pcb-atm-locator-v1 → bl-pcb-v1 → ... (5 total)
-    Duration: 51265515ms
+    bl-pcb-atm-locator-v1 → bff-pcb-ch-card-servicing-admin-v1 → bl-pcb-v1 → bl-pcb-codelist-v1 → ... (5 total)
+    Duration: 19834841ms
   Message: IllegalArgumentException error handled.
 
 ──────────────────────────────────────────────────
-#14 🟡 BUSINESS: notfounderror
+#15 🟡 BUSINESS: notfounderror
 ──────────────────────────────────────────────────
   Problem key: unknown:bl:notfounderror
   Severity: MEDIUM (score: 43)
@@ -2559,7 +2591,7 @@ PROBLEM DETAILS
   Message: Step processing failed, context StepContext(caseId=<ID>, parentCaseId=null, processingContext=CaseProcessingContext(data={}), traceContext=cz.kb.pcb.cases.domain.entity.cases.processing.CaseProcessingTraceContext@<ADDR>, step=CHANGE_ACCOUNT_PARAMETERS, stepProcessingType=PROCESSING, stepSynchronous=true, stepSkippable=false, stepOrder=0, processingDelayedAt=null, retryCount=0), outcome StepOutcome(result=FAILED, description=Called service PrimeIssuerServicesSoap.LoadBridgeXmlRequest error o
 
 ──────────────────────────────────────────────────
-#15 🟡 BUSINESS: unknownerror
+#16 🟡 BUSINESS: unknownerror
 ──────────────────────────────────────────────────
   Problem key: unknown:api_gateway:unknownerror
   Severity: MEDIUM (score: 46)
@@ -2571,25 +2603,23 @@ PROBLEM DETAILS
     Namespaces: pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: a2c2e65f52d51bf183f9a9cec92901d8
+    TraceID: 02251d2d89e4e0f037f42a2f4c1b88d4
 
-    1) bl-pcb-design-lifecycle-v1
+    1) bl-pcb-document-signing-v1
        "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=14,originalCode=<null>,message=Not permitted to access the resource,uuid=<UUID>,detail=<null>]"
-    2) feapi-pca-v1 (same error)
+    2) bl-pcb-v1 (same error)
     ...
-    3) feapi-pca-v1
-       "Anonymize original error detail: Process id must be provided!."
+    3) bl-pcb-design-lifecycle-v1 (same error)
 
   Inferred root cause [high]:
-    - bl-pcb-design-lifecycle-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=14,originalCode=<null>,message=Not permitted to access the resource,uuid=<UUID>,detail=<null>]
+    - bl-pcb-document-signing-v1: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=14,code=14,originalCode=<null>,message=Not permitted to access the resource,uuid=<UUID>,detail=<null>]
 
   Propagation [cascade]:
-    bl-pcb-design-lifecycle-v1 → feapi-pca-v1 → bl-pcb-document-signing-v1 → bl-pcb-v1
-    Duration: 22275750ms
+    bl-pcb-document-signing-v1 → bl-pcb-v1 → feapi-pca-v1 → bl-pcb-design-lifecycle-v1
   Message: SPEED-101#PCA#feapi-pca#feapi-pca-v1#PUT#bl-pcb-v1.pcb-dev-01-app:<PORT>#/api/v1/change/card/<NUM>/save#400#
 
 ──────────────────────────────────────────────────
-#16 🟡 BUSINESS: servererror
+#17 🟡 BUSINESS: servererror
 ──────────────────────────────────────────────────
   Problem key: business:bl:servererror
   Severity: MEDIUM (score: 46)
@@ -2615,7 +2645,7 @@ PROBLEM DETAILS
   Message: Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=15,code=err.103,originalCode=<null>,message=Resource not found. Card with id <ID> and product instance null not found.,uuid=<UUID>,detail=Error detail: Resource not found. Card with id <ID> and product instance null not found., cause: Resource not found. Card with id <ID> and product instance null not found..]
 
 ──────────────────────────────────────────────────
-#17 🟡 AUTH: mismatchedinputexception
+#18 🟡 AUTH: mismatchedinputexception
 ──────────────────────────────────────────────────
   Problem key: unknown:card_servicing:mismatchedinputexception
   Severity: MEDIUM (score: 43)
@@ -2627,29 +2657,28 @@ PROBLEM DETAILS
     Namespaces: pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 698d6c7b928a817890303d1176e0f83a
+    TraceID: 698d6c7c0f6533fbca41311b4d028eea
 
-    1) bff-pcb-ch-card-servicing-admin-v1
-       "com.fasterxml.jackson.databind.exc.MismatchedInputException: Cannot deserialize value of type `cz.kb.ndch.bff.card.servicing.administration.v1.dto.CardLimitsChangeAuthorizationRequestedActionRequest` "
-    2) bff-pcb-ch-card-servicing-notice-v1
+    1) bff-pcb-ch-card-opening-v2
        "MismatchedInputException error handled."
+    2) bff-pcb-ch-card-servicing-admin-v1 (same error)
     ...
     3) bff-pcb-ch-card-servicing-admin-v1
        "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=120,code=120,originalCode=<null>,message=Service Exception,uuid=<UUID>,detail=MismatchedInputException: Cannot deseria"
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-servicing-admin-v1: com.fasterxml.jackson.databind.exc.MismatchedInputException: Cannot deserialize value of type `cz.kb.ndch.bff.card.servicing.administration.v1.dto.CardLimitsChangeAuthorizationRequestedActionRequest` from Array value (token `JsonToken.START_ARRAY`) at [Source: REDACTED (`StreamReadFeature.INCLUDE_S
+    - bff-pcb-ch-card-opening-v2: MismatchedInputException error handled.
 
   Propagation [cascade]:
-    bff-pcb-ch-card-servicing-notice-v1 → bff-pcb-ch-card-servicing-admin-v1 → bl-pcb-v1 → bff-pcb-ch-card-validation-v1 → ... (5 total)
-    Duration: 88077ms
+    bff-pcb-ch-card-opening-v2 → bff-pcb-ch-card-servicing-admin-v1 → bff-pcb-ch-card-servicing-notice-v1 → bl-pcb-v1 → ... (5 total)
+    Duration: 86496ms
   Message: com.fasterxml.jackson.databind.exc.MismatchedInputException: Cannot deserialize value of type `cz.kb.ndch.bff.card.servicing.administration.v1.dto.CardLimitsChangeAuthorizationRequestedActionRequest` from Array value (token `JsonToken.START_ARRAY`)
  at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 1]
 	at com.fasterxml.jackson.databind.exc.MismatchedInputException.from(MismatchedInputException.java:59)
 	at com.fasterxml.jackson.databind.Deserializat
 
 ──────────────────────────────────────────────────
-#18 🟡 BUSINESS: paramexception
+#19 🟡 BUSINESS: paramexception
 ──────────────────────────────────────────────────
   Problem key: business:card_servicing:paramexception
   Severity: MEDIUM (score: 46)
@@ -2661,20 +2690,20 @@ PROBLEM DETAILS
     Namespaces: pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 1522129d46c4cfe89ec1e560ff0759bc
+    TraceID: 062680b99addf877aff69e41e7b07f12
 
-    1) bff-pcb-ch-card-opening-v2
+    1) bl-pcb-v1
        "org.glassfish.jersey.server.ParamException$QueryParamException: HTTP 404 Not Found
 	at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProvider$QueryParamValueProvider.apply(QueryParam"
-    2) bl-pcb-v1 (same error)
+    2) bl-pcb-atm-locator-v1 (same error)
     ...
-    3) bl-pcb-atm-locator-v1 (same error)
+    3) bff-pcb-ch-card-opening-v2 (same error)
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-opening-v2: org.glassfish.jersey.server.ParamException$QueryParamException: HTTP 404 Not Found at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProvider$QueryParamValueProvider.apply(QueryParamValueParamProvider.java:81) at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProv
+    - bl-pcb-v1: org.glassfish.jersey.server.ParamException$QueryParamException: HTTP 404 Not Found at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProvider$QueryParamValueProvider.apply(QueryParamValueParamProvider.java:81) at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProv
 
   Propagation [cascade]:
-    bff-pcb-ch-card-opening-v2 → bl-pcb-v1 → bl-pcb-atm-locator-v1
+    bl-pcb-v1 → bl-pcb-atm-locator-v1 → bff-pcb-ch-card-opening-v2
   Message: org.glassfish.jersey.server.ParamException$QueryParamException: HTTP 404 Not Found
 	at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProvider$QueryParamValueProvider.apply(QueryParamValueParamProvider.java:81)
 	at org.glassfish.jersey.server.internal.inject.QueryParamValueParamProvider$QueryParamValueProvider.apply(QueryParamValueParamProvider.java:65)
@@ -2682,7 +2711,7 @@ PROBLEM DETAILS
 	at org.gla
 
 ──────────────────────────────────────────────────
-#19 🟡 BUSINESS: queryparamexception
+#20 🟡 BUSINESS: queryparamexception
 ──────────────────────────────────────────────────
   Problem key: unknown:card_servicing:queryparamexception
   Severity: MEDIUM (score: 46)
@@ -2694,52 +2723,20 @@ PROBLEM DETAILS
     Namespaces: pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
 
   Behavior (trace flow): 3 messages
-    TraceID: 1522129d46c4cfe89ec1e560ff0759bc
+    TraceID: 062680b99addf877aff69e41e7b07f12
 
-    1) bff-pcb-ch-card-opening-v2
+    1) bl-pcb-v1
        "QueryParamException error handled."
-    2) bl-pcb-v1 (same error)
+    2) bl-pcb-atm-locator-v1 (same error)
     ...
-    3) bl-pcb-atm-locator-v1 (same error)
+    3) bff-pcb-ch-card-opening-v2 (same error)
 
   Inferred root cause [high]:
-    - bff-pcb-ch-card-opening-v2: QueryParamException error handled.
+    - bl-pcb-v1: QueryParamException error handled.
 
   Propagation [cascade]:
-    bff-pcb-ch-card-opening-v2 → bl-pcb-v1 → bl-pcb-atm-locator-v1
+    bl-pcb-v1 → bl-pcb-atm-locator-v1 → bff-pcb-ch-card-opening-v2
   Message: QueryParamException error handled.
-
-──────────────────────────────────────────────────
-#20 🟡 SERIALIZATION: validation_error
-──────────────────────────────────────────────────
-  Problem key: unknown:card_servicing:validation_error
-  Severity: MEDIUM (score: 46)
-  Occurrences: 952 across 235 incidents
-  Flags: SPIKE | CROSS_NS
-  Time: 2026-02-10 18:19 - 21:50 (1308711s)
-  Scope: 4 apps, 4 namespaces
-    Apps: bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-click2pay-v1, bl-pcb-card-client-segment-v1, bl-pcb-v1
-    Namespaces: pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-sit-01-app
-
-  Behavior (trace flow): 3 messages
-    TraceID: 258823004d51c13770da9f1063c97011
-
-    1) bff-pcb-ch-card-servicing-admin-v1
-       "InvalidFormatException error handled."
-    2) bl-pcb-card-client-segment-v1 (same error)
-    ...
-    3) bl-pcb-card-client-segment-v1
-       "Handle fault. Error: cz.kb.speed.exception.error.model.ErrorModel@<ADDR>[category=120,code=120,originalCode=<null>,message=Service Exception,uuid=<UUID>,detail=InvalidFormatException: Cannot deseriali"
-
-  Inferred root cause [high]:
-    - bff-pcb-ch-card-servicing-admin-v1: InvalidFormatException error handled.
-
-  Propagation [cascade]:
-    bff-pcb-ch-card-servicing-admin-v1 → bl-pcb-card-client-segment-v1 → bl-pcb-v1 → bff-pcb-ch-click2pay-v1
-    Duration: 34944605ms
-  Message: com.fasterxml.jackson.databind.exc.InvalidFormatException: Cannot deserialize value of type `java.lang.Long` from String "ABCDEFGHI": not a valid `java.lang.Long` value
- at [Source: REDACTED (`StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION` disabled); line: 1, column: 158] (through reference chain: cz.kb.pcb.card.client.segment.server.model.ComputeCardClientSegmentRequest["cardHolder"]->cz.kb.pcb.card.client.segment.server.model.CardHolder["clientId"])
-	at com.fasterxml.jackson.databind.exc.Invali
 
 ... and 144 more problems (see CSV export)
 
@@ -2767,14 +2764,14 @@ Category refinement: 66 problems reclassified
   unknown → code: 2
 
 Propagation:
-  Cascades: 23
-  Cross-namespace: 77
-  Avg fan-out: 3.1
+  Cascades: 25
+  Cross-namespace: 74
+  Avg fan-out: 3.2
 
 
 📄 Problem reports saved:
-   Text: /app/scripts/reports/problem_report_20260226_111800.txt
-   JSON: /app/scripts/reports/problem_report_20260226_111800.json
+   Text: /app/scripts/reports/problem_report_20260226_124108.txt
+   JSON: /app/scripts/reports/problem_report_20260226_124108.json
 
 📊 CSV exports saved:
    problems_summary: /app/scripts/reports/problems_summary_20260226.csv
@@ -2782,7 +2779,7 @@ Propagation:
    propagation_stats: /app/scripts/reports/propagation_stats_20260226.csv
    full_json: /app/scripts/reports/problems_full_20260226.json
 
-💾 Summary saved: /app/scripts/reports/backfill_20260226_111800.json
+💾 Summary saved: /app/scripts/reports/backfill_20260226_124108.json
 
 📊 Exporting tables to /app/scripts/exports...
    ✅ Errors table: errors_table_latest.csv/md/json
@@ -2794,7 +2791,7 @@ Propagation:
 
 📋 Publishing to Confluence...
 📋 Publishing Recent Incidents Report to Confluence...
-📄 Using report: problem_report_20260226_111800.txt
+📄 Using report: problem_report_20260226_124108.txt
    ✅ EXECUTIVE SUMMARY extracted
    ✅ PROBLEM DETAILS extracted (top 20)
 ❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_PASSWORD
@@ -2803,7 +2800,7 @@ Propagation:
 ⚠️ Teams notifier not enabled (check TEAMS_ENABLED and TEAMS_WEBHOOK_URL)
 
 📝 Registry saved:
-   Problems: 310 (1 new)
+   Problems: 310 (0 new)
    Peaks: 140 (0 new)
    Reloading from disk to sync concurrent updates...
 
@@ -2819,19 +2816,87 @@ Propagation:
    Data range: last 3 weeks
 
 ✅ Connected to P050TD01.DEV.KB.CZ:5432/ailog_analyzer
+   SET ROLE role_ailog_analyzer_ddl
 📊 Fetching data from peak_raw_data...
+   Found 6,766 rows
+   Unique (namespace, dow) combinations: 58
+   Date range: 2026-02-10 to 2026-02-26
 
-❌ Error: permission denied for schema ailog_peak
-LINE 3:         FROM ailog_peak.peak_raw_data
-                     ^
+📈 Calculating P93 thresholds...
+📊 Calculating CAP values...
 
-Traceback (most recent call last):
-  File "/app/scripts/core/calculate_peak_thresholds.py", line 323, in main
-    data, date_range = fetch_raw_data(conn, args.weeks)
-                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/app/scripts/core/calculate_peak_thresholds.py", line 93, in fetch_raw_data
-    cur.execute(query, params)
-psycopg2.errors.InsufficientPrivilege: permission denied for schema ailog_peak
-LINE 3:         FROM ailog_peak.peak_raw_data
-                     ^
+========================================================================================================================
+P93 THRESHOLDS per NS per DOW
+========================================================================================================================
 
+NS                            CAP |     Mon     Tue     Wed     Thu     Fri     Sat     Sun |  Samples
+------------------------------------------------------------------------------------------------------------------------
+pca-dev-01-app                 64 |      27      22     294     294      34      17      17 |      337
+pca-sit-01-app                 44 |       8      14     230     230      16      10      14 |      341
+pcb-ch-dev-01-app             196 |     163     626     163     163     169     163     160 |      395
+pcb-ch-fat-01-app              10 |      --      --      10      --      --      --      -- |        5
+pcb-ch-sit-01-app             284 |     163     903     244     180     163     159     897 |      535
+pcb-ch-uat-01-app               3 |      --      --       3      --      --      --      -- |        1
+pcb-dev-01-app                496 |     336     971    1290     846     401     218      78 |     1482
+pcb-fat-01-app                123 |     158     115     133     185     110     109     109 |     1196
+pcb-sit-01-app               1944 |     540    9803     935    1363     783     819    6424 |     1277
+pcb-uat-01-app                140 |     187     127     236     190     115     109     111 |     1197
+
+========================================================================================================================
+CAP VALUES per NS
+========================================================================================================================
+
+NS                             CAP |  Median_P93    Avg_P93   Min_P93   Max_P93 |  Samples
+----------------------------------------------------------------------------------------------------
+pca-dev-01-app                  64 |          27        101        17       294 |      337
+pca-sit-01-app                  44 |          14         75         8       230 |      341
+pcb-ch-dev-01-app              196 |         163        230       160       626 |      395
+pcb-ch-fat-01-app               10 |          10         10        10        10 |        5
+pcb-ch-sit-01-app              284 |         180        387       159       903 |      535
+pcb-ch-uat-01-app                3 |           3          3         3         3 |        1
+pcb-dev-01-app                 496 |         401        591        78      1290 |     1482
+pcb-fat-01-app                 123 |         115        131       109       185 |     1196
+pcb-sit-01-app                1944 |         935       2952       540      9803 |     1277
+pcb-uat-01-app                 140 |         127        154       109       236 |     1197
+
+🗑️  Clearing existing thresholds...
+
+📥 Inserting 58 percentile thresholds...
+   ✅ Inserted 58 percentile threshold rows
+
+📥 Inserting 10 CAP values...
+   ✅ Inserted 10 CAP value rows
+
+================================================================================
+✅ Peak thresholds calculation complete!
+================================================================================
+
+============================================
+✅ Step 3/3: Verify thresholds...
+
+✅ Connected to P050TD01.DEV.KB.CZ:5432/ailog_analyzer
+
+========================================================================================================================
+Peak Thresholds (P93 OR CAP)
+========================================================================================================================
+
+NS                            CAP |     Mon     Tue     Wed     Thu     Fri     Sat     Sun
+----------------------------------------------------------------------------------------------------
+pca-dev-01-app                 64 |      27      22     294     294      34      17      17
+pca-sit-01-app                 44 |       8      14     230     230      16      10      14
+pcb-ch-dev-01-app             196 |     163     626     163     163     169     163     160
+pcb-ch-fat-01-app              10 |      --      --      10      --      --      --      --
+pcb-ch-sit-01-app             284 |     163     903     244     180     163     159     897
+pcb-ch-uat-01-app               3 |      --      --       3      --      --      --      --
+pcb-dev-01-app                496 |     336     971    1290     846     401     218      78
+pcb-fat-01-app                123 |     158     115     133     185     110     109     109
+pcb-sit-01-app               1944 |     540    9803     935    1363     783     819    6424
+pcb-uat-01-app                140 |     187     127     236     190     115     109     111
+
+Default threshold: 100.0
+Cache loaded at: 2026-02-26 12:41:12.464011
+
+============================================
+  Bootstrap DONE
+  Regular phase CronJob can now use P93/CAP
+============================================
