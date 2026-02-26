@@ -867,8 +867,25 @@ class ProblemRegistry:
         return fingerprint in self.fingerprint_index
     
     def is_problem_key_known(self, problem_key: str) -> bool:
-        """Zjistí zda je problem_key známý."""
-        return problem_key in self.problems
+        """Zjistí zda je problem_key známý (v problems NEBO peaks)."""
+        if problem_key in self.problems:
+            return True
+        # Also check peaks (peak keys have format PEAK:category:flow:peak_type)
+        if problem_key in self.peaks:
+            return True
+        # Cross-check: try matching as peak key variant
+        # Detection generates CATEGORY:flow:error_class, peaks use PEAK:category:flow:peak_type
+        # Check if any peak matches the category+flow portion
+        parts = problem_key.split(':')
+        if len(parts) >= 2:
+            category = parts[0].lower()
+            flow = parts[1]
+            for peak_key in self.peaks:
+                peak_parts = peak_key.split(':')
+                # PEAK:category:flow:peak_type
+                if len(peak_parts) >= 3 and peak_parts[1] == category and peak_parts[2] == flow:
+                    return True
+        return False
     
     def get_problem_for_fingerprint(self, fingerprint: str) -> Optional[ProblemEntry]:
         """Vrátí ProblemEntry pro fingerprint."""

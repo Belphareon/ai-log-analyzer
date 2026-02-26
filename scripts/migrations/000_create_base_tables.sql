@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS ailog_peak.peak_investigation (
     namespace VARCHAR(255) NOT NULL,
     
     -- Values
-    actual_value NUMERIC(12,2) NOT NULL,
+    original_value NUMERIC(12,2) NOT NULL,
+    reference_value NUMERIC(12,2),
     baseline_mean NUMERIC(12,2),
     ratio NUMERIC(8,2),
     threshold_used NUMERIC(12,2),

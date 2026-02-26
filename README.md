@@ -7,7 +7,7 @@ Automatizovana detekce a analyza incidentu z aplikacnich logu.
 ## Co to dela
 
 System analyzuje error logy z Elasticsearch a automaticky:
-- Detekuje anomalie (spiky, bursty, nove errory) pomoci EWMA/MAD statistik
+- Detekuje anomalie (spiky, bursty, nove errory) pomoci P93/CAP percentilovych thresholdu
 - Seskupuje souvisejici udalosti do incidentu
 - Klasifikuje role aplikaci (root, downstream, collateral)
 - Sleduje propagaci (jak rychle se incident siril)
@@ -22,8 +22,8 @@ System analyzuje error logy z Elasticsearch a automaticky:
 
 ```
 A: Parse & Normalize  -->  Fingerprinting, error_type extraction
-B: Measure             -->  EWMA baseline, MAD, trend ratio
-C: Detect              -->  Boolean flags (spike, burst, new, cross_ns)
+B: Measure             -->  EWMA/MAD (informacni), trend ratio
+C: Detect              -->  P93/CAP spike, burst, new, cross_ns, regression
 D: Score               -->  Vahova funkce (0-100)
 E: Classify            -->  Taxonomie (category, subcategory)
 F: Report              -->  Formatovani vystupu
@@ -62,6 +62,8 @@ ai-log-analyzer/
 │   ├── publish_daily_reports.sh    # Orchestrace reportu
 │   ├── core/
 │   │   ├── problem_registry.py     # Registry modul
+│   │   ├── peak_detection.py       # P93/CAP spike detector (DB thresholds)
+│   │   ├── calculate_peak_thresholds.py  # Vypocet P93/CAP z peak_raw_data
 │   │   ├── baseline_loader.py      # Historicky baseline z DB
 │   │   ├── fetch_unlimited.py      # ES data fetcher
 │   │   └── teams_notifier.py       # Teams integrace
@@ -86,6 +88,7 @@ ai-log-analyzer/
 ├── config/known_issues/            # Knowledge base (manualni)
 ├── k8s/                            # Kubernetes manifesty
 └── docs/                           # Dokumentace
+    └── PEAK_DETECTION_OPS.md       # P93/CAP provozni prirucka
 ```
 
 ## Instalace
@@ -159,7 +162,7 @@ Viz [docs/CRONJOB_SCHEDULING.md](docs/CRONJOB_SCHEDULING.md) pro detaily.
 
 | Flag | Popis | Threshold |
 |------|-------|-----------|
-| `is_spike` | Narust oproti EWMA baseline | current/baseline > 3.0 |
+| `is_spike` | Narust oproti P93/CAP threshold | value > P93_per_DOW OR value > CAP |
 | `is_burst` | Nahlý narust v kratkem okne | rate change > 5.0 |
 | `is_new` | Fingerprint neni v registry | - |
 | `is_cross_namespace` | Vyskyty ve vice NS | >= 2 namespaces |

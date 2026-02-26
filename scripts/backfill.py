@@ -312,6 +312,87 @@ def save_incidents_to_db(collection, date_str: str) -> int:
 
 
 # =============================================================================
+# PEAK RAW DATA (feeds P93/CAP threshold calculation)
+# =============================================================================
+
+def save_raw_data_for_day(errors: list, date_str: str) -> int:
+    """
+    Save 15-min namespace error totals to peak_raw_data from raw ES errors.
+
+    Preserves 15-min granularity needed for P93/CAP threshold calculation.
+    Each regular phase run normally saves one row per namespace per 15-min window.
+    This function does the same from backfill data — grouping raw errors by
+    (namespace, 15-min window) to produce equivalent rows.
+    """
+    if not HAS_DB or not errors:
+        return 0
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        set_db_role(cursor)
+
+        # Group raw errors by (namespace, 15-min window)
+        window_counts: Dict[Tuple[str, datetime], int] = {}
+
+        for error in errors:
+            ts_str = error.get('timestamp', '')
+            ns = error.get('namespace', 'unknown')
+            if not ts_str or not ns:
+                continue
+
+            try:
+                ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+            except (ValueError, TypeError):
+                continue
+
+            # Round to 15-min window boundary
+            minute = (ts.minute // 15) * 15
+            ts_rounded = ts.replace(minute=minute, second=0, microsecond=0)
+            key = (ns, ts_rounded)
+            window_counts[key] = window_counts.get(key, 0) + 1
+
+        if not window_counts:
+            if conn:
+                conn.close()
+            return 0
+
+        data = []
+        for (ns, ts), count in window_counts.items():
+            data.append((
+                ts,
+                ts.weekday(),
+                ts.hour,
+                ts.minute // 15,
+                ns,
+                count,
+                count,
+            ))
+
+        execute_values(cursor, """
+            INSERT INTO ailog_peak.peak_raw_data
+            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
+             error_count, original_value)
+            VALUES %s
+            ON CONFLICT (timestamp, day_of_week, hour_of_day, quarter_hour, namespace)
+            DO UPDATE SET error_count = EXCLUDED.error_count,
+                          original_value = EXCLUDED.original_value
+        """, data, page_size=100)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return len(data)
+
+    except Exception as e:
+        safe_print(f"   ⚠️ {date_str} peak_raw_data save failed (non-blocking): {e}")
+        if conn:
+            conn.close()
+        return 0
+
+
+# =============================================================================
 # REGISTRY MANAGEMENT
 # =============================================================================
 
@@ -505,11 +586,17 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 if first_ts and last_ts:
                     event_timestamps[fp] = (first_ts, last_ts)
             
+            # 4. Save namespace totals to peak_raw_data (feeds P93/CAP threshold calculation)
+            if not dry_run:
+                raw_saved = save_raw_data_for_day(errors, date_str)
+                if raw_saved > 0:
+                    safe_print(f"   📊 [{thread_name}] {date_str} - Saved {raw_saved} rows to peak_raw_data")
+
             result['collection'] = collection
             result['incidents'] = collection.total_incidents
             result['event_timestamps'] = event_timestamps
             result['status'] = 'success'
-            
+
             safe_print(f" ✅ [{thread_name}] {date_str} - {collection.total_incidents} incidents")
             
     except Exception as e:
