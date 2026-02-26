@@ -314,10 +314,18 @@ def main():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         print(f"\n✅ Connected to {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+
+        # SET ROLE for schema access (same pattern as backfill/regular_phase)
+        ddl_role = os.getenv('DB_DDL_ROLE', 'role_ailog_analyzer_ddl')
+        cur = conn.cursor()
+        cur.execute(f"SET ROLE {ddl_role}")
+        conn.commit()
+        cur.close()
+        print(f"   SET ROLE {ddl_role}")
     except Exception as e:
         print(f"\n❌ Database connection failed: {e}")
         return 1
-    
+
     try:
         # Fetch data
         data, date_range = fetch_raw_data(conn, args.weeks)

@@ -44,16 +44,22 @@ DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
     'port': int(os.getenv('DB_PORT', 5432)),
     'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD')
+    'user': os.getenv('DB_DDL_USER', os.getenv('DB_USER', 'ailog_analyzer_user_d1')),
+    'password': os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD'))
 }
 
 
 def get_db_connection():
-    """Get database connection"""
+    """Get database connection with SET ROLE for schema access"""
     if not HAS_PSYCOPG2:
         raise ImportError("psycopg2 not installed. Use --from-file instead of --from-db")
-    return psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(**DB_CONFIG)
+    ddl_role = os.getenv('DB_DDL_ROLE', 'role_ailog_analyzer_ddl')
+    cur = conn.cursor()
+    cur.execute(f"SET ROLE {ddl_role}")
+    conn.commit()
+    cur.close()
+    return conn
 
 
 def fetch_raw_data(conn, start_date: datetime = None, end_date: datetime = None) -> list:

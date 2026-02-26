@@ -395,18 +395,25 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    # Connect to DB
+    # Connect to DB (use DDL user for schema access)
     DB_CONFIG = {
         'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
         'port': int(os.getenv('DB_PORT', 5432)),
         'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-        'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-        'password': os.getenv('DB_PASSWORD')
+        'user': os.getenv('DB_DDL_USER', os.getenv('DB_USER', 'ailog_analyzer_user_d1')),
+        'password': os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD'))
     }
-    
+
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         print(f"✅ Connected to {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+
+        # SET ROLE for schema access
+        ddl_role = os.getenv('DB_DDL_ROLE', 'role_ailog_analyzer_ddl')
+        cur = conn.cursor()
+        cur.execute(f"SET ROLE {ddl_role}")
+        conn.commit()
+        cur.close()
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
         sys.exit(1)

@@ -236,9 +236,14 @@ if __name__ == '__main__':
             host=os.getenv('DB_HOST'),
             port=int(os.getenv('DB_PORT', 5432)),
             database=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
+            user=os.getenv('DB_DDL_USER', os.getenv('DB_USER')),
+            password=os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD')),
         )
+        ddl_role = os.getenv('DB_DDL_ROLE', 'role_ailog_analyzer_ddl')
+        cur = conn.cursor()
+        cur.execute(f"SET ROLE {ddl_role}")
+        conn.commit()
+        cur.close()
     except Exception as e:
         print(f"❌ DB connection failed: {e}")
         exit(1)

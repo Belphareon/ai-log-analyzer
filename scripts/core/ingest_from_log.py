@@ -28,13 +28,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Database configuration
+# Database configuration (DDL user for schema access)
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
     'port': int(os.getenv('DB_PORT', 5432)),
     'database': os.getenv('DB_NAME', 'ailog_analyzer'),
-    'user': os.getenv('DB_USER', 'ailog_analyzer_user_d1'),
-    'password': os.getenv('DB_PASSWORD')
+    'user': os.getenv('DB_DDL_USER', os.getenv('DB_USER', 'ailog_analyzer_user_d1')),
+    'password': os.getenv('DB_DDL_PASSWORD', os.getenv('DB_PASSWORD'))
 }
 
 # Load configuration from values.yaml
@@ -778,10 +778,15 @@ def main():
     # Connect to DB
     try:
         conn = psycopg2.connect(**DB_CONFIG)
+        ddl_role = os.getenv('DB_DDL_ROLE', 'role_ailog_analyzer_ddl')
+        cur = conn.cursor()
+        cur.execute(f"SET ROLE {ddl_role}")
+        conn.commit()
+        cur.close()
     except Exception as e:
         print(f"❌ Database connection failed: {e}")
         return 1
-    
+
     # Insert to DB (with or without peak detection based on mode)
     success = insert_to_db(statistics, conn, init_phase=args.init)
     conn.close()
