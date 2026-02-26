@@ -99,9 +99,9 @@ env:
   CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "1334314201"   # Known Errors page
   CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "1334314203"    # Known Peaks page
   
-  # === Error Detection Algorithm ===
-  SPIKE_THRESHOLD: "3.0"               # Násobek baseline pro spike detekci (default: 3.0)
-  EWMA_ALPHA: "0.3"                    # EWMA smoothing faktor pro baseline (default: 0.3)
+  # === Error Detection Algorithm (legacy, informational) ===
+  SPIKE_THRESHOLD: "3.0"               # EWMA spike ratio (jen informacni, P93/CAP je primarni)
+  EWMA_ALPHA: "0.3"                    # EWMA smoothing faktor (jen informacni metriky)
   WINDOW_MINUTES: "15"                 # Časové okno pro analýzu (default: 15 min)
   
   # === Peak Detection Algorithm (P93 OR CAP) ===
@@ -109,6 +109,16 @@ env:
   MIN_SAMPLES_FOR_THRESHOLD: "10"      # Min počet vzorků pro spolehlivý threshold
   DEFAULT_THRESHOLD: "100"             # Fallback threshold pokud není data v DB
   
+# -----------------------------------------------------------------------------
+# Init Job Configuration (one-shot bootstrap)
+# Spuštění: helm template . | kubectl apply -f - -l job-type=init
+# -----------------------------------------------------------------------------
+init:
+  backfillDays: 21                      # Kolik dní zpětně naplnit
+  backfillWorkers: 4                    # Paralelní workery pro backfill
+  thresholdWeeks: 3                     # Z kolika týdnů počítat P93/CAP
+  activeDeadlineSeconds: 14400          # Max 4 hodiny pro init job
+
   # === Telemetry & Context ===
   # Odvozování environment z namespace (viz TELEMETRY.md)
   # Podporované patterny: -prod-, -uat-, -sit-, -dev-

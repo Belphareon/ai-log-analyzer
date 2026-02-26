@@ -1,11 +1,11 @@
 {{/*
 =============================================================================
-Log Analyzer - CronJobs (Regular Phase + Backfill)
+Log Analyzer - CronJobs (Regular Phase + Backfill + Threshold Recalculation)
 =============================================================================
 */}}
 ---
 # =============================================================================
-# CronJob 1: Regular Phase - every 15 min 
+# CronJob 1: Regular Phase - every 15 min
 # =============================================================================
 apiVersion: batch/v1
 kind: CronJob
@@ -36,7 +36,7 @@ spec:
         spec:
           serviceAccountName: log-analyzer
           restartPolicy: Never
-          
+
           containers:
             - name: {{ .Values.app.name }}
               image: {{ .Values.app.image }}
@@ -45,7 +45,7 @@ spec:
               command:
                 - python3
                 - /app/scripts/regular_phase.py
-              
+
               env:
                 # === Application Config ===
                 - name: ENVIRONMENT
@@ -56,7 +56,7 @@ spec:
                   value: {{ .Values.env.REGISTRY_DIR | quote }}
                 - name: EXPORT_DIR
                   value: {{ .Values.env.EXPORT_DIR | quote }}
-                
+
                 # === Database ===
                 - name: DB_HOST
                   value: {{ .Values.env.DB_HOST | quote }}
@@ -84,7 +84,7 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.app.secretName }}
                       key: DB_DDL_PASSWORD
-                
+
                 # === Elasticsearch ===
                 - name: ES_HOST
                   value: {{ .Values.env.ES_HOST | quote }}
@@ -100,7 +100,7 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.app.secretName }}
                       key: ES_PASSWORD
-                
+
                 # === Confluence ===
                 - name: CONFLUENCE_USERNAME
                   valueFrom:
@@ -120,7 +120,7 @@ spec:
                   value: {{ .Values.env.HTTPS_PROXY | quote }}
                 - name: HTTP_PROXY
                   value: {{ .Values.env.HTTP_PROXY | default .Values.env.CONFLUENCE_PROXY | quote }}
-                
+
                 # === Peak Detection ===
                 - name: SPIKE_THRESHOLD
                   value: {{ .Values.env.SPIKE_THRESHOLD | quote }}
@@ -148,14 +148,14 @@ spec:
                   value: "true"
                 - name: TEAMS_USE_EMAIL_PRIMARY
                   value: "true"
-              
+
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
-              
+
               volumeMounts:
                 - name: data
                   mountPath: {{ .Values.persistence.mountPath }}
-          
+
           volumes:
             - name: data
               {{- if .Values.persistence.enabled }}
@@ -164,7 +164,7 @@ spec:
               {{- else }}
               emptyDir: {}
               {{- end }}
-          
+
           imagePullSecrets:
             - name: dockerhub
 
@@ -201,7 +201,7 @@ spec:
         spec:
           serviceAccountName: log-analyzer
           restartPolicy: Never
-          
+
           containers:
             - name: {{ .Values.app.name }}-backfill
               image: {{ .Values.app.image }}
@@ -214,15 +214,15 @@ spec:
                   set -e
                   echo "📊 Running Backfill..."
                   python3 /app/scripts/backfill.py --days 1 --force --output /app/scripts/reports
-                  
+
                   echo ""
                   echo "📋 Publishing to Confluence..."
                   python3 /app/scripts/recent_incidents_publisher.py || echo "⚠️ Recent Incidents publish failed (non-critical)"
                   python3 /app/scripts/confluence_csv_uploader.py || echo "⚠️ CSV upload failed (non-critical)"
-                  
+
                   echo ""
                   echo "✅ Confluence published successfully"
-              
+
               env:
                 # === Application Config ===
                 - name: ENVIRONMENT
@@ -233,7 +233,7 @@ spec:
                   value: {{ .Values.env.REGISTRY_DIR | quote }}
                 - name: EXPORT_DIR
                   value: {{ .Values.env.EXPORT_DIR | quote }}
-                
+
                 # === Database ===
                 - name: DB_HOST
                   value: {{ .Values.env.DB_HOST | quote }}
@@ -261,7 +261,7 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.app.secretName }}
                       key: DB_DDL_PASSWORD
-                
+
                 # === Elasticsearch ===
                 - name: ES_HOST
                   value: {{ .Values.env.ES_HOST | quote }}
@@ -277,7 +277,7 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.app.secretName }}
                       key: ES_PASSWORD
-                
+
                 # === Confluence ===
                 - name: CONFLUENCE_USERNAME
                   valueFrom:
@@ -328,14 +328,14 @@ spec:
                   value: "true"
                 - name: TEAMS_USE_EMAIL_PRIMARY
                   value: "true"
-              
+
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
-              
+
               volumeMounts:
                 - name: data
                   mountPath: {{ .Values.persistence.mountPath }}
-          
+
           volumes:
             - name: data
               {{- if .Values.persistence.enabled }}
@@ -344,6 +344,108 @@ spec:
               {{- else }}
               emptyDir: {}
               {{- end }}
-          
+
+          imagePullSecrets:
+            - name: dockerhub
+
+---
+# =============================================================================
+# CronJob 3: Threshold Recalculation (weekly, Sunday 03:00 UTC)
+# Přepočítá P93/CAP thresholdy z peak_raw_data (posledních 4 týdnů)
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.app.name }}-thresholds
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    job-type: thresholds
+spec:
+  schedule: "0 3 * * 0"  # Neděle 03:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: {{ .Values.app.name }}
+        job-type: thresholds
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800  # Max 30 minut
+      template:
+        metadata:
+          labels:
+            app: {{ .Values.app.name }}
+            job-type: thresholds
+        spec:
+          serviceAccountName: log-analyzer
+          restartPolicy: Never
+
+          containers:
+            - name: {{ .Values.app.name }}-thresholds
+              image: {{ .Values.app.image }}
+              imagePullPolicy: {{ .Values.app.imagePullPolicy }}
+              workingDir: /app
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+                  echo "📈 Recalculating P93/CAP thresholds (last 4 weeks)..."
+                  python3 /app/scripts/core/calculate_peak_thresholds.py --weeks 4
+
+                  echo ""
+                  echo "✅ Thresholds recalculated"
+                  python3 /app/scripts/core/peak_detection.py --show-thresholds
+
+              env:
+                # === Database (only DB needed for threshold calc) ===
+                - name: ENVIRONMENT
+                  value: {{ .Values.env.ENVIRONMENT | quote }}
+                - name: DB_HOST
+                  value: {{ .Values.env.DB_HOST | quote }}
+                - name: DB_PORT
+                  value: {{ .Values.env.DB_PORT | quote }}
+                - name: DB_NAME
+                  value: {{ .Values.env.DB_NAME | quote }}
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_PASSWORD
+                - name: DB_DDL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_DDL_USER
+                - name: DB_DDL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_DDL_PASSWORD
+
+                # === Peak Detection Config ===
+                - name: PERCENTILE_LEVEL
+                  value: {{ .Values.env.PERCENTILE_LEVEL | quote }}
+                - name: MIN_SAMPLES_FOR_THRESHOLD
+                  value: {{ .Values.env.MIN_SAMPLES_FOR_THRESHOLD | quote }}
+                - name: DEFAULT_THRESHOLD
+                  value: {{ .Values.env.DEFAULT_THRESHOLD | quote }}
+
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+
           imagePullSecrets:
             - name: dockerhub

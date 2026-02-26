@@ -1,0 +1,179 @@
+{{/*
+=============================================================================
+Log Analyzer - Init Job (one-shot bootstrap)
+=============================================================================
+Spusteni:
+  helm template . | kubectl apply -f - -l job-type=init
+  nebo:
+  kubectl apply -f <rendered-job-init.yaml>
+
+Po dokonceni smazat:
+  kubectl delete job {{ .Values.app.name }}-init -n {{ .Values.namespace }}
+=============================================================================
+*/}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.app.name }}-init
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    job-type: init
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .Values.init.activeDeadlineSeconds | default 14400 }}
+  ttlSecondsAfterFinished: 86400  # auto-cleanup po 24h
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.app.name }}
+        job-type: init
+    spec:
+      serviceAccountName: log-analyzer
+      restartPolicy: Never
+
+      containers:
+        - name: {{ .Values.app.name }}-init
+          image: {{ .Values.app.image }}
+          imagePullPolicy: {{ .Values.app.imagePullPolicy }}
+          workingDir: /app
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+
+              echo "============================================"
+              echo "  AI Log Analyzer - P93/CAP Bootstrap"
+              echo "============================================"
+              echo ""
+
+              # Step 1: Backfill historical data
+              BACKFILL_DAYS={{ .Values.init.backfillDays | default 21 }}
+              BACKFILL_WORKERS={{ .Values.init.backfillWorkers | default 4 }}
+              echo "📊 Step 1/3: Backfill ${BACKFILL_DAYS} days (${BACKFILL_WORKERS} workers)..."
+              echo "  This populates peak_investigation + peak_raw_data"
+              echo ""
+              python3 /app/scripts/backfill.py \
+                --days ${BACKFILL_DAYS} \
+                --workers ${BACKFILL_WORKERS} \
+                --force \
+                --output /app/scripts/reports
+
+              echo ""
+              echo "============================================"
+
+              # Step 2: Calculate P93/CAP thresholds
+              THRESHOLD_WEEKS={{ .Values.init.thresholdWeeks | default 3 }}
+              echo "📈 Step 2/3: Calculate P93/CAP thresholds (last ${THRESHOLD_WEEKS} weeks)..."
+              echo ""
+              python3 /app/scripts/core/calculate_peak_thresholds.py \
+                --weeks ${THRESHOLD_WEEKS}
+
+              echo ""
+              echo "============================================"
+
+              # Step 3: Verify
+              echo "✅ Step 3/3: Verify thresholds..."
+              echo ""
+              python3 /app/scripts/core/peak_detection.py --show-thresholds
+
+              echo ""
+              echo "============================================"
+              echo "  Bootstrap DONE"
+              echo "  Regular phase CronJob can now use P93/CAP"
+              echo "============================================"
+
+          env:
+            # === Application Config ===
+            - name: ENVIRONMENT
+              value: {{ .Values.env.ENVIRONMENT | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.LOG_LEVEL | default "INFO" | quote }}
+            - name: REGISTRY_DIR
+              value: {{ .Values.env.REGISTRY_DIR | quote }}
+            - name: EXPORT_DIR
+              value: {{ .Values.env.EXPORT_DIR | quote }}
+
+            # === Database ===
+            - name: DB_HOST
+              value: {{ .Values.env.DB_HOST | quote }}
+            - name: DB_PORT
+              value: {{ .Values.env.DB_PORT | quote }}
+            - name: DB_NAME
+              value: {{ .Values.env.DB_NAME | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: DB_PASSWORD
+            - name: DB_DDL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: DB_DDL_USER
+            - name: DB_DDL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: DB_DDL_PASSWORD
+
+            # === Elasticsearch ===
+            - name: ES_HOST
+              value: {{ .Values.env.ES_HOST | quote }}
+            - name: ES_INDEX
+              value: {{ .Values.env.ES_INDEX | quote }}
+            - name: ES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: ES_USER
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.app.secretName }}
+                  key: ES_PASSWORD
+
+            # === Peak Detection ===
+            - name: PERCENTILE_LEVEL
+              value: {{ .Values.env.PERCENTILE_LEVEL | quote }}
+            - name: MIN_SAMPLES_FOR_THRESHOLD
+              value: {{ .Values.env.MIN_SAMPLES_FOR_THRESHOLD | quote }}
+            - name: DEFAULT_THRESHOLD
+              value: {{ .Values.env.DEFAULT_THRESHOLD | quote }}
+            - name: SPIKE_THRESHOLD
+              value: {{ .Values.env.SPIKE_THRESHOLD | quote }}
+            - name: EWMA_ALPHA
+              value: {{ .Values.env.EWMA_ALPHA | quote }}
+            - name: WINDOW_MINUTES
+              value: {{ .Values.env.WINDOW_MINUTES | quote }}
+
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.claimName }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+
+      imagePullSecrets:
+        - name: dockerhub

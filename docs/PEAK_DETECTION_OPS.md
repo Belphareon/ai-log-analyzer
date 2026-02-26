@@ -47,7 +47,34 @@ Pipeline (Phase C)
 
 ## Prvni nasazeni (bootstrap)
 
-### 1. Naplnit historicka data (14-21 dni)
+### Varianta A: K8s Init Job (doporuceno)
+
+Automaticky provede backfill + vypocet thresholdu + verifikaci:
+
+```bash
+# 1. Renderovat a spustit init job
+helm template k8s/ | kubectl apply -f - -l job-type=init
+
+# 2. Sledovat prubeh
+kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
+
+# 3. Po uspesnem dokonceni smazat job
+kubectl delete job log-analyzer-init -n ai-log-analyzer
+```
+
+Konfigurace v `k8s/values.yaml`:
+
+```yaml
+init:
+  backfillDays: 21        # kolik dni zpetne
+  backfillWorkers: 4      # paralelni workery
+  thresholdWeeks: 3       # z kolika tydnu pocitat P93/CAP
+  activeDeadlineSeconds: 14400  # max 4 hodiny
+```
+
+### Varianta B: Manualne (lokalne / ad-hoc)
+
+#### 1. Naplnit historicka data (14-21 dni)
 
 ```bash
 # Backfill 21 dni — plni peak_investigation + peak_raw_data
@@ -56,7 +83,7 @@ python3 scripts/backfill.py --days 21 --workers 4
 
 Backfill automaticky uklada 15-min namespace totals do `peak_raw_data`.
 
-### 2. Vypocitat thresholdy
+#### 2. Vypocitat thresholdy
 
 ```bash
 # Vypocitat P93/CAP z nasbiranych dat (posledni 3 tydny)
@@ -66,7 +93,7 @@ python3 scripts/core/calculate_peak_thresholds.py --weeks 3
 python3 scripts/core/calculate_peak_thresholds.py --weeks 3 --dry-run
 ```
 
-### 3. Overit thresholdy
+#### 3. Overit thresholdy
 
 ```bash
 # Zobrazit aktualni thresholdy z DB
@@ -77,7 +104,7 @@ python3 scripts/core/peak_detection.py --check 500 pcb-sit-01-app 0
 #                                             ^value ^namespace    ^DOW(0=Po)
 ```
 
-### 4. Spustit regular phase
+#### 4. Spustit regular phase
 
 ```bash
 python3 scripts/regular_phase.py
@@ -101,13 +128,15 @@ python3 scripts/regular_phase.py --window 15
 - Pouziva P93/CAP thresholdy z DB
 - Pokud thresholdy nejsou v DB, fallback na EWMA
 
-### Prepocet thresholdu (tydenne, K8s CronJob)
+### Prepocet thresholdu (tydenne, K8s CronJob `log-analyzer-thresholds`)
 
 ```bash
+# Automaticky: CronJob bezi kazdy nedele 03:00 UTC
+# Manualne spusteni:
 python3 scripts/core/calculate_peak_thresholds.py --weeks 4
 ```
 
-Doporuceno: jednou tydne (napr. nedele rano).
+K8s CronJob `log-analyzer-thresholds` bezi automaticky kazdy nedele 03:00 UTC.
 
 ### Backfill (ad-hoc, po vykonu dat)
 
@@ -226,6 +255,27 @@ FROM ailog_peak.peak_investigation
 WHERE is_spike = true
 ORDER BY timestamp DESC
 LIMIT 20;
+```
+
+---
+
+## K8s Jobs prehled
+
+| Job | Typ | Schedule | Ucel |
+|-----|-----|----------|------|
+| `log-analyzer` | CronJob | `*/15 * * * *` | Regular phase (15-min detekce) |
+| `log-analyzer-backfill` | CronJob | `0 9 * * *` | Denni backfill + Confluence publish |
+| `log-analyzer-thresholds` | CronJob | `0 3 * * 0` | Tydenny prepocet P93/CAP |
+| `log-analyzer-init` | Job | one-shot | Bootstrap: backfill + thresholds + verify |
+
+```bash
+# Sledovani jobu
+kubectl get jobs -n ai-log-analyzer -l app=log-analyzer
+kubectl get cronjobs -n ai-log-analyzer
+
+# Logy posledniho runu
+kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
+kubectl logs -f $(kubectl get pods -n ai-log-analyzer -l job-type=thresholds --sort-by=.metadata.creationTimestamp -o name | tail -1) -n ai-log-analyzer
 ```
 
 ---
