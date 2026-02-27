@@ -163,12 +163,26 @@ Results:
         
         body = f"{peak_message.strip()}\n"
         
-        # HTML version with formatted styling
+        # Wiki links
+        known_peaks_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update"
+        recent_incidents_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
+        
+        body += f"\nDetaily known peaku ZDE: {known_peaks_url}\n"
+        
+        # HTML version with formatted styling and clickable links
         html_body = f"""
         <html>
         <body style="font-family: Arial, sans-serif; color: #333; background-color: #f9f9f9; margin: 0; padding: 20px;">
             <div style="max-width: 800px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; border-left: 4px solid #ff9800;">
                 <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px;">{peak_message}</pre>
+                <p style="margin-top: 20px;">
+                    <a href="{known_peaks_url}" style="background: #ff9800; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block; margin-right: 10px;">
+                        📖 Detaily known peaku
+                    </a>
+                    <a href="{recent_incidents_url}" style="background: #0066cc; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                        📊 Recent Incidents
+                    </a>
+                </p>
                 <p style="color: #666; font-size: 12px; margin-top: 20px;">
                     Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 </p>
