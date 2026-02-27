@@ -1,3 +1,135 @@
+- id: PK-000052
+  problem_key: PEAK:unknown:unknown:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T10:25:01.671000+00:00'
+  last_seen: '2026-02-27T12:09:49.226000+00:00'
+  occurrences: 26
+  fingerprints:
+  - 0936f4800b695658
+  - c9339d004d825796
+  - cedd991b96599559
+  - 5eef7ca9e3ac275a
+  - 9798152970e2e99e
+  - ee2ceebac58bded6
+  - 7b4c785cc140e8a5
+  - 872697063d6a8a35
+  - 78aef438ddd0d781
+  - 189c3ad067afd625
+  - 3611d44fd1690fe5
+  - 5966e56a27ea5e1c
+  - 86afc58815bdaca1
+  - 23c1b6bddb6ce13c
+  - f31f9bba3154b1b9
+  - 44cd00806891d924
+  - 1cadf29e5eec339e
+  - d125d7694e24ef8a
+  - 33c2ecd537f815ee
+  - 27d9b2c407385032
+  - 8747bedef4b532be
+  - f355896778a427ef
+  - 003c32709a28210b
+  - 77c00889b63276af
+  affected_apps:
+  - bl-pcb-v1
+  - feapi-pca-v1
+  affected_namespaces:
+  - pca-dev-01-app
+  - pca-sit-01-app
+  - pcb-dev-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 3
+  max_ratio: 909994695178722.1
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000046
+  problem_key: PEAK:business:unknown:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-23T09:36:07.552000+00:00'
+  last_seen: '2026-02-27T12:09:48.413000+00:00'
+  occurrences: 34
+  fingerprints:
+  - b6547110b3d9c00e
+  - 1a6772e8af86482e
+  - 870d010c3dc689f9
+  - 056ff3be28ead6d8
+  - 9882fe300e44ed0e
+  - 2fe7484a83e1ad0c
+  - bf743ac5b40b0367
+  - 505c3c7fb9d23217
+  - 25fecb6e4143989c
+  - 6ed642010dc63a5c
+  - 477fac48744336b8
+  - 00956e46f1f888f7
+  - f1620fadb45e93ba
+  - 03f558c13f0982e4
+  - 0b3eb14008c352b3
+  - 9a7382ffaf9914a8
+  - 13f20372a4354159
+  - f5721d95237c4fa2
+  - 41c0b5281f80690a
+  - aab7528e6408f466
+  - 2e3e39e4b455f329
+  - 229c8a645783a360
+  - 3420e96eed05a328
+  - 11e38e742075db74
+  affected_apps:
+  - bl-pcb-v1
+  - feapi-pca-v1
+  affected_namespaces:
+  - pca-dev-01-app
+  - pca-sit-01-app
+  - pcb-dev-01-app
+  - pcb-fat-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 10329
+  max_ratio: 276769887598703.9
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000060
+  problem_key: PEAK:unknown:click2pay:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-27T12:07:02.223000+00:00'
+  last_seen: '2026-02-27T12:07:02.763000+00:00'
+  occurrences: 1
+  fingerprints:
+  - 19d08a01fb3eeeae
+  affected_apps:
+  - bl-pcb-click2pay-v1
+  affected_namespaces:
+  - pcb-fat-01-app
+  - pcb-uat-01-app
+  max_value: 2
+  max_ratio: 1.387950524372134
+  status: OPEN
+  jira: null
+  notes: null
+- id: PK-000053
+  problem_key: PEAK:business:event_processing:spike
+  peak_type: SPIKE
+  first_seen: '2026-02-24T11:05:57.378000+00:00'
+  last_seen: '2026-02-27T12:07:02.644000+00:00'
+  occurrences: 6
+  fingerprints:
+  - 6c37f0190fafa0e7
+  - c27e5997f0493092
+  - db97b9b84e0e2798
+  - 223fb986db4d692e
+  affected_apps:
+  - bl-pcb-event-processor-relay-v1
+  affected_namespaces:
+  - pcb-dev-01-app
+  - pcb-fat-01-app
+  - pcb-sit-01-app
+  - pcb-uat-01-app
+  max_value: 3438
+  max_ratio: 4.820467503424121
+  status: OPEN
+  jira: null
+  notes: null
 - id: PK-000043
   problem_key: PEAK:unknown:card_servicing:spike
   peak_type: SPIKE
@@ -271,38 +403,6 @@
   - pcb-ch-sit-01-app
   max_value: 18
   max_ratio: 35.65415883738512
-  status: OPEN
-  jira: null
-  notes: null
-- id: PK-000052
-  problem_key: PEAK:unknown:unknown:spike
-  peak_type: SPIKE
-  first_seen: '2026-02-23T10:25:01.671000+00:00'
-  last_seen: '2026-02-25T11:25:06.611000+00:00'
-  occurrences: 14
-  fingerprints:
-  - 0936f4800b695658
-  - c9339d004d825796
-  - cedd991b96599559
-  - 5eef7ca9e3ac275a
-  - 9798152970e2e99e
-  - ee2ceebac58bded6
-  - 7b4c785cc140e8a5
-  - 872697063d6a8a35
-  - 78aef438ddd0d781
-  - 189c3ad067afd625
-  - 3611d44fd1690fe5
-  - 5966e56a27ea5e1c
-  affected_apps:
-  - bl-pcb-v1
-  - feapi-pca-v1
-  affected_namespaces:
-  - pca-sit-01-app
-  - pcb-dev-01-app
-  - pcb-sit-01-app
-  - pcb-uat-01-app
-  max_value: 3
-  max_ratio: 909994695178722.1
   status: OPEN
   jira: null
   notes: null
@@ -591,66 +691,6 @@
   - pcb-uat-01-app
   max_value: 10339
   max_ratio: 0.7918806682224727
-  status: OPEN
-  jira: null
-  notes: null
-- id: PK-000046
-  problem_key: PEAK:business:unknown:spike
-  peak_type: SPIKE
-  first_seen: '2026-02-23T09:36:07.552000+00:00'
-  last_seen: '2026-02-25T10:37:54.535000+00:00'
-  occurrences: 22
-  fingerprints:
-  - b6547110b3d9c00e
-  - 1a6772e8af86482e
-  - 870d010c3dc689f9
-  - 056ff3be28ead6d8
-  - 9882fe300e44ed0e
-  - 2fe7484a83e1ad0c
-  - bf743ac5b40b0367
-  - 505c3c7fb9d23217
-  - 25fecb6e4143989c
-  - 6ed642010dc63a5c
-  - 477fac48744336b8
-  - 00956e46f1f888f7
-  - f1620fadb45e93ba
-  - 03f558c13f0982e4
-  - 0b3eb14008c352b3
-  - 9a7382ffaf9914a8
-  affected_apps:
-  - bl-pcb-v1
-  - feapi-pca-v1
-  affected_namespaces:
-  - pca-sit-01-app
-  - pcb-dev-01-app
-  - pcb-fat-01-app
-  - pcb-sit-01-app
-  - pcb-uat-01-app
-  max_value: 10329
-  max_ratio: 276769887598703.9
-  status: OPEN
-  jira: null
-  notes: null
-- id: PK-000053
-  problem_key: PEAK:business:event_processing:spike
-  peak_type: SPIKE
-  first_seen: '2026-02-24T11:05:57.378000+00:00'
-  last_seen: '2026-02-25T10:36:35.609000+00:00'
-  occurrences: 4
-  fingerprints:
-  - 6c37f0190fafa0e7
-  - c27e5997f0493092
-  - db97b9b84e0e2798
-  - 223fb986db4d692e
-  affected_apps:
-  - bl-pcb-event-processor-relay-v1
-  affected_namespaces:
-  - pcb-dev-01-app
-  - pcb-fat-01-app
-  - pcb-sit-01-app
-  - pcb-uat-01-app
-  max_value: 3438
-  max_ratio: 3.7605678495254784
   status: OPEN
   jira: null
   notes: null

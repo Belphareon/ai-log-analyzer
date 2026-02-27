@@ -171,6 +171,10 @@ class TeamsNotifier:
             print("⚠️ Email notifier not enabled")
             return False
 
+        # If there's a peak message (summary_override), use the new dedicated method for regular phase alerts
+        if summary_override and summary_override.strip().startswith("[Log Analyzer]"):
+            return self.email_notifier.send_regular_phase_peak_alert(summary_override)
+
         report_snippet = self._build_report_snippet(problem_report, peaks_info=peaks_info)
 
         summary = summary_override or report_snippet or (

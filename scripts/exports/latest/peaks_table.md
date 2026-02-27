@@ -1,11 +1,14 @@
 # Peak Events Table
 
-**Generated:** 2026-02-25 11:39:51
-**Total peaks:** 59
+**Generated:** 2026-02-27 12:26:25
+**Total peaks:** 60
 
 | ID | Category | Type | Apps | Peak Ratio | Last Seen | Status |
 |-------|----------|------|------|------------|-----------|--------|
-| PK-000052 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 909994695178722.1x | 2026-02-25 | OPEN |
+| PK-000052 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 909994695178722.1x | 2026-02-27 | OPEN |
+| PK-000046 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 276769887598703.9x | 2026-02-27 | OPEN |
+| PK-000053 | PEAK | SPIKE | bl-pcb-event-processor-re... | 4.8x | 2026-02-27 | OPEN |
+| PK-000060 | PEAK | SPIKE | bl-pcb-click2pay-v1 | 1.4x | 2026-02-27 | OPEN |
 | PK-000043 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 3661919.4x | 2026-02-25 | OPEN |
 | PK-000007 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 2.9x | 2026-02-25 | OPEN |
 | PK-000005 | PEAK | BURST | bff-pcb-ch-card-opening-v... | 3.0x | 2026-02-25 | OPEN |
@@ -20,8 +23,6 @@
 | PK-000057 | PEAK | SPIKE | bl-pcb-notification-v1 | 7.4x | 2026-02-25 | OPEN |
 | PK-000002 | PEAK | BURST | bl-pcb-v1, feapi-pca-v1 | 0.0x | 2026-02-25 | OPEN |
 | PK-000045 | PEAK | SPIKE | bff-pcb-ch-card-opening-v... | 0.8x | 2026-02-25 | OPEN |
-| PK-000046 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 276769887598703.9x | 2026-02-25 | OPEN |
-| PK-000053 | PEAK | SPIKE | bl-pcb-event-processor-re... | 3.8x | 2026-02-25 | OPEN |
 | PK-000054 | PEAK | SPIKE | bl-pcb-v1 | 0.9x | 2026-02-25 | OPEN |
 | PK-000056 | PEAK | SPIKE | bl-pcb-v1, feapi-pca-v1 | 28792333174285.3x | 2026-02-25 | OPEN |
 | PK-000055 | PEAK | SPIKE | bl-pcb-event-processor-re... | 6.7x | 2026-02-25 | OPEN |

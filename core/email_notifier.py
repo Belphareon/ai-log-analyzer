@@ -79,10 +79,10 @@ class EmailNotifier:
         
         subject = f"[AI Log Analyzer] {status} - Backfill Complete ({days_processed} days)"
         
-                if summary:
-                    body = f"{summary.strip()}\n"
-                else:
-                        body = f"""AI Log Analyzer - Backfill Completed
+        if summary:
+            body = f"{summary.strip()}\n"
+        else:
+            body = f"""AI Log Analyzer - Backfill Completed
 {'='*70}
 
 Status: {status}
@@ -97,13 +97,13 @@ Results:
 
 """
         
-                # Wiki link
-                wiki_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
+        # Wiki link
+        wiki_url = "https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis"
 
-                body += f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                body += f"\nDetaily ZDE: {wiki_url}\n"
+        body += f"\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        body += f"\nDetaily ZDE: {wiki_url}\n"
 
-                # HTML version with clickable link
+        # HTML version with clickable link
         if summary:
             html_summary = f'<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">{summary}</pre>'
             html_body = f"""
@@ -152,3 +152,30 @@ Results:
             """
         
         return self._send_email(subject, body, html_body)
+
+    def send_regular_phase_peak_alert(
+        self,
+        peak_message: str
+    ) -> bool:
+        """Send peak alert notification for regular 15-minute phase via email."""
+        
+        subject = "[Log Analyzer] ⚠️ PEAK ALERTING - (last 15 mins)"
+        
+        body = f"{peak_message.strip()}\n"
+        
+        # HTML version with formatted styling
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; color: #333; background-color: #f9f9f9; margin: 0; padding: 20px;">
+            <div style="max-width: 800px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; border-left: 4px solid #ff9800;">
+                <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px;">{peak_message}</pre>
+                <p style="color: #666; font-size: 12px; margin-top: 20px;">
+                    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return self._send_email(subject, body, html_body)
+

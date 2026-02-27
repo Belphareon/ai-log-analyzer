@@ -213,28 +213,26 @@ def _build_peak_notification(
 
     icon = _severity_icon_for_peak(problem.max_score, ratio)
 
-    header_title = "Peak CONTINUES" if is_continues else "Peak"
+    # NEW FORMAT (simplified for regular phase)
     lines = [
+        "[Log Analyzer] ⚠️ PEAK ALERTING - (last 15 mins)",
         "─" * 50,
-        f"{icon} {header_title}: {problem.category} / {problem.error_class} — {known_label}",
+        f"{icon} Peak: {problem.category} / {problem.error_class} — {known_label}",
         "─" * 50,
     ]
 
-    lines.append(f"Severity: {problem.max_severity.upper()} (score: {problem.max_score:.0f})")
+    # Known peak status
+    known_status = "YES" if is_known else "NO"
+    lines.append(f"Known peak - {known_status}")
+    
     lines.append(f"Occurrences: {problem.total_occurrences:,} across {problem.incident_count} incidents")
-
-    if is_continues:
-        lines.append(f"Window: {peak_window_start_text}")
-    else:
-        lines.append(f"Window: {peak_window_start_text} - {peak_window_end_text}")
 
     if problem.first_seen and problem.last_seen:
         duration_sec = int((problem.last_seen - problem.first_seen).total_seconds())
-        lines.append(
-            f"Event time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - "
-            f"{problem.last_seen.strftime('%H:%M')} ({duration_sec}s)"
-        )
-
+        event_time = f"Event time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - {problem.last_seen.strftime('%H:%M')}"
+        lines.append(event_time)
+        lines.append(f"  Duration: {duration_sec}s")
+    
     ns_count = len(problem.namespaces)
     if ns_count <= 1:
         lines.append(f"Scope: {len(problem.apps)} apps")
@@ -282,6 +280,10 @@ def _build_peak_notification(
                 minutes = total_sec // 60
                 seconds = total_sec % 60
                 lines.append(f"  Duration: {minutes}m {seconds}s")
+
+    # Footer with wiki link
+    lines.append("")
+    lines.append("Detaily known peaku ZDE - https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update")
 
     return "\n".join(lines)
 

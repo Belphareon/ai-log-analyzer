@@ -97,3 +97,15 @@ Results:
         body += f"\nDetaily ZDE: {wiki_url}\n"
         
         return self._send_email(subject, body)
+
+    def send_regular_phase_peak_alert(
+        self,
+        peak_message: str
+    ) -> bool:
+        """Send peak alert notification for regular 15-minute phase via email."""
+        
+        subject = "[Log Analyzer] ⚠️ PEAK ALERTING - (last 15 mins)"
+        
+        body = f"{peak_message.strip()}\n"
+        
+        return self._send_email(subject, body)

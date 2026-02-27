@@ -1,7 +1,7 @@
 # Known Peaks Registry
 
-_Last updated: 2026-02-25 12:39:52_
-_Total peaks: 59_
+_Last updated: 2026-02-27 13:26:26_
+_Total peaks: 60_
 
 ---
 
@@ -581,7 +581,63 @@ _Total peaks: 59_
 
 ---
 
-## SPIKE (18 peaks)
+## SPIKE (19 peaks)
+
+### PK-000052
+
+**Problem Key:** `PEAK:unknown:unknown:spike`
+**First seen:** 2026-02-23 10:25
+**Last seen:** 2026-02-27 12:09
+**Occurrences:** 26
+**Max value:** 3.00
+**Max ratio:** 909994695178722.12x
+
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+---
+
+### PK-000046
+
+**Problem Key:** `PEAK:business:unknown:spike`
+**First seen:** 2026-02-23 09:36
+**Last seen:** 2026-02-27 12:09
+**Occurrences:** 34
+**Max value:** 10329.00
+**Max ratio:** 276769887598703.91x
+
+**Apps:** bl-pcb-v1, feapi-pca-v1
+**Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+---
+
+### PK-000060
+
+**Problem Key:** `PEAK:unknown:click2pay:spike`
+**First seen:** 2026-02-27 12:07
+**Last seen:** 2026-02-27 12:07
+**Occurrences:** 1
+**Max value:** 2.00
+**Max ratio:** 1.39x
+
+**Apps:** bl-pcb-click2pay-v1
+**Namespaces:** pcb-fat-01-app, pcb-uat-01-app
+
+---
+
+### PK-000053
+
+**Problem Key:** `PEAK:business:event_processing:spike`
+**First seen:** 2026-02-24 11:05
+**Last seen:** 2026-02-27 12:07
+**Occurrences:** 6
+**Max value:** 3438.00
+**Max ratio:** 4.82x
+
+**Apps:** bl-pcb-event-processor-relay-v1
+**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+
+---
 
 ### PK-000043
 
@@ -608,20 +664,6 @@ _Total peaks: 59_
 
 **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1
 **Namespaces:** pcb-ch-dev-01-app, pcb-ch-sit-01-app
-
----
-
-### PK-000052
-
-**Problem Key:** `PEAK:unknown:unknown:spike`
-**First seen:** 2026-02-23 10:25
-**Last seen:** 2026-02-25 11:25
-**Occurrences:** 14
-**Max value:** 3.00
-**Max ratio:** 909994695178722.12x
-
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 ---
 
@@ -748,34 +790,6 @@ _Total peaks: 59_
 
 **Apps:** bff-pcb-ch-card-opening-v2, bff-pcb-ch-card-sensitive-data-v1, bff-pcb-ch-card-servicing-admin-v1, bff-pcb-ch-card-servicing-init-v1, bff-pcb-ch-card-servicing-notice-v1
 **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-ch-dev-01-app, pcb-ch-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
----
-
-### PK-000046
-
-**Problem Key:** `PEAK:business:unknown:spike`
-**First seen:** 2026-02-23 09:36
-**Last seen:** 2026-02-25 10:37
-**Occurrences:** 22
-**Max value:** 10329.00
-**Max ratio:** 276769887598703.91x
-
-**Apps:** bl-pcb-v1, feapi-pca-v1
-**Namespaces:** pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-
----
-
-### PK-000053
-
-**Problem Key:** `PEAK:business:event_processing:spike`
-**First seen:** 2026-02-24 11:05
-**Last seen:** 2026-02-25 10:36
-**Occurrences:** 4
-**Max value:** 3438.00
-**Max ratio:** 3.76x
-
-**Apps:** bl-pcb-event-processor-relay-v1
-**Namespaces:** pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
 
 ---
 
