@@ -172,6 +172,134 @@ def _select_peak_problem(problems: Dict[str, Any]) -> Optional[Any]:
     return peak_problems[0]
 
 
+def _send_peak_alert_email(
+    problem: Any,
+    trace_flows: Dict[str, List[Any]],
+    known_peaks: Dict[str, Any],
+    window_start: datetime,
+    window_end: datetime,
+    window_minutes: int
+) -> bool:
+    """Send detailed email alert for a peak.
+    
+    Extracts all relevant information from problem object and calls
+    the new detailed email method from EmailNotifier.
+    """
+    if not problem:
+        return False
+    
+    try:
+        from core.email_notifier import EmailNotifier
+        
+        # Calculate peak metadata
+        peak_type = 'SPIKE' if problem.has_spike else 'BURST'
+        peak_key = f"PEAK:{problem.category}:{problem.flow}:{peak_type.lower()}"
+        
+        known_peak = known_peaks.get(peak_key)
+        is_known = known_peak is not None
+        is_continues = False
+        if known_peak and known_peak.last_seen:
+            is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes))
+        
+        peak_id = known_peak.id if is_known else ""
+        
+        # Calculate severity icon
+        ratio = None
+        for inc in problem.incidents:
+            if not (inc.flags.is_spike or inc.flags.is_burst):
+                continue
+            if inc.stats.baseline_rate > 0:
+                r = inc.stats.current_rate / inc.stats.baseline_rate
+                if ratio is None or r > ratio:
+                    ratio = r
+        
+        if ratio is not None:
+            if ratio >= 100:
+                icon = '🔴'
+            elif ratio >= 10:
+                icon = '🟠'
+            elif ratio >= 3:
+                icon = '🟡'
+            else:
+                icon = '⚪'
+        else:
+            if problem.max_score >= 80:
+                icon = '🔴'
+            elif problem.max_score >= 60:
+                icon = '🟠'
+            elif problem.max_score >= 40:
+                icon = '🟡'
+            else:
+                icon = '⚪'
+        
+        # Extract trace steps
+        flow_list = trace_flows.get(problem.problem_key, []) if trace_flows else []
+        flow = flow_list[0] if flow_list else None
+        trace_steps = []
+        
+        if flow and getattr(flow, 'steps', None):
+            steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
+            for step in steps:
+                trace_steps.append({
+                    'app': getattr(step, 'app', '?'),
+                    'message': getattr(step, 'message', '')
+                })
+        
+        # Root cause (only for NEW peaks)
+        root_cause = None
+        if not is_continues and getattr(problem, 'trace_root_cause', None):
+            rc = problem.trace_root_cause
+            root_cause = {
+                'service': rc.get('service', '?'),
+                'message': rc.get('message', '')
+            }
+        
+        # Propagation (only for NEW peaks)
+        propagation_info = None
+        if not is_continues:
+            propagation = getattr(problem, 'propagation_result', None)
+            if propagation and propagation.service_count > 1:
+                propagation_info = {
+                    'type': propagation.propagation_type,
+                    'service_count': propagation.service_count,
+                    'duration_ms': propagation.propagation_time_ms
+                }
+        
+        # Send detailed email
+        email_notifier = EmailNotifier()
+        if email_notifier.is_enabled():
+            success = email_notifier.send_regular_phase_peak_alert_detailed(
+                peak_category=problem.category,
+                peak_error_class=problem.error_class,
+                is_known=is_known,
+                is_continues=is_continues,
+                peak_id=peak_id,
+                error_count=problem.total_occurrences,
+                window_start=window_start,
+                window_end=window_end,
+                affected_apps=sorted(problem.apps) if problem.apps else [],
+                affected_namespaces=sorted(problem.namespaces) if problem.namespaces else [],
+                trace_steps=trace_steps,
+                root_cause=root_cause,
+                propagation_info=propagation_info,
+                severity_icon=icon
+            )
+            
+            if success:
+                print("✅ Peak alert email sent")
+                return True
+            else:
+                print("⚠️ Peak alert email failed")
+                return False
+        else:
+            print("⚠️ Email notifier not enabled")
+            return False
+    
+    except Exception as e:
+        print(f"⚠️ Error sending peak alert email: {e}")
+        return False
+
+
 def _build_peak_notification(
     problem: Any,
     trace_flows: Dict[str, List[Any]],
@@ -816,87 +944,30 @@ def run_regular_phase(
     # ==========================================================================
     # SEND PEAKS NOTIFICATION (EMAIL ONLY)
     # ==========================================================================
-    if HAS_TEAMS and collection.incidents:
+    if collection.incidents:
         try:
-            # OPRAVA: Rozšířit definici "peaks" aby včetně high-score problémů
-            # Původní: pouze spike OR burst
-            # Nově: spike OR burst OR high-score anomalies
+            # Detect peaks: spike OR burst OR high-score anomalies
             peaks_detected = sum(
                 1 for inc in collection.incidents
                 if (inc.flags.is_spike or inc.flags.is_burst or 
-                    getattr(inc, 'score', 0) >= 70)  # Add high-score filter
-            )
-            spikes_count = sum(1 for inc in collection.incidents if inc.flags.is_spike)
-            bursts_count = sum(1 for inc in collection.incidents if inc.flags.is_burst)
-            high_score_count = sum(
-                1 for inc in collection.incidents 
-                if getattr(inc, 'score', 0) >= 70 and not (inc.flags.is_spike or inc.flags.is_burst)
+                    getattr(inc, 'score', 0) >= 70)
             )
 
             if peaks_detected > 0 and enriched_problems:
                 peak_problem = _select_peak_problem(enriched_problems)
-                peak_message = _build_peak_notification(
-                    peak_problem,
-                    peak_trace_flows or {},
-                    known_peaks_snapshot,
-                    window_start,
-                    window_end,
-                    window_minutes
-                )
-                notifier = TeamsNotifier()
-                if notifier.is_enabled():
-                    registry_stats = _registry.get_stats() if _registry else {}
-                    notifier.send_regular_phase_completed(
-                        new_incidents=result.get('incidents', 0),
-                        total_processed=collection.total_incidents,
-                        peaks_detected=peaks_detected,
-                        errors=result.get('error_count', 0),
-                        registry_updated=bool(collection.incidents),
-                        duration_seconds=(datetime.now(timezone.utc) - now).total_seconds(),
-                        problem_report=None,
-                        peaks_info={
-                            'total': peaks_detected,
-                            'new': registry_stats.get('new_peaks_added', 0),
-                            'spikes': spikes_count,
-                            'bursts': bursts_count,
-                            'high_score': high_score_count  # Add to info
-                        },
-                        summary_override=peak_message
+                if peak_problem:
+                    # SEND DETAILED EMAIL ALERT FOR TOP PEAK
+                    _send_peak_alert_email(
+                        peak_problem,
+                        peak_trace_flows or {},
+                        known_peaks_snapshot,
+                        window_start,
+                        window_end,
+                        window_minutes
                     )
-                    print("✅ Peaks notification sent")
+                    
         except Exception as e:
-            print(f"⚠️ Teams notification failed: {e}")
-            # Fallback to email for critical alerts
-            try:
-                from core.email_notifier import EmailNotifier
-                email_notifier = EmailNotifier()
-                if email_notifier.is_enabled():
-                    critical_count = sum(
-                        1 for inc in collection.incidents 
-                        if inc.flags.is_spike or inc.flags.is_burst or inc.score >= 80
-                    )
-                    email_body = f"""AI Log Analyzer - CRITICAL ALERT
-
-Window: {window_start.strftime('%H:%M')} - {window_end.strftime('%H:%M')}
-
-⚠️ CRITICAL ISSUES DETECTED
-
-  • Critical Issues: {critical_count}
-  • Total Incidents: {collection.total_incidents}
-  • Spikes: {sum(1 for inc in collection.incidents if inc.flags.is_spike)}
-  • Bursts: {sum(1 for inc in collection.incidents if inc.flags.is_burst)}
-
-Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-See wiki for details: https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis
-"""
-                    email_notifier._send_email(
-                        f"[AI Log Analyzer] ⚠️ CRITICAL ALERT - {critical_count} issues detected",
-                        email_body
-                    )
-                    print("📧 Critical alert sent via email")
-            except Exception as email_err:
-                print(f"⚠️ Email fallback also failed: {email_err}")
+            print(f"⚠️ Peak alert failed: {e}")
     
     return result
 
