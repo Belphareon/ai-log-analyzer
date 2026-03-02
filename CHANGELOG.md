@@ -4,6 +4,48 @@ Veskere zmeny projektu AI Log Analyzer, serazeno od nejnovejsiho.
 
 ---
 
+## v6.1.1 (2026-03-02) - r40 Peak Notification and Counting Fixes
+
+Zamereno na regular-phase peak notifikace, konzistenci threshold labelu a presnost metrik peaku.
+
+### Opraveno
+
+- **Detailed peak email template (`scripts/core/email_notifier.py`)**
+  - Pridana metoda `send_regular_phase_peak_alert_detailed()` s HTML/text variantou.
+  - Obsahuje pouze data konkretniho peaku: NEW/KNOWN status, time range, category/error_class,
+    raw error count, affected apps/namespaces, behavior flow.
+  - Root cause + propagation se posilaji pouze pro NEW peak.
+
+- **Peak continuity time range (`scripts/regular_phase.py`)**
+  - Pro `KNOWN (continued)` se zacatek intervalu bere z `known_peak.first_seen` zarovnaneho do okna.
+  - V notifikaci je tedy skutecny rozsah peaku pres vice cron oken.
+
+- **Known peaks occurrences semantics (`scripts/core/problem_registry.py`)**
+  - `occurrences` je nyni pocet vyskytu peaku v case (per 15m bucket), ne soucet incidentu.
+  - Pridano `raw_error_count` pro agregaci poctu raw error logu.
+
+- **Peaks export metrics (`scripts/exports/table_exporter.py`)**
+  - `peak_count` = raw error count (`raw_error_count`).
+  - `occurrence_count` = frekvence vyskytu peaku (`occurrences`).
+  - Opraven extraction category z `PEAK:category:flow:peak_type`.
+
+- **Dynamic percentile labels (`scripts/core/calculate_peak_thresholds.py`, `scripts/core/peak_detection.py`)**
+  - Textove vystupy uz nejsou hardcoded na `P93`.
+  - Labely se odvozuji z `PERCENTILE_LEVEL` (napr. `P94`).
+
+### Zmenene soubory
+
+| Soubor | Zmena |
+|--------|-------|
+| `scripts/core/email_notifier.py` | Detailed HTML peak notifikace + optional HTML send |
+| `scripts/regular_phase.py` | Peak continuity time range pro continued peaky |
+| `scripts/core/problem_registry.py` | `raw_error_count`, occurrence counting per window |
+| `scripts/exports/table_exporter.py` | Oddeleni `peak_count` vs `occurrence_count` |
+| `scripts/core/calculate_peak_thresholds.py` | Dynamicky `Pxx` label ve summary |
+| `scripts/core/peak_detection.py` | Dynamicky `Pxx` label v reason stringu |
+
+---
+
 ## v6.1.0 (2026-02-25) - Detection Pipeline Fixes
 
 Analyza a oprava 5 kritickych problemu v detekci peaku a baseline vypoctu.

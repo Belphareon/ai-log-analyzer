@@ -200,6 +200,12 @@ def _send_peak_alert_email(
         is_continues = False
         if known_peak and known_peak.last_seen:
             is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes))
+
+        peak_window_start = (
+            _floor_to_window(known_peak.first_seen, window_minutes)
+            if (is_continues and known_peak and known_peak.first_seen)
+            else window_start
+        )
         
         peak_id = known_peak.id if is_known else ""
         
@@ -275,7 +281,7 @@ def _send_peak_alert_email(
                 is_continues=is_continues,
                 peak_id=peak_id,
                 error_count=problem.total_occurrences,
-                window_start=window_start,
+                window_start=peak_window_start,
                 window_end=window_end,
                 affected_apps=sorted(problem.apps) if problem.apps else [],
                 affected_namespaces=sorted(problem.namespaces) if problem.namespaces else [],

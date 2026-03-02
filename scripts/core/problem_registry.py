@@ -195,6 +195,7 @@ class PeakEntry:
     
     # Counts
     occurrences: int = 0
+    raw_error_count: int = 0
     
     # Linked fingerprints
     fingerprints: List[str] = field(default_factory=list)
@@ -220,6 +221,7 @@ class PeakEntry:
             'first_seen': self.first_seen.isoformat() if self.first_seen else None,
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
+            'raw_error_count': self.raw_error_count,
             'fingerprints': self.fingerprints,
             'affected_apps': sorted(self.affected_apps),
             'affected_namespaces': sorted(self.affected_namespaces),
@@ -244,6 +246,7 @@ class PeakEntry:
             entry.last_seen = datetime.fromisoformat(data['last_seen'])
         
         entry.occurrences = data.get('occurrences', 0)
+        entry.raw_error_count = data.get('raw_error_count', entry.occurrences)
         entry.fingerprints = data.get('fingerprints', [])
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
@@ -1109,21 +1112,39 @@ class ProblemRegistry:
             value = incident.stats.current_rate
             if incident.stats.baseline_rate > 0:
                 ratio = value / incident.stats.baseline_rate
+
+        count = 1
+        if hasattr(incident, 'stats') and hasattr(incident.stats, 'current_count'):
+            try:
+                count = max(1, int(incident.stats.current_count))
+            except (TypeError, ValueError):
+                count = 1
+
+        def _window_bucket(ts: Optional[datetime]) -> Optional[datetime]:
+            if ts is None:
+                return None
+            return ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
         
         if peak_key in self.peaks:
             peak = self.peaks[peak_key]
+            previous_last_seen = peak.last_seen
             
             # Update timestamps
             if peak.first_seen is None or first_ts < peak.first_seen:
                 peak.first_seen = first_ts
             if peak.last_seen is None or last_ts > peak.last_seen:
                 peak.last_seen = last_ts
-            
-            peak.occurrences += 1
+
+            previous_bucket = _window_bucket(previous_last_seen)
+            current_bucket = _window_bucket(last_ts)
+            if previous_bucket != current_bucket:
+                peak.occurrences += 1
+
+            peak.raw_error_count += count
             peak.max_value = max(peak.max_value, value)
             peak.max_ratio = max(peak.max_ratio, ratio)
-            peak.affected_apps.update(incident.apps)
-            peak.affected_namespaces.update(incident.namespaces)
+            peak.affected_apps.update(incident.apps or [])
+            peak.affected_namespaces.update(incident.namespaces or [])
             
             if incident.fingerprint not in peak.fingerprints:
                 peak.fingerprints.append(incident.fingerprint)
@@ -1139,9 +1160,10 @@ class ProblemRegistry:
                 first_seen=first_ts,
                 last_seen=last_ts,
                 occurrences=1,
+                raw_error_count=count,
                 fingerprints=[incident.fingerprint],
-                affected_apps=set(incident.apps),
-                affected_namespaces=set(incident.namespaces),
+                affected_apps=set(incident.apps or []),
+                affected_namespaces=set(incident.namespaces or []),
                 max_value=value,
                 max_ratio=ratio,
             )

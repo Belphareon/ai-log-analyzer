@@ -264,7 +264,8 @@ class PeakDetector:
         else:
             replacement = value
         
-        reason = f"P93={result['p93_threshold']:.0f}, CAP={result['cap_threshold']:.0f}"
+        percentile_label = f"P{int(self._percentile_level * 100)}"
+        reason = f"{percentile_label}={result['p93_threshold']:.0f}, CAP={result['cap_threshold']:.0f}"
         if result['is_peak']:
             reason = f"PEAK ({result['triggered_by']}): value={value:.0f} > {reason}"
         else:

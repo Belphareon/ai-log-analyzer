@@ -377,8 +377,21 @@ class TableExporter:
             first_seen = self._ensure_aware(peak.first_seen)
             last_seen = self._ensure_aware(peak.last_seen)
             
-            # Extract category from problem_key (format: "category:flow:peak_type")
-            category = problem_key.split(':')[0] if ':' in problem_key else 'unknown'
+            # Extract category from problem_key
+            # Formats:
+            #   "PEAK:category:flow:peak_type" (current)
+            #   "category:flow:peak_type"      (legacy)
+            parts = problem_key.split(':') if problem_key else []
+            if len(parts) >= 4 and parts[0] == 'PEAK':
+                category = parts[1]
+            elif len(parts) >= 1:
+                category = parts[0]
+            else:
+                category = 'unknown'
+
+            raw_peak_count = int(getattr(peak, 'raw_error_count', 0) or 0)
+            if raw_peak_count <= 0:
+                raw_peak_count = max(1, int(peak.max_value or 0))
             
             row = PeakTableRow(
                 peak_id=peak.id,
@@ -387,7 +400,7 @@ class TableExporter:
                 peak_type=peak.peak_type,
                 affected_apps=", ".join(sorted(peak.affected_apps)[:10]),
                 affected_namespaces=", ".join(sorted(peak.affected_namespaces)),
-                peak_count=peak.occurrences,
+                peak_count=raw_peak_count,
                 baseline_rate=peak.max_value,
                 peak_ratio=peak.max_ratio,
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",

@@ -16,6 +16,12 @@ System analyzuje error logy z Elasticsearch a automaticky:
 - Generuje operacni reporty (15min / daily / backfill)
 - Publikuje do Teams a Confluence
 
+## Poznamka k r40
+
+- Regular phase peak email pouziva detailni HTML sablonu jen pro dany peak (NEW/KNOWN, time range, raw errors, trace flow).
+- Root cause a propagation se posilaji pouze pro NEW peak.
+- V peak exportech plati: `peak_count` = raw error logs, `occurrence_count` = kolikrat se peak vyskytl v case.
+
 ## Architektura
 
 ### Detection Pipeline (6 fazi)

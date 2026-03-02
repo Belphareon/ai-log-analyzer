@@ -244,14 +244,15 @@ def save_thresholds_to_db(conn, thresholds: dict, caps: dict, date_range: dict,
     conn.commit()
 
 
-def print_summary(thresholds: dict, caps: dict):
+def print_summary(thresholds: dict, caps: dict, percentile_level: float = 0.93):
     """Print summary of calculated thresholds"""
+    percentile_label = f"P{int(percentile_level * 100)}"
     
     # Get all namespaces
     namespaces = sorted(set(ns for (ns, dow) in thresholds.keys()))
     
     print("\n" + "=" * 120)
-    print("P93 THRESHOLDS per NS per DOW")
+    print(f"{percentile_label} THRESHOLDS per NS per DOW")
     print("=" * 120)
     
     print(f"\n{'NS':<25} {'CAP':>7} | {'Mon':>7} {'Tue':>7} {'Wed':>7} {'Thu':>7} {'Fri':>7} {'Sat':>7} {'Sun':>7} | {'Samples':>8}")
@@ -277,7 +278,7 @@ def print_summary(thresholds: dict, caps: dict):
     print("CAP VALUES per NS")
     print("=" * 120)
     
-    print(f"\n{'NS':<25} {'CAP':>8} | {'Median_P93':>11} {'Avg_P93':>10} {'Min_P93':>9} {'Max_P93':>9} | {'Samples':>8}")
+    print(f"\n{'NS':<25} {'CAP':>8} | {f'Median_{percentile_label}':>11} {f'Avg_{percentile_label}':>10} {f'Min_{percentile_label}':>9} {f'Max_{percentile_label}':>9} | {'Samples':>8}")
     print("-" * 100)
     
     for ns in namespaces:
@@ -343,7 +344,7 @@ def main():
         caps = calculate_cap_values(thresholds)
         
         # Print summary
-        print_summary(thresholds, caps)
+        print_summary(thresholds, caps, args.percentile)
         
         # Save to DB
         save_thresholds_to_db(conn, thresholds, caps, date_range, args.percentile, args.dry_run)
