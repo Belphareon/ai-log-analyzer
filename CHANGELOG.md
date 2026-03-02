@@ -4,6 +4,26 @@ Veskere zmeny projektu AI Log Analyzer, serazeno od nejnovejsiho.
 
 ---
 
+## v6.1.2 (2026-03-02) - r41 Peak Detection Guardrail + Notification Clarity
+
+### Opraveno
+
+- **Explicitni guardrail pro namespace spike (`scripts/pipeline/phase_c_detect.py`)**
+  - Pridano `MIN_NAMESPACE_PEAK_VALUE` (default `20`).
+  - P93/CAP namespace spike se nevyhodnoti, pokud namespace total v okne nedosahne minima.
+
+- **Regular peak email readability (`scripts/core/email_notifier.py`, `scripts/regular_phase.py`)**
+  - Odebrana `Category` z detailu emailu.
+  - Pri `unknownerror` se zobrazi kontext: top `error_type` s pocty.
+  - Pridano `Peak Type` (SPIKE/BURST) a namespace breakdown s pocty.
+  - Zjednoduseny vizual: bold/underline, bez barevnych blokovych panelu.
+
+### Provozni konfigurace
+
+- Helm values: `MIN_NAMESPACE_PEAK_VALUE: "20"` pro ai-log-analyzer chart.
+
+---
+
 ## v6.1.1 (2026-03-02) - r40 Peak Notification and Counting Fixes
 
 Zamereno na regular-phase peak notifikace, konzistenci threshold labelu a presnost metrik peaku.

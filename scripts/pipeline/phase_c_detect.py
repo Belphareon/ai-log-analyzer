@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from collections import defaultdict
 import sys
+import os
 
 # Progress
 try:
@@ -114,6 +115,7 @@ class PhaseC_Detect:
         registry: 'ProblemRegistry' = None,
         peak_detector: 'PeakDetector' = None,
         new_error_min_count: int = 5,
+        min_namespace_peak_value: int = None,
     ):
         # Legacy params kept for backward compat (not used for detection when peak_detector is set)
         self.spike_threshold = spike_threshold
@@ -132,6 +134,11 @@ class PhaseC_Detect:
         # P93/CAP peak detection
         self.peak_detector = peak_detector
         self.new_error_min_count = new_error_min_count
+        self.min_namespace_peak_value = (
+            int(os.getenv('MIN_NAMESPACE_PEAK_VALUE', '20'))
+            if min_namespace_peak_value is None
+            else int(min_namespace_peak_value)
+        )
         self._namespace_peak_results = {}  # populated in detect_batch
 
         # Stats
@@ -523,6 +530,15 @@ class PhaseC_Detect:
 
             # 3. Check each namespace against P93/CAP
             for ns, total_value in ns_totals.items():
+                if total_value < self.min_namespace_peak_value:
+                    self._namespace_peak_results[ns] = {
+                        'is_peak': False,
+                        'value': total_value,
+                        'p93_threshold': None,
+                        'cap_threshold': None,
+                        'triggered_by': None,
+                    }
+                    continue
                 try:
                     peak_result = self.peak_detector.is_peak(total_value, ns, day_of_week)
                     self._namespace_peak_results[ns] = peak_result

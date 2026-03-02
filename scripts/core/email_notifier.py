@@ -145,8 +145,9 @@ Results:
 
     def send_regular_phase_peak_alert_detailed(
         self,
-        peak_category: str,
         peak_error_class: str,
+        peak_error_details: str,
+        peak_type: str,
         is_known: bool,
         is_continues: bool,
         peak_id: str,
@@ -155,6 +156,7 @@ Results:
         window_end: datetime,
         affected_apps: list,
         affected_namespaces: list,
+        namespace_counts: dict,
         trace_steps: list,
         root_cause: dict = None,
         propagation_info: dict = None,
@@ -166,19 +168,30 @@ Results:
 
         peak_status = "KNOWN" if is_known else "NEW"
         continuation = " (continued)" if is_known and is_continues else ""
-        status_color = "#d32f2f" if not is_known else "#f57c00"
         time_range = f"{window_start.strftime('%Y-%m-%d %H:%M')} - {window_end.strftime('%H:%M')}"
+
+        namespace_counts = namespace_counts or {}
+        ns_count_parts = []
+        for ns in sorted(affected_namespaces or []):
+            count = namespace_counts.get(ns)
+            if isinstance(count, int) and count > 0:
+                ns_count_parts.append(f"{ns} ({count})")
+            else:
+                ns_count_parts.append(ns)
+        namespaces_text = ", ".join(ns_count_parts) if ns_count_parts else "N/A"
 
         body_lines = [
             f"[AI Log Analyzer] {severity_icon} PEAK ALERT",
             "",
             f"Status: {peak_status}{continuation}",
             f"Time: {time_range}",
-            f"Peak: {peak_category} / {peak_error_class}",
+            f"Error Class: {peak_error_class}",
+            f"Peak Type: {peak_type}",
             "",
+            f"Error Info: {peak_error_details}",
             f"Raw Errors: {error_count:,}",
             f"Affected Apps: {', '.join(affected_apps) if affected_apps else 'N/A'}",
-            f"Namespaces: {', '.join(affected_namespaces) if affected_namespaces else 'N/A'}",
+            f"Namespaces: {namespaces_text}",
         ]
 
         if trace_steps:
@@ -211,14 +224,14 @@ Results:
                 app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
                 msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
                 trace_rows.append(
-                    f'<div style="background-color:#f9f9f9;padding:10px;margin-bottom:8px;border-left:3px solid #42a5f5;">'
-                    f'<div style="font-weight:600;color:#1565c0;">{app}</div>'
-                    f'<div style="color:#666;font-size:13px;word-break:break-word;">{msg}</div>'
+                    f'<div style="padding:10px;margin-bottom:8px;border:1px solid #d9d9d9;">'
+                    f'<div style="font-weight:700;">{app}</div>'
+                    f'<div style="font-size:13px;word-break:break-word;">{msg}</div>'
                     f'</div>'
                 )
             html_trace = (
                 '<div style="margin-bottom:20px;">'
-                '<div style="font-weight:600;color:#1976d2;margin-bottom:10px;border-bottom:2px solid #e0e0e0;padding-bottom:5px;">Behavior Flow</div>'
+                '<div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Behavior Flow</div>'
                 + "".join(trace_rows)
                 + '</div>'
             )
@@ -227,10 +240,10 @@ Results:
         if root_cause and not is_known:
             html_root = (
                 '<div style="margin-bottom:20px;">'
-                '<div style="background-color:#fff3e0;padding:12px;border-left:4px solid #ff6f00;">'
-                '<div style="font-weight:600;color:#e65100;">Inferred Root Cause</div>'
+                '<div style="padding:12px;border:1px solid #d9d9d9;">'
+                '<div style="font-weight:700;text-decoration:underline;">Inferred Root Cause</div>'
                 f'<div style="margin-top:8px;"><strong>{root_cause.get("service", "?")}</strong></div>'
-                f'<div style="color:#d84315;margin-top:4px;">{root_cause.get("message", "")}</div>'
+                f'<div style="margin-top:4px;">{root_cause.get("message", "")}</div>'
                 '</div>'
                 '</div>'
             )
@@ -239,45 +252,46 @@ Results:
         if propagation_info and not is_known and propagation_info.get('service_count', 0) > 1:
             html_propagation = (
                 '<div style="margin-bottom:20px;">'
-                '<div style="background-color:#f3e5f5;padding:12px;border-left:4px solid #7b1fa2;">'
-                '<div style="font-weight:600;color:#6a1b9a;">Service Propagation</div>'
+                '<div style="padding:12px;border:1px solid #d9d9d9;">'
+                '<div style="font-weight:700;text-decoration:underline;">Service Propagation</div>'
                 f'<div style="margin-top:8px;">Services affected: <strong>{propagation_info.get("service_count", "N/A")}</strong></div>'
-                f'<div style="color:#555;margin-top:4px;font-size:13px;">{propagation_info.get("type", "Unknown")}</div>'
+                f'<div style="margin-top:4px;font-size:13px;">{propagation_info.get("type", "Unknown")}</div>'
                 '</div>'
                 '</div>'
             )
 
         html_body = f"""
         <html>
-        <body style="font-family:'Segoe UI',Arial,sans-serif;color:#333;background-color:#f5f5f5;margin:0;padding:20px;">
-            <div style="max-width:700px;margin:0 auto;background-color:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-                <div style="background-color:{status_color};color:white;padding:20px;">
-                    <h1 style="margin:0;font-size:22px;">{severity_icon} Peak Alert - {peak_status}{continuation}</h1>
-                    <div style="margin-top:5px;font-size:14px;opacity:0.95;">Regular Phase Detection - {time_range}</div>
+        <body style="font-family:'Segoe UI',Arial,sans-serif;color:#222;background-color:#ffffff;margin:0;padding:20px;">
+            <div style="max-width:760px;margin:0 auto;border:1px solid #cfcfcf;">
+                <div style="padding:16px;border-bottom:1px solid #cfcfcf;">
+                    <h1 style="margin:0;font-size:21px;font-weight:700;">{severity_icon} Peak Alert - {peak_status}{continuation}</h1>
+                    <div style="margin-top:4px;font-size:14px;">Regular Phase Detection - {time_range}</div>
                 </div>
                 <div style="padding:20px;">
                     <div style="margin-bottom:20px;">
-                        <div style="font-weight:600;color:#1976d2;margin-bottom:10px;border-bottom:2px solid #e0e0e0;padding-bottom:5px;">Peak Details</div>
-                        <div><strong>Category:</strong> {peak_category}</div>
+                        <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Peak Details</div>
                         <div><strong>Error Class:</strong> {peak_error_class}</div>
+                        <div><strong>Error Info:</strong> {peak_error_details}</div>
+                        <div><strong>Peak Type:</strong> {peak_type}</div>
                         <div><strong>Raw Errors:</strong> {error_count:,}</div>
                         <div><strong>Status:</strong> {peak_status}{continuation}</div>
                         {f'<div><strong>Peak ID:</strong> {peak_id}</div>' if is_known and peak_id else ''}
                     </div>
                     <div style="margin-bottom:20px;">
-                        <div style="font-weight:600;color:#1976d2;margin-bottom:10px;border-bottom:2px solid #e0e0e0;padding-bottom:5px;">Affected Scope</div>
+                        <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Affected Scope</div>
                         <div><strong>Applications:</strong> {', '.join(affected_apps) if affected_apps else 'N/A'}</div>
-                        <div><strong>Namespaces:</strong> {', '.join(affected_namespaces) if affected_namespaces else 'N/A'}</div>
+                        <div><strong>Namespaces:</strong> {namespaces_text}</div>
                     </div>
                     {html_trace}
                     {html_root}
                     {html_propagation}
-                    <div style="margin-top:20px;padding-top:15px;border-top:1px solid #e0e0e0;">
-                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update" style="display:inline-block;padding:10px 15px;margin:5px 5px 5px 0;border-radius:4px;text-decoration:none;font-weight:600;color:white;background-color:#f57c00;">📖 Known Peaks</a>
-                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis" style="display:inline-block;padding:10px 15px;margin:5px 5px 5px 0;border-radius:4px;text-decoration:none;font-weight:600;color:white;background-color:#1976d2;">📊 Recent Analysis</a>
+                    <div style="margin-top:20px;padding-top:15px;border-top:1px solid #d9d9d9;">
+                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update" style="font-weight:700;text-decoration:underline;margin-right:16px;color:#222;">📖 Known Peaks</a>
+                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis" style="font-weight:700;text-decoration:underline;color:#222;">📊 Recent Analysis</a>
                     </div>
                 </div>
-                <div style="text-align:center;padding:15px;border-top:1px solid #e0e0e0;background-color:#fafafa;font-size:12px;color:#999;">
+                <div style="text-align:center;padding:14px;border-top:1px solid #cfcfcf;font-size:12px;color:#555;">
                     Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | AI Log Analyzer
                 </div>
             </div>
@@ -285,5 +299,5 @@ Results:
         </html>
         """
 
-        subject = f"[AI Log Analyzer] {severity_icon} {peak_status} PEAK - {peak_category}"
+        subject = f"[AI Log Analyzer] {severity_icon} {peak_status} {peak_type} - {peak_error_class}"
         return self._send_email(subject, body, html_body)

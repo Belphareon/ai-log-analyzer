@@ -242,6 +242,36 @@ def _send_peak_alert_email(
         flow_list = trace_flows.get(problem.problem_key, []) if trace_flows else []
         flow = flow_list[0] if flow_list else None
         trace_steps = []
+        namespace_counts: Dict[str, int] = {}
+        error_type_counts: Dict[str, int] = {}
+
+        for inc in getattr(problem, 'incidents', []) or []:
+            ns_list = [ns for ns in (getattr(inc, 'namespaces', []) or []) if ns]
+            if not ns_list:
+                continue
+            count = 1
+            if hasattr(inc, 'stats') and hasattr(inc.stats, 'current_count'):
+                try:
+                    count = max(1, int(inc.stats.current_count))
+                except (TypeError, ValueError):
+                    count = 1
+
+            err_type = getattr(inc, 'error_type', None) or 'UnknownError'
+            error_type_counts[err_type] = error_type_counts.get(err_type, 0) + count
+
+            for ns in ns_list:
+                namespace_counts[ns] = namespace_counts.get(ns, 0) + count
+
+        top_error_types = sorted(error_type_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        top_error_types_text = ', '.join(f"{name} ({cnt})" for name, cnt in top_error_types) if top_error_types else 'N/A'
+        error_class_raw = problem.error_class or 'unknownerror'
+        error_class_l = str(error_class_raw).lower()
+        if error_class_l in {'unknownerror', 'unknown_error', 'unknown'}:
+            error_class = 'unknown (fallback classifier)'
+            peak_error_details = f"classified as unknown; top error types: {top_error_types_text}"
+        else:
+            error_class = error_class_raw
+            peak_error_details = f"top error types: {top_error_types_text}"
         
         if flow and getattr(flow, 'steps', None):
             steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
@@ -275,8 +305,9 @@ def _send_peak_alert_email(
         email_notifier = EmailNotifier()
         if email_notifier.is_enabled():
             success = email_notifier.send_regular_phase_peak_alert_detailed(
-                peak_category=problem.category,
-                peak_error_class=problem.error_class,
+                peak_error_class=error_class,
+                peak_error_details=peak_error_details,
+                peak_type=peak_type,
                 is_known=is_known,
                 is_continues=is_continues,
                 peak_id=peak_id,
@@ -285,6 +316,7 @@ def _send_peak_alert_email(
                 window_end=window_end,
                 affected_apps=sorted(problem.apps) if problem.apps else [],
                 affected_namespaces=sorted(problem.namespaces) if problem.namespaces else [],
+                namespace_counts=namespace_counts,
                 trace_steps=trace_steps,
                 root_cause=root_cause,
                 propagation_info=propagation_info,

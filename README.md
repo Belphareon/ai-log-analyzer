@@ -22,6 +22,11 @@ System analyzuje error logy z Elasticsearch a automaticky:
 - Root cause a propagation se posilaji pouze pro NEW peak.
 - V peak exportech plati: `peak_count` = raw error logs, `occurrence_count` = kolikrat se peak vyskytl v case.
 
+## Poznamka k r41
+
+- Pridano minimum `MIN_NAMESPACE_PEAK_VALUE` (default 20), aby se namespace spike neoznacoval na mikro poctech.
+- Detailni peak email je zjednoduseny a obsahuje peak type + namespace pocty + error-type breakdown.
+
 ## Architektura
 
 ### Detection Pipeline (6 fazi)
