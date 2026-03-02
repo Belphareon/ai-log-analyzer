@@ -308,6 +308,7 @@ def _send_peak_alert_email(
                 peak_error_class=error_class,
                 peak_error_details=peak_error_details,
                 peak_type=peak_type,
+                peak_identifier=peak_key,
                 is_known=is_known,
                 is_continues=is_continues,
                 peak_id=peak_id,

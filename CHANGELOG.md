@@ -4,23 +4,27 @@ Veskere zmeny projektu AI Log Analyzer, serazeno od nejnovejsiho.
 
 ---
 
-## v6.1.2 (2026-03-02) - r41 Peak Detection Guardrail + Notification Clarity
+## v6.1.2 (2026-03-02) - r41 Peak Detection Logic Fix + Notification Clarity
 
 ### Opraveno
 
-- **Explicitni guardrail pro namespace spike (`scripts/pipeline/phase_c_detect.py`)**
-  - Pridano `MIN_NAMESPACE_PEAK_VALUE` (default `20`).
-  - P93/CAP namespace spike se nevyhodnoti, pokud namespace total v okne nedosahne minima.
+- **Per-problem per-namespace spike detekce (`scripts/pipeline/phase_c_detect.py`)**
+  - Spike se vyhodnoti pouze pokud count konkretniho fingerprintu v konkretnim namespace
+    prekroci Pxx/CAP threshold tohoto namespace.
+  - Odstraneno inheritovani peak stavu z jine chyby ve stejnem namespace.
+  - Odstraneno duplicitni pricitani pri multi-namespace fingerprintu.
+  - `spike_new_error_type` fallback je vypnuty, pokud je aktivni P93/CAP detector.
+  - Do evidence je pridany jednoznacny `peak_id` (`SPIKE:<fingerprint>:<namespace>:<window_start>`).
 
 - **Regular peak email readability (`scripts/core/email_notifier.py`, `scripts/regular_phase.py`)**
   - Odebrana `Category` z detailu emailu.
   - Pri `unknownerror` se zobrazi kontext: top `error_type` s pocty.
-  - Pridano `Peak Type` (SPIKE/BURST) a namespace breakdown s pocty.
+  - Pridano `Peak Type` (SPIKE/BURST), `Peak Key` a namespace breakdown s pocty.
   - Zjednoduseny vizual: bold/underline, bez barevnych blokovych panelu.
 
 ### Provozni konfigurace
 
-- Helm values: `MIN_NAMESPACE_PEAK_VALUE: "20"` pro ai-log-analyzer chart.
+- Helm values: `MIN_NAMESPACE_PEAK_VALUE: "1"` (prakticky bez extra absolutniho guardrailu).
 
 ---
 

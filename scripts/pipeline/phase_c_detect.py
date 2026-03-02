@@ -135,11 +135,11 @@ class PhaseC_Detect:
         self.peak_detector = peak_detector
         self.new_error_min_count = new_error_min_count
         self.min_namespace_peak_value = (
-            int(os.getenv('MIN_NAMESPACE_PEAK_VALUE', '20'))
+            int(os.getenv('MIN_NAMESPACE_PEAK_VALUE', '1'))
             if min_namespace_peak_value is None
             else int(min_namespace_peak_value)
         )
-        self._namespace_peak_results = {}  # populated in detect_batch
+        self._fingerprint_peak_results = {}  # populated in detect_batch
 
         # Stats
         self.stats = {
@@ -183,25 +183,28 @@ class PhaseC_Detect:
         2. Pokud ano -> is_spike=True s P93/CAP evidencí
         3. Fallback: nový error typ (baseline=0, count >= threshold)
         """
-        # 1. P93/CAP namespace-level check (populated by detect_batch)
-        if self._namespace_peak_results:
-            for ns in measurement.namespaces:
-                peak_result = self._namespace_peak_results.get(ns)
-                if peak_result and peak_result['is_peak']:
-                    result.flags.is_spike = True
-                    result.add_evidence(
-                        rule="spike_p93_cap",
-                        current=peak_result['value'],
-                        threshold=min(peak_result['p93_threshold'], peak_result['cap_threshold']),
-                        message=(
-                            f"namespace {ns} total ({peak_result['value']:.0f}) exceeds "
-                            f"P93={peak_result['p93_threshold']:.0f} / "
-                            f"CAP={peak_result['cap_threshold']:.0f} "
-                            f"(triggered_by={peak_result['triggered_by']})"
-                        ),
-                    )
-                    self.stats['detected_spike'] += 1
-                    return True
+        # 1. P93/CAP per-fingerprint per-namespace check (populated by detect_batch)
+        peak_result = self._fingerprint_peak_results.get(measurement.fingerprint)
+        if peak_result and peak_result.get('is_peak'):
+            threshold_candidates = [
+                t for t in [peak_result.get('p93_threshold'), peak_result.get('cap_threshold')]
+                if isinstance(t, (int, float))
+            ]
+            threshold_value = min(threshold_candidates) if threshold_candidates else None
+            result.flags.is_spike = True
+            result.add_evidence(
+                rule="spike_p93_cap",
+                current=peak_result.get('value'),
+                threshold=threshold_value,
+                message=(
+                    f"namespace {peak_result.get('namespace')} fingerprint_count ({peak_result.get('value', 0):.0f}) exceeds "
+                    f"P93={peak_result.get('p93_threshold', 0):.0f} / "
+                    f"CAP={peak_result.get('cap_threshold', 0):.0f} "
+                    f"(triggered_by={peak_result.get('triggered_by')}, peak_id={peak_result.get('peak_identifier')})"
+                ),
+            )
+            self.stats['detected_spike'] += 1
+            return True
 
         # 2. Legacy EWMA/MAD fallback (only when no PeakDetector available)
         if not self.peak_detector:
@@ -220,7 +223,8 @@ class PhaseC_Detect:
                     return True
 
         # 3. Fallback: new error type (no baseline)
-        if measurement.baseline_ewma == 0 and measurement.baseline_median == 0:
+        # Enabled only when P93/CAP detector is unavailable.
+        if not self.peak_detector and measurement.baseline_ewma == 0 and measurement.baseline_median == 0:
             if measurement.current_count >= self.new_error_min_count:
                 result.flags.is_spike = True
                 result.add_evidence(
@@ -499,23 +503,12 @@ class PhaseC_Detect:
                     }
 
         # ==================================================================
-        # P93/CAP: Namespace-level peak detection
+        # P93/CAP: per-fingerprint per-namespace peak detection
         # ==================================================================
-        self._namespace_peak_results = {}
+        self._fingerprint_peak_results = {}
 
         if self.peak_detector:
-            # 1. Aggregate counts per namespace across all fingerprints
-            ns_totals: Dict[str, float] = defaultdict(float)
-            for fp, measurement in measurements.items():
-                for ns in measurement.namespaces:
-                    if measurement.active_windows > 1 and measurement.total_count > 0:
-                        # Backfill: per-window average (P93 trained on 15-min windows)
-                        ns_totals[ns] += measurement.total_count / measurement.active_windows
-                    else:
-                        # Regular: direct count (single window)
-                        ns_totals[ns] += measurement.current_count
-
-            # 2. Determine day_of_week from first record timestamp
+            # 1. Determine day_of_week from first record timestamp
             day_of_week = 0
             if records:
                 for r in records:
@@ -528,22 +521,77 @@ class PhaseC_Detect:
                         day_of_week = m.first_seen.weekday()
                         break
 
-            # 3. Check each namespace against P93/CAP
-            for ns, total_value in ns_totals.items():
-                if total_value < self.min_namespace_peak_value:
-                    self._namespace_peak_results[ns] = {
-                        'is_peak': False,
-                        'value': total_value,
-                        'p93_threshold': None,
-                        'cap_threshold': None,
-                        'triggered_by': None,
-                    }
+            # 2. Per-fingerprint per-namespace counts
+            window_minutes = int(os.getenv('WINDOW_MINUTES', '15'))
+
+            for fp, measurement in measurements.items():
+                fp_records = records_by_fp.get(fp, [])
+                if not fp_records:
                     continue
-                try:
-                    peak_result = self.peak_detector.is_peak(total_value, ns, day_of_week)
-                    self._namespace_peak_results[ns] = peak_result
-                except Exception:
-                    pass  # non-blocking: skip if threshold lookup fails
+
+                def _bucket(ts: datetime) -> datetime:
+                    minute = (ts.minute // window_minutes) * window_minutes
+                    return ts.replace(minute=minute, second=0, microsecond=0)
+
+                ns_window_counts: Dict[str, Dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
+                latest_bucket = None
+                for rec in fp_records:
+                    if not rec.timestamp:
+                        continue
+                    bucket = _bucket(rec.timestamp)
+                    if latest_bucket is None or bucket > latest_bucket:
+                        latest_bucket = bucket
+                    if rec.namespace:
+                        ns_window_counts[rec.namespace][bucket] += 1
+
+                if not ns_window_counts:
+                    continue
+
+                peak_candidate = None
+                for ns, bucket_counts in ns_window_counts.items():
+                    if latest_bucket is None:
+                        continue
+
+                    current_ns_count = bucket_counts.get(latest_bucket, 0)
+                    if measurement.active_windows > 1:
+                        non_zero_windows = [v for v in bucket_counts.values() if v > 0]
+                        if non_zero_windows:
+                            value_for_peak = sum(non_zero_windows) / len(non_zero_windows)
+                        else:
+                            value_for_peak = float(current_ns_count)
+                    else:
+                        value_for_peak = float(current_ns_count)
+
+                    if value_for_peak < self.min_namespace_peak_value:
+                        continue
+
+                    try:
+                        check = self.peak_detector.is_peak(value_for_peak, ns, day_of_week)
+                    except Exception:
+                        continue
+
+                    if not check.get('is_peak'):
+                        continue
+
+                    trigger_score = max(
+                        value_for_peak / check.get('p93_threshold', 1.0) if check.get('p93_threshold') else 0.0,
+                        value_for_peak / check.get('cap_threshold', 1.0) if check.get('cap_threshold') else 0.0,
+                    )
+                    candidate = {
+                        **check,
+                        'namespace': ns,
+                        'value': value_for_peak,
+                        'current_ns_count': current_ns_count,
+                        'peak_identifier': f"SPIKE:{fp}:{ns}:{latest_bucket.isoformat()}",
+                        '_trigger_score': trigger_score,
+                    }
+
+                    if peak_candidate is None or candidate['_trigger_score'] > peak_candidate['_trigger_score']:
+                        peak_candidate = candidate
+
+                if peak_candidate:
+                    peak_candidate.pop('_trigger_score', None)
+                    self._fingerprint_peak_results[fp] = peak_candidate
 
         # ==================================================================
         # Per-fingerprint detection (O(fingerprints))

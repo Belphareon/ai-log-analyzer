@@ -148,6 +148,7 @@ Results:
         peak_error_class: str,
         peak_error_details: str,
         peak_type: str,
+        peak_identifier: str,
         is_known: bool,
         is_continues: bool,
         peak_id: str,
@@ -187,6 +188,7 @@ Results:
             f"Time: {time_range}",
             f"Error Class: {peak_error_class}",
             f"Peak Type: {peak_type}",
+            f"Peak Key: {peak_identifier}",
             "",
             f"Error Info: {peak_error_details}",
             f"Raw Errors: {error_count:,}",
@@ -274,6 +276,7 @@ Results:
                         <div><strong>Error Class:</strong> {peak_error_class}</div>
                         <div><strong>Error Info:</strong> {peak_error_details}</div>
                         <div><strong>Peak Type:</strong> {peak_type}</div>
+                        <div><strong>Peak Key:</strong> {peak_identifier}</div>
                         <div><strong>Raw Errors:</strong> {error_count:,}</div>
                         <div><strong>Status:</strong> {peak_status}{continuation}</div>
                         {f'<div><strong>Peak ID:</strong> {peak_id}</div>' if is_known and peak_id else ''}
