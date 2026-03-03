@@ -167,6 +167,12 @@ class PhaseE_Classify:
             patterns=[r'token expired', r'TokenExpired', r'JWT expired'],
             priority=90,
         ),
+        ClassificationRule(
+            category=IncidentCategory.AUTH,
+            subcategory="token_scope_mismatch",
+            patterns=[r'TokenScopeMismatchError', r'mismatch between token scopes', r'operation not allowed'],
+            priority=88,
+        ),
         
         # BUSINESS
         ClassificationRule(
@@ -183,9 +189,55 @@ class PhaseE_Classify:
         ),
         ClassificationRule(
             category=IncidentCategory.BUSINESS,
+            subcategory="issuer_simple_rejected",
+            patterns=[
+                r'SimpleError',
+                r'Synchronous case processing ended prematurely',
+                r'FlowResult\(status=REJECTED',
+                r'Processing of case .* rejected',
+            ],
+            priority=89,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
+            subcategory="issuer_server_flow",
+            patterns=[
+                r'ServerError',
+                r'Account .* could not be updated',
+                r'Service exception while processing account data change',
+            ],
+            priority=88,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
             subcategory="business_exception",
             patterns=[r'BusinessException', r'ServiceBusinessException'],
             priority=80,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
+            subcategory="issuer_processing",
+            patterns=[
+                r'PrimeIssuerSoapProcessingError',
+                r'OperationProcessingError',
+                r'CaseSyncStartFailed',
+                r'AccountUpdateFailed',
+                r'CaseStepProcessingFailed',
+                r'CaseStepProcessingError',
+                r'CaseStepUnexpectedError',
+                r'CaseStepSkippableFalseFailed',
+                r'CaseManualFixRequired',
+                r'ServiceExceptionProcessingChange',
+                r'CardsServiceCallError',
+                r'CardProductServiceCallError',
+                r'GetCardOfferFailed',
+                r'GetSubjectsFailed',
+                r'QueuedEventNotProcessed',
+                r'AccountOwnerCreateFailed',
+                r'CustomerCreateFailed',
+                r'ClientTariffMissingError',
+            ],
+            priority=85,
         ),
         
         # EXTERNAL
