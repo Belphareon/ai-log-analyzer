@@ -116,6 +116,37 @@ def _normalize_message_for_dedup(message: str) -> str:
     return normalized.lower()
 
 
+def _trace_message_signal_score(message: str) -> int:
+    if not message:
+        return 0
+    text = message.lower()
+
+    negative_hits = [
+        'step processing failed, context stepcontext',
+        'asynchronous case processing not started',
+        'an unexpected error occurred',
+        'processing of step',
+        'handle fault',
+    ]
+    positive_hits = [
+        'called service',
+        'processing errors',
+        'loadbridgexmlrequest',
+        'not permitted',
+        'resource not found',
+        'token scopes',
+        'operation not allowed',
+        'timeout',
+        'connection',
+        'sql',
+    ]
+
+    score = 1 if len(text) >= 40 else 0
+    score += sum(3 for needle in positive_hits if needle in text)
+    score -= sum(3 for needle in negative_hits if needle in text)
+    return score
+
+
 def _select_trace_steps(flow, max_steps: int = 7, min_steps: int = 5) -> List[Any]:
     if not flow or not getattr(flow, 'steps', None):
         return []
@@ -133,6 +164,14 @@ def _select_trace_steps(flow, max_steps: int = 7, min_steps: int = 5) -> List[An
 
     if len(unique_steps) <= max_steps:
         return unique_steps
+
+    signal_steps = [s for s in unique_steps if _trace_message_signal_score(getattr(s, 'message', '')) > 0]
+    if len(signal_steps) >= min_steps:
+        selected = signal_steps[:max_steps - 1]
+        last = unique_steps[-1]
+        if last not in selected:
+            selected.append(last)
+        return selected
 
     head_count = max_steps - 1
     selected = unique_steps[:head_count]
@@ -382,12 +421,19 @@ def _send_peak_alert_email(
         
         # Root cause (only for NEW peaks)
         root_cause = None
-        if not is_continues and getattr(problem, 'trace_root_cause', None):
-            rc = problem.trace_root_cause
-            root_cause = {
-                'service': rc.get('service', '?'),
-                'message': rc.get('message', '')
-            }
+        if not is_continues:
+            rc = getattr(problem, 'trace_root_cause', None)
+            if rc:
+                root_cause = {
+                    'service': rc.get('service', '?'),
+                    'message': rc.get('message', '')
+                }
+            elif getattr(problem, 'root_cause', None):
+                rc_obj = problem.root_cause
+                root_cause = {
+                    'service': getattr(rc_obj, 'service', '?'),
+                    'message': getattr(rc_obj, 'message', '')
+                }
         
         # Propagation (only for NEW peaks)
         propagation_info = None

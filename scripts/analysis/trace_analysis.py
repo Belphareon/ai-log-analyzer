@@ -34,6 +34,47 @@ _TIMESTAMP_ISO_PATTERN = re.compile(
 )
 _TIMESTAMP_EPOCH_PATTERN = re.compile(r'\b1[0-9]{9,12}\b')  # Unix timestamps
 
+_ROOT_CAUSE_NEGATIVE_PATTERNS = [
+    re.compile(r'step processing failed, context stepcontext', re.IGNORECASE),
+    re.compile(r'asynchronous case processing not started', re.IGNORECASE),
+    re.compile(r'an unexpected error occurred', re.IGNORECASE),
+    re.compile(r'processing of step .* has failed', re.IGNORECASE),
+    re.compile(r'handle fault', re.IGNORECASE),
+]
+
+_ROOT_CAUSE_POSITIVE_PATTERNS = [
+    re.compile(r'called service', re.IGNORECASE),
+    re.compile(r'processing errors', re.IGNORECASE),
+    re.compile(r'loadbridgexmlrequest', re.IGNORECASE),
+    re.compile(r'not permitted', re.IGNORECASE),
+    re.compile(r'access denied|forbidden|unauthorized', re.IGNORECASE),
+    re.compile(r'timeout|connection|refused', re.IGNORECASE),
+    re.compile(r'sql|database|constraint', re.IGNORECASE),
+    re.compile(r'resource not found', re.IGNORECASE),
+    re.compile(r'token scopes|operation not allowed', re.IGNORECASE),
+]
+
+
+def _message_signal_score(message: str) -> int:
+    if not message:
+        return 0
+
+    score = 0
+    lowered = message.lower()
+
+    if len(lowered) >= 40:
+        score += 1
+
+    for pattern in _ROOT_CAUSE_POSITIVE_PATTERNS:
+        if pattern.search(lowered):
+            score += 3
+
+    for pattern in _ROOT_CAUSE_NEGATIVE_PATTERNS:
+        if pattern.search(lowered):
+            score -= 3
+
+    return score
+
 
 def normalize_message(message: str) -> str:
     """
@@ -467,11 +508,47 @@ def summarize_trace_flow_to_dict(flow: TraceFlow) -> List[Dict[str, Any]]:
     if not flow.steps:
         return []
 
-    # 2+1 pravidlo
-    if len(flow.steps) <= 3:
-        steps = flow.steps
+    unique_steps: List[TraceStep] = []
+    seen = set()
+    for step in flow.steps:
+        key = (step.app, normalize_message(step.message))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_steps.append(step)
+
+    if len(unique_steps) <= 3:
+        steps = unique_steps
     else:
-        steps = [flow.steps[0], flow.steps[1], flow.steps[-1]]
+        first = unique_steps[0]
+        last = unique_steps[-1]
+        middle_candidates = unique_steps[1:-1] if len(unique_steps) > 2 else []
+
+        first_norm = normalize_message(first.message)
+        if normalize_message(last.message) == first_norm:
+            for candidate in reversed(unique_steps[1:-1]):
+                if normalize_message(candidate.message) != first_norm:
+                    last = candidate
+                    break
+
+        if middle_candidates:
+            best_middle = max(
+                middle_candidates,
+                key=lambda s: (_message_signal_score(s.message), -s.timestamp.timestamp() if s.timestamp else 0),
+            )
+            steps = [first, best_middle, last]
+        else:
+            steps = [first, last]
+
+        deduped = []
+        seen_norm = set()
+        for step in steps:
+            norm = normalize_message(step.message)
+            if norm in seen_norm:
+                continue
+            seen_norm.add(norm)
+            deduped.append(step)
+        steps = deduped
 
     return [
         {
@@ -507,18 +584,33 @@ def infer_trace_root_cause(flow: TraceFlow) -> Optional[Dict[str, Any]]:
 
     first_step = flow.steps[0]
 
-    # 1. Hledej první ERROR/FATAL
-    for i, step in enumerate(flow.steps):
-        if step.level in ('ERROR', 'FATAL'):
-            # Confidence: high pokud je ERROR na první pozici
-            confidence = 'high' if i == 0 else 'medium'
-            return {
-                'service': step.app,
-                'message': normalize_message(step.message[:300]),
-                'level': step.level,
-                'timestamp': step.timestamp.isoformat() if step.timestamp else None,
-                'confidence': confidence,
-            }
+    error_candidates = [
+        (idx, step) for idx, step in enumerate(flow.steps)
+        if step.level in ('ERROR', 'FATAL')
+    ]
+
+    if error_candidates:
+        best_idx, best_step = max(
+            error_candidates,
+            key=lambda item: (_message_signal_score(item[1].message), -item[0]),
+        )
+        best_score = _message_signal_score(best_step.message)
+
+        if best_score <= 0:
+            for idx, step in error_candidates:
+                if _message_signal_score(step.message) >= 2:
+                    best_idx, best_step = idx, step
+                    best_score = _message_signal_score(step.message)
+                    break
+
+        confidence = 'high' if best_score >= 2 else ('medium' if best_idx <= 2 else 'low')
+        return {
+            'service': best_step.app,
+            'message': normalize_message(best_step.message[:300]),
+            'level': best_step.level,
+            'timestamp': best_step.timestamp.isoformat() if best_step.timestamp else None,
+            'confidence': confidence,
+        }
 
     # 2. Fallback na první WARN - confidence low
     for step in flow.steps:
