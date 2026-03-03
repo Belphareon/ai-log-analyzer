@@ -97,6 +97,8 @@ class ProblemEntry:
     # Sample error messages - CRITICAL for understanding what the problem is!
     sample_messages: List[str] = field(default_factory=list)
     description: str = ""  # Human-readable description / root cause
+    root_cause: str = ""
+    behavior: str = ""
 
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
@@ -135,6 +137,8 @@ class ProblemEntry:
             'status': self.status,
             'jira': self.jira,
             'notes': self.notes,
+            'root_cause': self.root_cause,
+            'behavior': self.behavior,
         }
     
     @classmethod
@@ -170,6 +174,10 @@ class ProblemEntry:
         entry.fingerprints = data.get('fingerprints', [])
         entry.sample_messages = data.get('sample_messages', [])
         entry.description = data.get('description', '')
+        entry.root_cause = data.get('root_cause', '') or entry.description or ''
+        entry.behavior = data.get('behavior', '')
+        if not entry.behavior and entry.sample_messages:
+            entry.behavior = entry.sample_messages[0]
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
         entry.deployments_seen = set(data.get('deployments_seen', []))
@@ -212,6 +220,8 @@ class PeakEntry:
     status: str = "OPEN"
     jira: Optional[str] = None
     notes: Optional[str] = None
+    root_cause: str = ""
+    behavior: str = ""
     
     def to_dict(self) -> dict:
         return {
@@ -230,6 +240,8 @@ class PeakEntry:
             'status': self.status,
             'jira': self.jira,
             'notes': self.notes,
+            'root_cause': self.root_cause,
+            'behavior': self.behavior,
         }
     
     @classmethod
@@ -255,6 +267,8 @@ class PeakEntry:
         entry.status = data.get('status', 'OPEN')
         entry.jira = data.get('jira')
         entry.notes = data.get('notes')
+        entry.root_cause = data.get('root_cause', '')
+        entry.behavior = data.get('behavior', '')
         
         return entry
     
@@ -740,6 +754,13 @@ class ProblemRegistry:
                     f"**Namespaces:** {', '.join(sorted(p.affected_namespaces))}",
                     "",
                 ])
+
+                if p.root_cause:
+                    lines.append(f"**Root cause:** {p.root_cause}")
+                if p.behavior:
+                    lines.append(f"**Behavior:** {p.behavior}")
+                if p.root_cause or p.behavior:
+                    lines.append("")
                 
                 if p.jira:
                     lines.append(f"**JIRA:** [{p.jira}](https://jira.kb.cz/browse/{p.jira})")
@@ -788,12 +809,22 @@ class ProblemRegistry:
                         f"**Problem Key:** `{p.problem_key}`",
                         f"**First seen:** {p.first_seen.strftime('%Y-%m-%d %H:%M') if p.first_seen else 'N/A'}",
                         f"**Last seen:** {p.last_seen.strftime('%Y-%m-%d %H:%M') if p.last_seen else 'N/A'}",
-                        f"**Occurrences:** {p.occurrences}",
+                        f"**Occurrence count (peak windows):** {p.occurrences}",
+                        f"**Peak count (raw errors):** {p.raw_error_count}",
                         f"**Max value:** {p.max_value:.2f}",
                         f"**Max ratio:** {p.max_ratio:.2f}x",
                         "",
                         f"**Apps:** {', '.join(sorted(p.affected_apps)[:5])}",
                         f"**Namespaces:** {', '.join(sorted(p.affected_namespaces))}",
+                        "",
+                    ])
+
+                    if p.root_cause:
+                        lines.append(f"**Root cause:** {p.root_cause}")
+                    if p.behavior:
+                        lines.append(f"**Behavior:** {p.behavior}")
+
+                    lines.extend([
                         "",
                         "---",
                         "",
@@ -1021,6 +1052,14 @@ class ProblemRegistry:
             msg = normalized_message.strip()[:500]
             if msg not in problem.sample_messages and len(problem.sample_messages) < MAX_SAMPLE_MESSAGES_PER_FP:
                 problem.sample_messages.append(msg)
+            if not problem.behavior:
+                problem.behavior = msg
+
+        if not problem.root_cause:
+            if error_type and error_type != 'UnknownError':
+                problem.root_cause = error_type
+            else:
+                problem.root_cause = problem.description or ''
         
         # Update affected entities (defensive: filter None)
         safe_apps = [a for a in apps if a] if apps else []
@@ -1081,6 +1120,8 @@ class ProblemRegistry:
             fingerprints=[fingerprint],
             sample_messages=sample_messages,
             description=f"{error_type}: {normalized_message[:200] if normalized_message else 'N/A'}",
+            root_cause=(error_type if error_type and error_type != 'UnknownError' else ''),
+            behavior=(sample_messages[0] if sample_messages else ''),
             affected_apps=set(safe_apps),
             affected_namespaces=set(safe_ns),
             deployments_seen={extract_deployment_label(app) for app in safe_apps},
@@ -1145,6 +1186,10 @@ class ProblemRegistry:
             peak.max_ratio = max(peak.max_ratio, ratio)
             peak.affected_apps.update(incident.apps or [])
             peak.affected_namespaces.update(incident.namespaces or [])
+            if not peak.root_cause and getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError':
+                peak.root_cause = str(incident.error_type)
+            if not peak.behavior and getattr(incident, 'normalized_message', None):
+                peak.behavior = str(incident.normalized_message)[:300]
             
             if incident.fingerprint not in peak.fingerprints:
                 peak.fingerprints.append(incident.fingerprint)
@@ -1166,6 +1211,8 @@ class ProblemRegistry:
                 affected_namespaces=set(incident.namespaces or []),
                 max_value=value,
                 max_ratio=ratio,
+                root_cause=(str(incident.error_type) if getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError' else ''),
+                behavior=(str(getattr(incident, 'normalized_message', ''))[:300] if getattr(incident, 'normalized_message', None) else ''),
             )
             
             self.peaks[peak_key] = peak

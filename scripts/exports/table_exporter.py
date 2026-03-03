@@ -95,6 +95,7 @@ class ErrorTableRow:
     severity: str                   # critical, high, medium, low
     score: float                    # Skóre detekce (0-100)
     ratio: float                    # Peak ratio vs. baseline
+    behavior: str
 
 
 
@@ -114,6 +115,8 @@ class PeakTableRow:
     last_seen: str
     occurrence_count: int
     status: str
+    root_cause: str
+    behavior: str
 
 
 # =============================================================================
@@ -133,6 +136,108 @@ class TableExporter:
     def __init__(self, registry: ProblemRegistry):
         self.registry = registry
         self.generated_at = datetime.now(timezone.utc)
+        self.trend_change_threshold_pct = float(os.getenv('TREND_CHANGE_THRESHOLD_PCT', '200'))
+        self.trend_display_cap_pct = float(os.getenv('TREND_DISPLAY_CAP_PCT', '200'))
+
+    @staticmethod
+    def _clean_unknown(value: Optional[str]) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        if not text:
+            return ""
+        lowered = text.lower()
+        if lowered in {"unknown", "unknownerror", "unclassified", "n/a", "none", "null"}:
+            return ""
+        return text
+
+    @staticmethod
+    def _shorten(text: str, limit: int = 180) -> str:
+        cleaned = " ".join((text or "").split())
+        if len(cleaned) <= limit:
+            return cleaned
+        return cleaned[: limit - 3] + "..."
+
+    def _problem_behavior(self, problem: ProblemEntry) -> str:
+        behavior = self._clean_unknown(getattr(problem, 'behavior', ''))
+        if behavior:
+            return self._shorten(behavior, 180)
+        if getattr(problem, 'sample_messages', None):
+            return self._shorten(problem.sample_messages[0], 180)
+        detail_parts = [self._clean_unknown(problem.error_class), self._clean_unknown(problem.flow)]
+        detail_parts = [part for part in detail_parts if part]
+        return " / ".join(detail_parts)
+
+    def _problem_root_cause(self, problem: ProblemEntry) -> str:
+        explicit_root = self._clean_unknown(getattr(problem, 'root_cause', ''))
+        if explicit_root:
+            return self._shorten(explicit_root, 180)
+        desc_root = self._clean_unknown(getattr(problem, 'description', ''))
+        if desc_root:
+            return self._shorten(desc_root, 180)
+        return ""
+
+    def _format_window_trend(self, current: int, previous: int, label: str) -> str:
+        if current == 0 and previous == 0:
+            return f"{label}: → 0"
+
+        if previous == 0 and current > 0:
+            return f"{label}: ↑ new"
+
+        change_pct = ((current - previous) / max(previous, 1)) * 100.0
+        capped = max(-self.trend_display_cap_pct, min(self.trend_display_cap_pct, abs(change_pct)))
+
+        if change_pct >= self.trend_change_threshold_pct:
+            suffix = "+" if abs(change_pct) > self.trend_display_cap_pct else ""
+            return f"{label}: ↑ +{capped:.0f}%{suffix}"
+        if change_pct <= -self.trend_change_threshold_pct:
+            suffix = "+" if abs(change_pct) > self.trend_display_cap_pct else ""
+            return f"{label}: ↓ -{capped:.0f}%{suffix}"
+        sign = "+" if change_pct >= 0 else ""
+        return f"{label}: → {sign}{change_pct:.0f}%"
+
+    def _compute_error_trend(self, problem: ProblemEntry, now: datetime) -> tuple[str, int]:
+        occurrence_times = getattr(problem, 'occurrence_times', None) or []
+        aware_times = [self._ensure_aware(ts) for ts in occurrence_times if self._ensure_aware(ts)]
+
+        if not aware_times:
+            return "2h: → 0 | 24h: → 0", 0
+
+        # Keep trend sensitive to 2h backfill cadence
+        last_2h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 2 * 3600)
+        prev_2h = sum(1 for ts in aware_times if 2 * 3600 <= (now - ts).total_seconds() < 4 * 3600)
+
+        # Long-term companion trend (day over day)
+        last_24h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 24 * 3600)
+        prev_24h = sum(1 for ts in aware_times if 24 * 3600 <= (now - ts).total_seconds() < 48 * 3600)
+
+        short_trend = self._format_window_trend(last_2h, prev_2h, "2h")
+        long_trend = self._format_window_trend(last_24h, prev_24h, "24h")
+
+        return f"{short_trend} | {long_trend}", last_24h
+
+    def _find_related_problem_for_peak(self, peak: PeakEntry, flow: str) -> Optional[ProblemEntry]:
+        candidates: List[ProblemEntry] = []
+        for problem in self.registry.problems.values():
+            if flow and problem.flow != flow:
+                continue
+            if peak.affected_namespaces and not (set(peak.affected_namespaces) & set(problem.affected_namespaces)):
+                continue
+            candidates.append(problem)
+
+        if not candidates:
+            return None
+
+        candidates.sort(
+            key=lambda p: (
+                len(set(peak.affected_namespaces) & set(p.affected_namespaces)),
+                len(set(peak.affected_apps) & set(p.affected_apps)),
+                p.occurrences,
+                p.last_seen or datetime.min,
+            ),
+            reverse=True,
+        )
+        return candidates[0]
 
     @staticmethod
     def _ensure_aware(value: Optional[datetime]) -> Optional[datetime]:
@@ -155,26 +260,12 @@ class TableExporter:
             first_seen = self._ensure_aware(problem.first_seen)
             last_seen = self._ensure_aware(problem.last_seen)
 
-            # Vypočítej trend (změna v poslední hodině)
-            occurrence_24h = len([
-                ts for ts in problem.occurrence_times
-                if self._ensure_aware(ts) and (now - self._ensure_aware(ts)).total_seconds() < 86400
-            ]) if hasattr(problem, 'occurrence_times') else 0
-            
-            if problem.occurrences > 0 and occurrence_24h > 0:
-                trend_pct = ((occurrence_24h - (problem.occurrences - occurrence_24h)) / (problem.occurrences - occurrence_24h)) * 100 if (problem.occurrences - occurrence_24h) > 0 else 0
-                if trend_pct > 5:
-                    trend = f"↑ +{trend_pct:.0f}%"
-                elif trend_pct < -5:
-                    trend = f"↓ {trend_pct:.0f}%"
-                else:
-                    trend = "→ stable"
-            else:
-                trend = "→ stable"
+            trend, occurrence_24h = self._compute_error_trend(problem, now)
             
             # Root Cause - extract from description or analysis
             # NOTE: ProblemEntry uses 'description' field, enrichment may populate it
-            root_cause = problem.description or "Unknown"
+            root_cause = self._problem_root_cause(problem)
+            behavior = self._problem_behavior(problem)
             
             # Detail - klíčová info (shorthand)
             detail = f"{problem.error_class}"
@@ -208,6 +299,7 @@ class TableExporter:
                 severity=getattr(problem, 'max_severity', 'unknown'),
                 score=float(getattr(problem, 'max_score', 0)),
                 ratio=float(getattr(problem, 'max_ratio', 1.0)) if hasattr(problem, 'max_ratio') else 1.0,
+                behavior=behavior,
             )
             rows.append(row)
 
@@ -231,7 +323,7 @@ class TableExporter:
             'problem_id', 'problem_key', 'flow', 'error_class', 
             'affected_apps', 'affected_namespaces', 'scope', 'status', 'jira', 'notes',
             # Informativní
-            'severity', 'score', 'ratio'
+            'severity', 'score', 'ratio', 'behavior'
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -384,10 +476,26 @@ class TableExporter:
             parts = problem_key.split(':') if problem_key else []
             if len(parts) >= 4 and parts[0] == 'PEAK':
                 category = parts[1]
+                flow = parts[2]
             elif len(parts) >= 1:
                 category = parts[0]
+                flow = parts[1] if len(parts) > 1 else ''
             else:
                 category = 'unknown'
+                flow = ''
+
+            related_problem = self._find_related_problem_for_peak(peak, flow)
+            category_clean = self._clean_unknown(category)
+            if not category_clean and related_problem is not None:
+                category_clean = self._clean_unknown(getattr(related_problem, 'category', '')) or category
+
+            peak_root_cause = self._clean_unknown(getattr(peak, 'root_cause', ''))
+            if not peak_root_cause and related_problem is not None:
+                peak_root_cause = self._problem_root_cause(related_problem)
+
+            peak_behavior = self._clean_unknown(getattr(peak, 'behavior', ''))
+            if not peak_behavior and related_problem is not None:
+                peak_behavior = self._problem_behavior(related_problem)
 
             raw_peak_count = int(getattr(peak, 'raw_error_count', 0) or 0)
             if raw_peak_count <= 0:
@@ -396,7 +504,7 @@ class TableExporter:
             row = PeakTableRow(
                 peak_id=peak.id,
                 problem_key=problem_key,
-                category=category,
+                category=category_clean or category,
                 peak_type=peak.peak_type,
                 affected_apps=", ".join(sorted(peak.affected_apps)[:10]),
                 affected_namespaces=", ".join(sorted(peak.affected_namespaces)),
@@ -407,6 +515,8 @@ class TableExporter:
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
                 occurrence_count=peak.occurrences,
                 status=peak.status,
+                root_cause=self._shorten(peak_root_cause, 180),
+                behavior=self._shorten(peak_behavior, 180),
             )
             rows.append(row)
 
@@ -423,18 +533,20 @@ class TableExporter:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
+            fieldnames = [
+                'peak_id', 'problem_key', 'category', 'peak_type',
+                'affected_apps', 'affected_namespaces', 'peak_count',
+                'baseline_rate', 'peak_ratio', 'first_seen', 'last_seen',
+                'occurrence_count', 'status', 'root_cause', 'behavior'
+            ]
             if rows:
-                writer = csv.DictWriter(f, fieldnames=list(asdict(rows[0]).keys()))
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
                 for row in rows:
-                    writer.writerow(asdict(row))
+                    row_dict = asdict(row)
+                    writer.writerow({k: row_dict.get(k, '') for k in fieldnames})
             else:
-                writer = csv.DictWriter(f, fieldnames=[
-                    'peak_id', 'problem_key', 'category', 'peak_type',
-                    'affected_apps', 'affected_namespaces', 'peak_count',
-                    'baseline_rate', 'peak_ratio', 'first_seen', 'last_seen',
-                    'occurrence_count', 'status'
-                ])
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 
         return str(path)
@@ -455,6 +567,8 @@ class TableExporter:
         ]
 
         if rows:
+            lines.append("_Field semantics: `peak_count` = raw error logs in peak windows, `occurrence_count` = number of peak windows._")
+            lines.append("")
             lines.append("| ID | Category | Type | Apps | Peak Ratio | Last Seen | Status |")
             lines.append("|-------|----------|------|------|------------|-----------|--------|")
 
