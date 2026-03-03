@@ -33,6 +33,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry
+from core.problem_registry import extract_flow
 from core.baseline_loader import BaselineLoader
 from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
@@ -160,16 +161,18 @@ def _severity_icon_for_peak(score: float, ratio: Optional[float]) -> str:
     return '⚪'
 
 
-def _select_peak_problem(problems: Dict[str, Any]) -> Optional[Any]:
+def _select_peak_problems(problems: Dict[str, Any], limit: int = 3) -> List[Any]:
     if not problems:
-        return None
+        return []
 
     peak_problems = [p for p in problems.values() if p.has_spike or p.has_burst]
     if not peak_problems:
-        return None
+        return []
 
     peak_problems.sort(key=lambda p: (p.max_score, p.total_occurrences), reverse=True)
-    return peak_problems[0]
+    if limit <= 0:
+        return peak_problems
+    return peak_problems[:limit]
 
 
 def _send_peak_alert_email(
@@ -191,9 +194,66 @@ def _send_peak_alert_email(
     try:
         from core.email_notifier import EmailNotifier
         
-        # Calculate peak metadata
-        peak_type = 'SPIKE' if problem.has_spike else 'BURST'
-        peak_key = f"PEAK:{problem.category}:{problem.flow}:{peak_type.lower()}"
+        # Calculate peak metadata aligned to actual trigger incident
+        peak_incidents = [
+            inc for inc in (getattr(problem, 'incidents', []) or [])
+            if (getattr(getattr(inc, 'flags', None), 'is_spike', False) or
+                getattr(getattr(inc, 'flags', None), 'is_burst', False))
+        ]
+        signal_incidents = peak_incidents or (getattr(problem, 'incidents', []) or [])
+
+        def _incident_ratio(inc: Any) -> float:
+            try:
+                baseline = float(getattr(getattr(inc, 'stats', None), 'baseline_rate', 0.0) or 0.0)
+                current = float(getattr(getattr(inc, 'stats', None), 'current_rate', 0.0) or 0.0)
+                if baseline > 0:
+                    return current / baseline
+            except Exception:
+                pass
+            return 0.0
+
+        trigger_incident = None
+        if peak_incidents:
+            trigger_incident = max(
+                peak_incidents,
+                key=lambda inc: (
+                    _incident_ratio(inc),
+                    int(getattr(getattr(inc, 'stats', None), 'current_count', 0) or 0),
+                    float(getattr(inc, 'score', 0.0) or 0.0),
+                )
+            )
+
+        if trigger_incident and getattr(trigger_incident.flags, 'is_spike', False):
+            peak_type = 'SPIKE'
+        elif trigger_incident and getattr(trigger_incident.flags, 'is_burst', False):
+            peak_type = 'BURST'
+        else:
+            peak_type = 'SPIKE' if problem.has_spike else 'BURST'
+
+        if trigger_incident is not None:
+            incident_category = (
+                trigger_incident.category.value
+                if hasattr(trigger_incident.category, 'value')
+                else str(trigger_incident.category)
+            )
+            incident_flow = extract_flow(
+                [a for a in (getattr(trigger_incident, 'apps', []) or []) if a],
+                [n for n in (getattr(trigger_incident, 'namespaces', []) or []) if n],
+            )
+            peak_key = f"PEAK:{incident_category}:{incident_flow}:{peak_type.lower()}"
+        else:
+            peak_key = f"PEAK:{problem.category}:{problem.flow}:{peak_type.lower()}"
+
+        peak_identifier = peak_key
+        if trigger_incident:
+            for ev in getattr(trigger_incident, 'evidence', []) or []:
+                if getattr(ev, 'rule', '') != 'spike_p93_cap':
+                    continue
+                msg = getattr(ev, 'message', '') or ''
+                match = re.search(r"peak_id=([^\)\s]+)", msg)
+                if match:
+                    peak_identifier = match.group(1)
+                    break
         
         known_peak = known_peaks.get(peak_key)
         is_known = known_peak is not None
@@ -211,7 +271,7 @@ def _send_peak_alert_email(
         
         # Calculate severity icon
         ratio = None
-        for inc in problem.incidents:
+        for inc in signal_incidents:
             if not (inc.flags.is_spike or inc.flags.is_burst):
                 continue
             if inc.stats.baseline_rate > 0:
@@ -244,22 +304,29 @@ def _send_peak_alert_email(
         trace_steps = []
         namespace_counts: Dict[str, int] = {}
         error_type_counts: Dict[str, int] = {}
+        affected_apps = set()
+        affected_namespaces = set()
+        raw_error_count = 0
 
-        for inc in getattr(problem, 'incidents', []) or []:
+        for inc in signal_incidents:
             ns_list = [ns for ns in (getattr(inc, 'namespaces', []) or []) if ns]
-            if not ns_list:
-                continue
             count = 1
             if hasattr(inc, 'stats') and hasattr(inc.stats, 'current_count'):
                 try:
                     count = max(1, int(inc.stats.current_count))
                 except (TypeError, ValueError):
                     count = 1
+            raw_error_count += count
+
+            for app in (getattr(inc, 'apps', []) or []):
+                if app:
+                    affected_apps.add(app)
 
             err_type = getattr(inc, 'error_type', None) or 'UnknownError'
             error_type_counts[err_type] = error_type_counts.get(err_type, 0) + count
 
             for ns in ns_list:
+                affected_namespaces.add(ns)
                 namespace_counts[ns] = namespace_counts.get(ns, 0) + count
 
         top_error_types = sorted(error_type_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
@@ -280,6 +347,38 @@ def _send_peak_alert_email(
                     'app': getattr(step, 'app', '?'),
                     'message': getattr(step, 'message', '')
                 })
+
+        current_window_errors = raw_error_count or problem.total_occurrences
+        previous_average_errors = None
+        if known_peak and getattr(known_peak, 'occurrences', 0):
+            peak_occurrences = max(1, int(getattr(known_peak, 'occurrences', 0) or 0))
+            historical_raw = int(getattr(known_peak, 'raw_error_count', 0) or 0)
+            if historical_raw > 0:
+                previous_average_errors = historical_raw / peak_occurrences
+
+        trend = 'stable'
+        if previous_average_errors and previous_average_errors > 0:
+            ratio_to_avg = current_window_errors / previous_average_errors
+            if ratio_to_avg >= 1.2:
+                trend = 'rising'
+            elif ratio_to_avg <= 0.8:
+                trend = 'falling'
+
+        known_apps = set(getattr(known_peak, 'affected_apps', []) or []) if known_peak else set()
+        known_namespaces = set(getattr(known_peak, 'affected_namespaces', []) or []) if known_peak else set()
+        new_apps = sorted(affected_apps - known_apps)
+        new_namespaces = sorted(affected_namespaces - known_namespaces)
+        continuation_summary = {
+            'trend': trend,
+            'current_window_errors': int(current_window_errors),
+            'previous_average_errors': int(previous_average_errors) if previous_average_errors else None,
+            'new_apps': new_apps,
+            'new_namespaces': new_namespaces,
+            'top_error_types': top_error_types_text,
+        }
+
+        # For continuing peaks, avoid repeating verbose trace block every window
+        trace_steps_for_email = trace_steps if not is_continues else []
         
         # Root cause (only for NEW peaks)
         root_cause = None
@@ -308,19 +407,20 @@ def _send_peak_alert_email(
                 peak_error_class=error_class,
                 peak_error_details=peak_error_details,
                 peak_type=peak_type,
-                peak_identifier=peak_key,
+                peak_identifier=peak_identifier,
                 is_known=is_known,
                 is_continues=is_continues,
                 peak_id=peak_id,
-                error_count=problem.total_occurrences,
+                error_count=current_window_errors,
                 window_start=peak_window_start,
                 window_end=window_end,
-                affected_apps=sorted(problem.apps) if problem.apps else [],
-                affected_namespaces=sorted(problem.namespaces) if problem.namespaces else [],
+                affected_apps=sorted(affected_apps) if affected_apps else (sorted(problem.apps) if problem.apps else []),
+                affected_namespaces=sorted(affected_namespaces) if affected_namespaces else (sorted(problem.namespaces) if problem.namespaces else []),
                 namespace_counts=namespace_counts,
-                trace_steps=trace_steps,
+                trace_steps=trace_steps_for_email,
                 root_cause=root_cause,
                 propagation_info=propagation_info,
+                continuation_summary=continuation_summary,
                 severity_icon=icon
             )
             
@@ -993,17 +1093,22 @@ def run_regular_phase(
             )
 
             if peaks_detected > 0 and enriched_problems:
-                peak_problem = _select_peak_problem(enriched_problems)
-                if peak_problem:
-                    # SEND DETAILED EMAIL ALERT FOR TOP PEAK
-                    _send_peak_alert_email(
+                max_alerts = int(os.getenv('MAX_PEAK_ALERTS_PER_WINDOW', '3'))
+                peak_problems = _select_peak_problems(enriched_problems, limit=max_alerts)
+                sent_alerts = 0
+
+                for peak_problem in peak_problems:
+                    if _send_peak_alert_email(
                         peak_problem,
                         peak_trace_flows or {},
                         known_peaks_snapshot,
                         window_start,
                         window_end,
                         window_minutes
-                    )
+                    ):
+                        sent_alerts += 1
+
+                print(f"✅ Peak alerts dispatched: {sent_alerts}/{len(peak_problems)}")
                     
         except Exception as e:
             print(f"⚠️ Peak alert failed: {e}")

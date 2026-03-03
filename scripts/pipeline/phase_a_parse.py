@@ -134,6 +134,100 @@ class PhaseA_Parser:
         self._error_type_compiled = [
             re.compile(p) for p in self.ERROR_TYPE_PATTERNS
         ]
+
+    def _classify_domain_message(self, msg: str) -> str:
+        """Domain-specific fallback classification for frequent business error families.
+
+        Returns concrete pseudo-error type when a strong message family is detected,
+        otherwise returns 'UnknownError'.
+        """
+        if not msg:
+            return 'UnknownError'
+
+        text = msg.lower()
+
+        if (
+            'primeissuerservicessoap' in text and
+            ('loadbridgexmlrequest' in text or 'processing errors' in text)
+        ):
+            return 'PrimeIssuerSoapProcessingError'
+
+        if 'called operation has failed' in text and 'processing errors' in text:
+            return 'OperationProcessingError'
+
+        if 'step processing failed' in text and 'stepcontext' in text:
+            return 'CaseStepProcessingFailed'
+
+        if 'non recoverable problem occurred' in text and 'manually fixed' in text:
+            return 'CaseManualFixRequired'
+
+        if (
+            'asynchronous case processing not started' in text and
+            'synchronous processing has failed' in text
+        ):
+            return 'CaseSyncStartFailed'
+
+        if 'could not be updated' in text and 'account' in text:
+            return 'AccountUpdateFailed'
+
+        if 'service exception while processing account data change' in text:
+            return 'ServiceExceptionProcessingChange'
+
+        if 'client (customer)' in text and 'could not be created' in text:
+            return 'CustomerCreateFailed'
+
+        if 'client' in text and 'could not be created as account owner' in text:
+            return 'AccountOwnerCreateFailed'
+
+        if 'there is not any active tariff of the client' in text:
+            return 'ClientTariffMissingError'
+
+        if 'mismatch between token scopes' in text and 'operation not allowed' in text:
+            return 'TokenScopeMismatchError'
+
+        if 'the header' in text and 'x-kb-orig-system-identity' in text and 'is empty' in text:
+            return 'MissingOrigSystemIdentityHeader'
+
+        if 'queued event' in text and 'was not processed' in text:
+            return 'QueuedEventNotProcessed'
+
+        if (
+            text.startswith('speed-') and
+            '#cardsserviceimpl#' in text
+        ):
+            return 'CardsServiceCallError'
+
+        if (
+            text.startswith('speed-') and
+            '#cardproductservice' in text
+        ):
+            return 'CardProductServiceCallError'
+
+        if 'getting subject' in text and 'failed' in text:
+            return 'GetSubjectsFailed'
+
+        if 'getting card offer for user' in text and 'failed' in text:
+            return 'GetCardOfferFailed'
+
+        if 'unexpected error occurred during case step processing' in text:
+            return 'CaseStepUnexpectedError'
+
+        if 'an unexpected error occurred during step processing, case' in text:
+            return 'CaseStepUnexpectedError'
+
+        if (
+            'unexpected exception occurred invoking async method' in text and
+            'asyncstepprocessingexecutorlistenerimpl' in text
+        ):
+            return 'AsyncStepProcessingError'
+
+        if 'step processing error, context stepcontext' in text:
+            return 'CaseStepProcessingError'
+
+        if 'processing of step' in text and 'has failed. step is skippable false' in text:
+            return 'CaseStepSkippableFalseFailed'
+
+        return 'UnknownError'
     
     def normalize_message(self, msg: str) -> str:
         """
@@ -214,6 +308,11 @@ class PhaseA_Parser:
             error_type = self.extract_error_type(msg)
             if error_type != 'UnknownError':
                 return error_type
+
+            # 4b. Domain-specific fallback mapping for recurring Unknown families
+            domain_type = self._classify_domain_message(msg)
+            if domain_type != 'UnknownError':
+                return domain_type
         
         # 5. HTTP status code fallback
         http_code = error.get('http.status_code')

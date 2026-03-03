@@ -18,6 +18,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 
 class EmailNotifier:
@@ -56,7 +57,13 @@ class EmailNotifier:
             
             # Send via SMTP
             with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as smtp:
-                smtp.send_message(msg)
+                refused = smtp.send_message(msg)
+
+            if refused:
+                print(f"⚠️ SMTP refused recipients: {refused}")
+                return False
+
+            print(f"✅ SMTP accepted message to {self.teams_email}")
             
             return True
         except Exception as e:
@@ -161,6 +168,7 @@ Results:
         trace_steps: list,
         root_cause: dict = None,
         propagation_info: dict = None,
+        continuation_summary: dict = None,
         severity_icon: str = "⚠️"
     ) -> bool:
         """Send detailed peak alert notification for regular phase."""
@@ -169,7 +177,21 @@ Results:
 
         peak_status = "KNOWN" if is_known else "NEW"
         continuation = " (continued)" if is_known and is_continues else ""
-        time_range = f"{window_start.strftime('%Y-%m-%d %H:%M')} - {window_end.strftime('%H:%M')}"
+
+        prague_tz = ZoneInfo('Europe/Prague')
+        ws_local = window_start.astimezone(prague_tz) if window_start else None
+        we_local = window_end.astimezone(prague_tz) if window_end else None
+        ws_utc = window_start.astimezone(ZoneInfo('UTC')) if window_start else None
+        we_utc = window_end.astimezone(ZoneInfo('UTC')) if window_end else None
+
+        local_range = (
+            f"{ws_local.strftime('%Y-%m-%d %H:%M %Z')} - {we_local.strftime('%H:%M %Z')}"
+            if ws_local and we_local else "N/A"
+        )
+        utc_range = (
+            f"{ws_utc.strftime('%Y-%m-%d %H:%M UTC')} - {we_utc.strftime('%H:%M UTC')}"
+            if ws_utc and we_utc else "N/A"
+        )
 
         namespace_counts = namespace_counts or {}
         ns_count_parts = []
@@ -185,7 +207,8 @@ Results:
             f"[AI Log Analyzer] {severity_icon} PEAK ALERT",
             "",
             f"Status: {peak_status}{continuation}",
-            f"Time: {time_range}",
+            f"Time (CET/CEST): {local_range}",
+            f"Time (UTC): {utc_range}",
             f"Error Class: {peak_error_class}",
             f"Peak Type: {peak_type}",
             f"Peak Key: {peak_identifier}",
@@ -195,6 +218,26 @@ Results:
             f"Affected Apps: {', '.join(affected_apps) if affected_apps else 'N/A'}",
             f"Namespaces: {namespaces_text}",
         ]
+
+        if is_known and is_continues and continuation_summary:
+            body_lines.extend([
+                "",
+                "Continuation Summary:",
+                f"  Trend: {continuation_summary.get('trend', 'stable')}",
+                f"  Raw Errors (this window): {int(continuation_summary.get('current_window_errors', 0)):,}",
+            ])
+            prev_avg = continuation_summary.get('previous_average_errors')
+            if isinstance(prev_avg, int) and prev_avg > 0:
+                body_lines.append(f"  Previous window average: {prev_avg:,}")
+            new_namespaces = continuation_summary.get('new_namespaces', []) or []
+            new_apps = continuation_summary.get('new_apps', []) or []
+            if new_namespaces:
+                body_lines.append(f"  New namespaces: {', '.join(new_namespaces)}")
+            if new_apps:
+                body_lines.append(f"  New apps: {', '.join(new_apps)}")
+            top_types = continuation_summary.get('top_error_types')
+            if top_types:
+                body_lines.append(f"  Top error types: {top_types}")
 
         if trace_steps:
             body_lines.extend(["", "Behavior Flow:"])
@@ -262,13 +305,38 @@ Results:
                 '</div>'
             )
 
+        html_continuation = ""
+        if is_known and is_continues and continuation_summary:
+            prev_avg_html = ""
+            prev_avg = continuation_summary.get('previous_average_errors')
+            if isinstance(prev_avg, int) and prev_avg > 0:
+                prev_avg_html = f'<div><strong>Previous window average:</strong> {prev_avg:,}</div>'
+            new_namespaces = continuation_summary.get('new_namespaces', []) or []
+            new_apps = continuation_summary.get('new_apps', []) or []
+            top_types = continuation_summary.get('top_error_types') or 'N/A'
+
+            html_continuation = (
+                '<div style="margin-bottom:20px;">'
+                '<div style="padding:12px;border:1px solid #808080;">'
+                '<div style="font-weight:700;text-decoration:underline;">Continuation Summary</div>'
+                f'<div style="margin-top:8px;"><strong>Trend:</strong> {continuation_summary.get("trend", "stable")}</div>'
+                f'<div><strong>Raw Errors (this window):</strong> {int(continuation_summary.get("current_window_errors", 0)):,}</div>'
+                f'{prev_avg_html}'
+                f'<div><strong>New namespaces:</strong> {", ".join(new_namespaces) if new_namespaces else "none"}</div>'
+                f'<div><strong>New apps:</strong> {", ".join(new_apps) if new_apps else "none"}</div>'
+                f'<div><strong>Top error types:</strong> {top_types}</div>'
+                '</div>'
+                '</div>'
+            )
+
         html_body = f"""
         <html>
-        <body style="font-family:'Segoe UI',Arial,sans-serif;color:#222;background-color:#ffffff;margin:0;padding:20px;">
-            <div style="max-width:760px;margin:0 auto;border:1px solid #cfcfcf;">
+        <body style="font-family:'Segoe UI',Arial,sans-serif;color:inherit;background:transparent;margin:0;padding:20px;">
+            <div style="max-width:760px;margin:0 auto;border:1px solid #808080;">
                 <div style="padding:16px;border-bottom:1px solid #cfcfcf;">
                     <h1 style="margin:0;font-size:21px;font-weight:700;">{severity_icon} Peak Alert - {peak_status}{continuation}</h1>
-                    <div style="margin-top:4px;font-size:14px;">Regular Phase Detection - {time_range}</div>
+                    <div style="margin-top:4px;font-size:14px;">Regular Phase Detection - {local_range}</div>
+                    <div style="margin-top:2px;font-size:12px;opacity:0.9;">{utc_range}</div>
                 </div>
                 <div style="padding:20px;">
                     <div style="margin-bottom:20px;">
@@ -281,6 +349,7 @@ Results:
                         <div><strong>Status:</strong> {peak_status}{continuation}</div>
                         {f'<div><strong>Peak ID:</strong> {peak_id}</div>' if is_known and peak_id else ''}
                     </div>
+                    {html_continuation}
                     <div style="margin-bottom:20px;">
                         <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Affected Scope</div>
                         <div><strong>Applications:</strong> {', '.join(affected_apps) if affected_apps else 'N/A'}</div>
@@ -290,8 +359,8 @@ Results:
                     {html_root}
                     {html_propagation}
                     <div style="margin-top:20px;padding-top:15px;border-top:1px solid #d9d9d9;">
-                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update" style="font-weight:700;text-decoration:underline;margin-right:16px;color:#222;">📖 Known Peaks</a>
-                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis" style="font-weight:700;text-decoration:underline;color:#222;">📊 Recent Analysis</a>
+                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update" style="font-weight:700;text-decoration:underline;margin-right:16px;color:#4ea1ff;">📖 Known Peaks</a>
+                        <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis" style="font-weight:700;text-decoration:underline;color:#4ea1ff;">📊 Recent Analysis</a>
                     </div>
                 </div>
                 <div style="text-align:center;padding:14px;border-top:1px solid #cfcfcf;font-size:12px;color:#555;">
