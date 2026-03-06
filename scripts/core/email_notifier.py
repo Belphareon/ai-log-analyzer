@@ -329,35 +329,50 @@ Results:
                 '</div>'
             )
 
+        # Build Trend display from continuation_summary if available
+        trend_display = continuation_summary.get('trend', 'stable') if continuation_summary else 'stable'
+        
         html_body = f"""
         <html>
         <body style="font-family:'Segoe UI',Arial,sans-serif;color:inherit;background:transparent;margin:0;padding:20px;">
             <div style="max-width:760px;margin:0 auto;border:1px solid #808080;">
                 <div style="padding:16px;border-bottom:1px solid #cfcfcf;">
-                    <h1 style="margin:0;font-size:21px;font-weight:700;">{severity_icon} Peak Alert - {peak_status}{continuation}</h1>
+                    <h1 style="margin:0;font-size:21px;font-weight:700;">{peak_error_class} | Status: {peak_status}{continuation} | Trend: {trend_display}</h1>
                     <div style="margin-top:4px;font-size:14px;">Regular Phase Detection - {local_range}</div>
-                    <div style="margin-top:2px;font-size:12px;opacity:0.9;">{utc_range}</div>
                 </div>
                 <div style="padding:20px;">
                     <div style="margin-bottom:20px;">
-                        <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Peak Details</div>
-                        <div><strong>Error Class:</strong> {peak_error_class}</div>
+                        <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Summary</div>
+                        <div><strong>This window errors:</strong> {error_count:,}</div>"""
+        
+        if is_known and is_continues and continuation_summary:
+            prev_avg = continuation_summary.get('previous_average_errors', 0)
+            if isinstance(prev_avg, int) and prev_avg > 0:
+                pct_change = ((error_count - prev_avg) / prev_avg * 100) if prev_avg > 0 else 0
+                html_body += f'<div><strong>Previous window avg:</strong> {prev_avg:,} ({pct_change:+.0f}%)</div>'
+        
+        if is_known and peak_id:
+            html_body += f'<div><strong>Peak ID:</strong> {peak_id}</div>'
+        
+        html_body += """
+                    </div>
+                    
+                    <div style="margin-bottom:20px;">
+                        <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Error Details</div>
                         <div><strong>Error Info:</strong> {peak_error_details}</div>
                         <div><strong>Peak Type:</strong> {peak_type}</div>
-                        <div><strong>Peak Key:</strong> {peak_identifier}</div>
-                        <div><strong>Raw Errors:</strong> {error_count:,}</div>
-                        <div><strong>Status:</strong> {peak_status}{continuation}</div>
-                        {f'<div><strong>Peak ID:</strong> {peak_id}</div>' if is_known and peak_id else ''}
                     </div>
-                    {html_continuation}
+                    
                     <div style="margin-bottom:20px;">
                         <div style="font-weight:700;text-decoration:underline;margin-bottom:10px;">Affected Scope</div>
                         <div><strong>Applications:</strong> {', '.join(affected_apps) if affected_apps else 'N/A'}</div>
                         <div><strong>Namespaces:</strong> {namespaces_text}</div>
                     </div>
-                    {html_trace}
+                    
                     {html_root}
+                    {html_trace}
                     {html_propagation}
+                    
                     <div style="margin-top:20px;padding-top:15px;border-top:1px solid #d9d9d9;">
                         <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314203/Known+Peaks+-+Daily+Update" style="font-weight:700;text-decoration:underline;margin-right:16px;color:#4ea1ff;">📖 Known Peaks</a>
                         <a href="https://wiki.kb.cz/spaces/CCAT/pages/1334314207/Recent+Incidents+-+Daily+Problem+Analysis" style="font-weight:700;text-decoration:underline;color:#4ea1ff;">📊 Recent Analysis</a>

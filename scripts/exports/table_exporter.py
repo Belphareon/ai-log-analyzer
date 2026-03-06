@@ -74,7 +74,8 @@ class ErrorTableRow:
     last_seen: str                  # ISO format
     occurrence_total: int           # Celkový počet
     occurrence_24h: int             # Poslední 24 hodin
-    trend: str                      # ↑ increasing | → stable | ↓ decreasing + % změna
+    trend_2h: str                   # 2 hours: ↑ increasing | → stable | ↓ decreasing + % změna
+    trend_24h: str                  # 24 hours: ↑ increasing | → stable | ↓ decreasing + % změna
     root_cause: str                 # Výsledek analysis (CO se stalo) - z enrichment script
     category: str                   # Type (DB, Code, Auth, Infra, ...) 
     detail: str                     # Klíčová info (metoda, service, endpoint, message snippet)
@@ -196,12 +197,12 @@ class TableExporter:
         sign = "+" if change_pct >= 0 else ""
         return f"{label}: → {sign}{change_pct:.0f}%"
 
-    def _compute_error_trend(self, problem: ProblemEntry, now: datetime) -> tuple[str, int]:
+    def _compute_error_trend(self, problem: ProblemEntry, now: datetime) -> tuple[str, str, int]:
         occurrence_times = getattr(problem, 'occurrence_times', None) or []
         aware_times = [self._ensure_aware(ts) for ts in occurrence_times if self._ensure_aware(ts)]
 
         if not aware_times:
-            return "2h: → 0 | 24h: → 0", 0
+            return "→ 0", "→ 0", 0
 
         # Keep trend sensitive to 2h backfill cadence
         last_2h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 2 * 3600)
@@ -214,7 +215,7 @@ class TableExporter:
         short_trend = self._format_window_trend(last_2h, prev_2h, "2h")
         long_trend = self._format_window_trend(last_24h, prev_24h, "24h")
 
-        return f"{short_trend} | {long_trend}", last_24h
+        return short_trend, long_trend, last_24h
 
     def _find_related_problem_for_peak(self, peak: PeakEntry, flow: str) -> Optional[ProblemEntry]:
         candidates: List[ProblemEntry] = []
@@ -260,7 +261,7 @@ class TableExporter:
             first_seen = self._ensure_aware(problem.first_seen)
             last_seen = self._ensure_aware(problem.last_seen)
 
-            trend, occurrence_24h = self._compute_error_trend(problem, now)
+            trend_2h, trend_24h, occurrence_24h = self._compute_error_trend(problem, now)
             
             # Root Cause - extract from description or analysis
             # NOTE: ProblemEntry uses 'description' field, enrichment may populate it
@@ -278,7 +279,8 @@ class TableExporter:
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "Unknown",
                 occurrence_total=problem.occurrences,
                 occurrence_24h=occurrence_24h,
-                trend=trend,
+                trend_2h=trend_2h,
+                trend_24h=trend_24h,
                 root_cause=root_cause,
                 category=problem.category,
                 detail=detail,
@@ -317,7 +319,7 @@ class TableExporter:
 
         # NOVÉ pořadí sloupců - dle designu
         fieldnames = [
-            'first_seen', 'last_seen', 'occurrence_total', 'occurrence_24h', 'trend',
+            'first_seen', 'last_seen', 'occurrence_total', 'occurrence_24h', 'trend_2h', 'trend_24h',
             'root_cause', 'category', 'detail',
             # Historické
             'problem_id', 'problem_key', 'flow', 'error_class', 
