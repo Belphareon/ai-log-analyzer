@@ -1054,25 +1054,49 @@ def run_backfill(
         try:
             notifier = TeamsNotifier()
             if notifier.is_enabled():
-                registry_stats = _global_registry.get_stats() if _global_registry else {}
-                success = notifier.send_backfill_completed(
-                    days_processed=len(results),
-                    successful_days=success_count,
-                    failed_days=error_count,
-                    total_incidents=total_incidents,
-                    saved_count=total_saved,
-                    registry_updates={
-                        'problems': registry_stats.get('new_problems_added', 0),
-                        'total_peaks': registry_stats.get('total_peaks', 0),
-                        'new_peaks': registry_stats.get('new_peaks_added', 0),
-                    },
-                    duration_minutes=(datetime.now(timezone.utc) - now).total_seconds() / 60.0,
-                    problem_report=_global_problem_report
-                )
-                if success:
-                    safe_print("✅ Notification sent (email/Teams)")
+                now_utc = datetime.now(timezone.utc)
+                report_hour_raw = os.getenv('BACKFILL_SUCCESS_REPORT_HOUR_UTC', '7')
+                try:
+                    report_hour = max(0, min(23, int(report_hour_raw)))
+                except (TypeError, ValueError):
+                    report_hour = 7
+
+                registry_base = os.getenv('REGISTRY_DIR') or str(SCRIPT_DIR.parent / 'registry')
+                marker_path = Path(registry_base) / '.last_backfill_success_report_utc_date'
+                today = now_utc.date().isoformat()
+                already_sent_today = False
+                try:
+                    already_sent_today = marker_path.exists() and marker_path.read_text().strip() == today
+                except Exception:
+                    already_sent_today = False
+
+                should_send = (error_count > 0) or (now_utc.hour == report_hour and not already_sent_today)
+
+                if should_send:
+                    registry_stats = _global_registry.get_stats() if _global_registry else {}
+                    success = notifier.send_backfill_completed(
+                        days_processed=len(results),
+                        successful_days=success_count,
+                        failed_days=error_count,
+                        total_incidents=total_incidents,
+                        saved_count=total_saved,
+                        registry_updates={
+                            'problems': registry_stats.get('new_problems_added', 0),
+                            'total_peaks': registry_stats.get('total_peaks', 0),
+                            'new_peaks': registry_stats.get('new_peaks_added', 0),
+                        },
+                        duration_minutes=(now_utc - now).total_seconds() / 60.0,
+                        problem_report=_global_problem_report
+                    )
+                    if success:
+                        if error_count == 0:
+                            marker_path.parent.mkdir(parents=True, exist_ok=True)
+                            marker_path.write_text(today)
+                        safe_print("✅ Notification sent (email/Teams)")
+                    else:
+                        safe_print("⚠️ Notification failed")
                 else:
-                    safe_print("⚠️ Notification failed")
+                    safe_print("ℹ️ Backfill success report suppressed (daily cadence)")
             else:
                 safe_print("⚠️ Teams notifier not enabled (check TEAMS_ENABLED and TEAMS_WEBHOOK_URL)")
         except Exception as e:

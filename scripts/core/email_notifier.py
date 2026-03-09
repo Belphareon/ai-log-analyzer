@@ -224,7 +224,6 @@ Results:
                 "",
                 "Continuation Summary:",
                 f"  Trend: {continuation_summary.get('trend', 'stable')}",
-                f"  Raw Errors (this window): {int(continuation_summary.get('current_window_errors', 0)):,}",
             ])
             prev_avg = continuation_summary.get('previous_average_errors')
             if isinstance(prev_avg, int) and prev_avg > 0:
@@ -320,7 +319,6 @@ Results:
                 '<div style="padding:12px;border:1px solid #808080;">'
                 '<div style="font-weight:700;text-decoration:underline;">Continuation Summary</div>'
                 f'<div style="margin-top:8px;"><strong>Trend:</strong> {continuation_summary.get("trend", "stable")}</div>'
-                f'<div><strong>Raw Errors (this window):</strong> {int(continuation_summary.get("current_window_errors", 0)):,}</div>'
                 f'{prev_avg_html}'
                 f'<div><strong>New namespaces:</strong> {", ".join(new_namespaces) if new_namespaces else "none"}</div>'
                 f'<div><strong>New apps:</strong> {", ".join(new_apps) if new_apps else "none"}</div>'
