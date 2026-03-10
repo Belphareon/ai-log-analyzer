@@ -39,8 +39,7 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
     session = requests.Session()
     session.auth = HTTPBasicAuth(ES_USER, ES_PASSWORD)
     session.verify = False
-    session.trust_env = False
-    session.proxies = {'http': None, 'https': None}
+    session.trust_env = True
 
     pit_id = None
     pit_keep_alive = '5m'
