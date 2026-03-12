@@ -17,7 +17,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from zoneinfo import ZoneInfo
 
 
@@ -385,4 +385,105 @@ Results:
         """
 
         subject = f"[AI Log Analyzer] {severity_icon} {peak_status} {peak_type} - {peak_error_class}"
+        return self._send_email(subject, body, html_body)
+
+    def send_regular_phase_peak_digest(
+        self,
+        window_start: datetime,
+        window_end: datetime,
+        alerts: List[Dict[str, Any]],
+        suppressed_count: int = 0,
+    ) -> bool:
+        """Send one digest email for all dispatched alerts in current window."""
+        if not self.is_enabled():
+            return False
+
+        prague_tz = ZoneInfo('Europe/Prague')
+        ws_local = window_start.astimezone(prague_tz) if window_start else None
+        we_local = window_end.astimezone(prague_tz) if window_end else None
+        local_range = (
+            f"{ws_local.strftime('%Y-%m-%d %H:%M %Z')} - {we_local.strftime('%H:%M %Z')}"
+            if ws_local and we_local else "N/A"
+        )
+
+        total_errors = sum(int(a.get('error_count', 0) or 0) for a in alerts)
+        subject = (
+            f"[AI Log Analyzer] Digest {local_range} | sent {len(alerts)} | suppressed {suppressed_count}"
+        )
+
+        lines = [
+            "[AI Log Analyzer] Peak Alert Digest",
+            "",
+            f"Window: {local_range}",
+            f"Alerts sent: {len(alerts)}",
+            f"Alerts suppressed: {suppressed_count}",
+            f"Total errors in sent alerts: {total_errors:,}",
+            "",
+            "Dispatched Alerts:",
+        ]
+
+        for idx, alert in enumerate(alerts, start=1):
+            trend = alert.get('trend', 'stable')
+            error_class = alert.get('error_class', 'unknown')
+            error_count = int(alert.get('error_count', 0) or 0)
+            peak_type = alert.get('peak_type', 'SPIKE')
+            status = "KNOWN" if alert.get('is_known') else "NEW"
+            lines.append(
+                f"  {idx}. {error_class} | {peak_type} | {status} | trend={trend} | errors={error_count:,}"
+            )
+
+        body = "\n".join(lines)
+
+        rows = []
+        for alert in alerts:
+            trend = alert.get('trend', 'stable')
+            error_class = alert.get('error_class', 'unknown')
+            error_count = int(alert.get('error_count', 0) or 0)
+            peak_type = alert.get('peak_type', 'SPIKE')
+            status = "KNOWN" if alert.get('is_known') else "NEW"
+            rows.append(
+                "<tr>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{error_class}</td>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{peak_type}</td>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{status}</td>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{trend}</td>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;text-align:right;\">{error_count:,}</td>"
+                "</tr>"
+            )
+
+        html_body = f"""
+        <html>
+        <body style="font-family:'Segoe UI',Arial,sans-serif;color:inherit;background:transparent;margin:0;padding:20px;">
+            <div style="max-width:760px;margin:0 auto;border:1px solid #808080;">
+                <div style="padding:16px;border-bottom:1px solid #cfcfcf;">
+                    <h1 style="margin:0;font-size:21px;font-weight:700;">Peak Digest</h1>
+                    <div style="margin-top:4px;font-size:14px;">{local_range}</div>
+                </div>
+                <div style="padding:20px;">
+                    <div><strong>Alerts sent:</strong> {len(alerts)}</div>
+                    <div><strong>Alerts suppressed:</strong> {suppressed_count}</div>
+                    <div><strong>Total errors in sent alerts:</strong> {total_errors:,}</div>
+                    <table style="margin-top:16px;border-collapse:collapse;width:100%;">
+                        <thead>
+                            <tr>
+                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Error Class</th>
+                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Peak Type</th>
+                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Status</th>
+                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Trend</th>
+                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:right;">Errors</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {''.join(rows)}
+                        </tbody>
+                    </table>
+                </div>
+                <div style="text-align:center;padding:14px;border-top:1px solid #cfcfcf;font-size:12px;color:#555;">
+                    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | AI Log Analyzer
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
         return self._send_email(subject, body, html_body)

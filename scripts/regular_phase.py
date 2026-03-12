@@ -597,6 +597,34 @@ def _send_peak_alert_email(payload: Dict[str, Any]) -> bool:
         return False
 
 
+def _send_peak_alert_digest(
+    window_start: datetime,
+    window_end: datetime,
+    alerts: List[Dict[str, Any]],
+    suppressed_count: int,
+) -> bool:
+    if not alerts:
+        return False
+
+    try:
+        from core.email_notifier import EmailNotifier
+
+        email_notifier = EmailNotifier()
+        if not email_notifier.is_enabled():
+            print("⚠️ Email notifier not enabled")
+            return False
+
+        return email_notifier.send_regular_phase_peak_digest(
+            window_start=window_start,
+            window_end=window_end,
+            alerts=alerts,
+            suppressed_count=suppressed_count,
+        )
+    except Exception as e:
+        print(f"⚠️ Error sending peak digest email: {e}")
+        return False
+
+
 def _build_peak_notification(
     problem: Any,
     trace_flows: Dict[str, List[Any]],
@@ -1270,6 +1298,8 @@ def run_regular_phase(
 
             if peaks_detected > 0 and enriched_problems:
                 max_alerts = int(os.getenv('MAX_PEAK_ALERTS_PER_WINDOW', '3'))
+                digest_raw = os.getenv('ALERT_DIGEST_ENABLED', 'true').strip().lower()
+                digest_enabled = digest_raw not in {'0', 'false', 'no', 'off'}
                 peak_problems = _select_peak_problems(enriched_problems, limit=max_alerts)
                 sent_alerts = 0
                 suppressed_alerts = 0
@@ -1277,6 +1307,7 @@ def run_regular_phase(
                 alert_peaks = alert_state.get('peaks', {})
                 now_utc = datetime.now(timezone.utc)
                 cooldown_min = int(os.getenv('ALERT_COOLDOWN_MIN', '45'))
+                dispatch_payloads: List[Dict[str, Any]] = []
 
                 for peak_problem in peak_problems:
                     payload = _build_peak_alert_payload(
@@ -1300,17 +1331,35 @@ def run_regular_phase(
                             print(f"ℹ️ Peak alert suppressed for {peak_key}: {reason}")
                         continue
 
-                    if _send_peak_alert_email(payload):
-                        sent_alerts += 1
-                        if peak_key:
-                            alert_peaks[peak_key] = {
-                                'last_sent_at': now_utc.isoformat(),
-                                'last_sent_window': payload.get('window_key', ''),
-                                'last_trend': payload.get('trend', ''),
-                                'last_error_count': int(payload.get('error_count', 0) or 0),
-                                'cooldown_until': (now_utc + timedelta(minutes=max(cooldown_min, 0))).isoformat(),
-                                'last_reason': reason,
-                            }
+                    payload['send_reason'] = reason
+                    dispatch_payloads.append(payload)
+
+                if digest_enabled:
+                    if dispatch_payloads and _send_peak_alert_digest(window_start, window_end, dispatch_payloads, suppressed_alerts):
+                        sent_alerts = len(dispatch_payloads)
+                    elif dispatch_payloads:
+                        print("⚠️ Digest send failed, falling back to individual alerts")
+                        for payload in dispatch_payloads:
+                            if _send_peak_alert_email(payload):
+                                sent_alerts += 1
+                else:
+                    for payload in dispatch_payloads:
+                        if _send_peak_alert_email(payload):
+                            sent_alerts += 1
+
+                if sent_alerts > 0:
+                    for payload in dispatch_payloads:
+                        peak_key = payload.get('peak_key', '')
+                        if not peak_key:
+                            continue
+                        alert_peaks[peak_key] = {
+                            'last_sent_at': now_utc.isoformat(),
+                            'last_sent_window': payload.get('window_key', ''),
+                            'last_trend': payload.get('trend', ''),
+                            'last_error_count': int(payload.get('error_count', 0) or 0),
+                            'cooldown_until': (now_utc + timedelta(minutes=max(cooldown_min, 0))).isoformat(),
+                            'last_reason': payload.get('send_reason', ''),
+                        }
 
                 alert_state['peaks'] = alert_peaks
                 _save_alert_state(registry, alert_state)
