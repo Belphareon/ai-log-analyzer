@@ -403,9 +403,9 @@ def _build_peak_alert_payload(
     known_peak = known_peaks.get(peak_key)
     is_known = known_peak is not None
     is_continues = False
+    continuation_lookback_min = int(os.getenv('ALERT_CONTINUATION_LOOKBACK_MIN', '60'))
     if known_peak and known_peak.last_seen:
-        is_continues = (known_peak.last_seen < window_start and
-                        known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes)))
+        is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=max(continuation_lookback_min, window_minutes)))
 
     peak_window_start = window_start
     peak_id = known_peak.id if is_known else ""
@@ -642,8 +642,9 @@ def _build_peak_notification(
     known_peak = known_peaks.get(peak_key)
     is_known = known_peak is not None
     is_continues = False
+    continuation_lookback_min = int(os.getenv('ALERT_CONTINUATION_LOOKBACK_MIN', '60'))
     if known_peak and known_peak.last_seen:
-        is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes))
+        is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=max(continuation_lookback_min, window_minutes)))
 
     known_label = "NEW"
     if is_known:
