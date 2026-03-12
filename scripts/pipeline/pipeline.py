@@ -74,6 +74,7 @@ class Pipeline:
         spike_threshold: float = 3.0,
         spike_mad_threshold: float = 3.0,
         cross_ns_threshold: int = 2,
+        new_error_min_count: int = 50,
 
         # P93/CAP peak detection
         peak_detector = None,

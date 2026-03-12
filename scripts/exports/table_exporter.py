@@ -178,12 +178,14 @@ class TableExporter:
             return self._shorten(desc_root, 180)
         return ""
 
-    def _format_window_trend(self, current: int, previous: int, label: str) -> str:
+    def _format_window_trend(self, current: int, previous: int, label: str, is_new_error: bool = False) -> str:
         if current == 0 and previous == 0:
             return f"{label}: → 0"
 
         if previous == 0 and current > 0:
-            return f"{label}: ↑ new"
+            # Only show "new" if this is genuinely a new error (first_seen < 24h)
+            # Otherwise it's a known error with renewed activity
+            return f"{label}: ↑ new" if is_new_error else f"{label}: ↑ +inf%"
 
         change_pct = ((current - previous) / max(previous, 1)) * 100.0
         capped = max(-self.trend_display_cap_pct, min(self.trend_display_cap_pct, abs(change_pct)))
@@ -204,6 +206,14 @@ class TableExporter:
         if not aware_times:
             return "→ 0", "→ 0", 0
 
+        # Check if this error is genuinely NEW (first_seen within 24h)
+        first_seen = getattr(problem, 'first_seen', None)
+        is_genuinely_new = False
+        if first_seen:
+            aware_first = self._ensure_aware(first_seen)
+            if aware_first and (now - aware_first).total_seconds() < 24 * 3600:
+                is_genuinely_new = True
+
         # Keep trend sensitive to 2h backfill cadence
         last_2h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 2 * 3600)
         prev_2h = sum(1 for ts in aware_times if 2 * 3600 <= (now - ts).total_seconds() < 4 * 3600)
@@ -212,8 +222,8 @@ class TableExporter:
         last_24h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 24 * 3600)
         prev_24h = sum(1 for ts in aware_times if 24 * 3600 <= (now - ts).total_seconds() < 48 * 3600)
 
-        short_trend = self._format_window_trend(last_2h, prev_2h, "2h")
-        long_trend = self._format_window_trend(last_24h, prev_24h, "24h")
+        short_trend = self._format_window_trend(last_2h, prev_2h, "2h", is_genuinely_new)
+        long_trend = self._format_window_trend(last_24h, prev_24h, "24h", is_genuinely_new)
 
         return short_trend, long_trend, last_24h
 

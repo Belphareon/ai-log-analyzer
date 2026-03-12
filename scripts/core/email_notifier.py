@@ -352,7 +352,7 @@ Results:
         if is_known and peak_id:
             html_body += f'<div><strong>Peak ID:</strong> {peak_id}</div>'
         
-        html_body += """
+        html_body += f"""
                     </div>
                     
                     <div style="margin-bottom:20px;">

@@ -1029,17 +1029,23 @@ class ProblemRegistry:
         if problem.last_seen is None or last_ts > problem.last_seen:
             problem.last_seen = last_ts
         
-        # Update counts
-        problem.occurrences += count
-        
-        # Track occurrence timestamps (keep max 100 for 24h trend calculation)
-        # Add last_ts to track when this problem occurred (keep recent timestamps)
+        # Update counts — deduplicate by truncating last_ts to minute precision.
+        # Without this, repeated backfill runs (--force) for the same window
+        # would accumulate occurrences and duplicate timestamps each run.
         if last_ts:
-            problem.occurrence_times.append(last_ts)
-            # Keep only last 100 timestamps (memory efficient)
-            if len(problem.occurrence_times) > 100:
-                # Remove oldest ones to keep only last 100
-                problem.occurrence_times = problem.occurrence_times[-100:]
+            ts_bucket = last_ts.replace(second=0, microsecond=0)
+            existing_buckets = {
+                t.replace(second=0, microsecond=0) if hasattr(t, "replace") else t
+                for t in problem.occurrence_times
+            }
+            if ts_bucket not in existing_buckets:
+                # Genuinely new window — count it
+                problem.occurrences += count
+                problem.occurrence_times.append(last_ts)
+            # else: same minute already recorded -> idempotent re-run, skip
+        else:
+            # No timestamp -> always count (e.g. regular phase rows)
+            problem.occurrences += count
         
         # Add fingerprint if new (with limit)
         if fingerprint not in problem.fingerprints:

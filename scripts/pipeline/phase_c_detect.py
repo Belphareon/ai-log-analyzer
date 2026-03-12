@@ -114,7 +114,7 @@ class PhaseC_Detect:
         known_fixes: Dict[str, str] = None,
         registry: 'ProblemRegistry' = None,
         peak_detector: 'PeakDetector' = None,
-        new_error_min_count: int = 5,
+        new_error_min_count: int = 50,
         min_namespace_peak_value: int = None,
     ):
         # Legacy params kept for backward compat (not used for detection when peak_detector is set)
@@ -223,18 +223,19 @@ class PhaseC_Detect:
                     return True
 
         # 3. Fallback: new error type (no baseline)
-        # Enabled only when P93/CAP detector is unavailable.
-        if not self.peak_detector and measurement.baseline_ewma == 0 and measurement.baseline_median == 0:
-            if measurement.current_count >= self.new_error_min_count:
-                result.flags.is_spike = True
-                result.add_evidence(
-                    rule="spike_new_error_type",
-                    current=measurement.current_count,
-                    threshold=self.new_error_min_count,
-                    message=f"new error type with {measurement.current_count} occurrences (no baseline)"
-                )
-                self.stats['detected_spike'] += 1
-                return True
+        # DISABLED: Was causing false positives (e.g., connection_error with 57 occurrences)
+        # Only P93/CAP baseline detection should trigger SPIKE alerts
+        # if not self.peak_detector and measurement.baseline_ewma == 0 and measurement.baseline_median == 0:
+        #     if measurement.current_count >= self.new_error_min_count:
+        #         result.flags.is_spike = True
+        #         result.add_evidence(
+        #             rule="spike_new_error_type",
+        #             current=measurement.current_count,
+        #             threshold=self.new_error_min_count,
+        #             message=f"new error type with {measurement.current_count} occurrences (no baseline)"
+        #         )
+        #         self.stats['detected_spike'] += 1
+        #         return True
 
         return False
     

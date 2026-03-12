@@ -106,6 +106,32 @@ def _floor_to_window(ts: datetime, window_minutes: int) -> datetime:
     return ts.replace(minute=minute, second=0, microsecond=0)
 
 
+def _format_utc_local(ts: datetime) -> str:
+    """Format timestamp explicitly as UTC and local time to avoid TZ confusion."""
+    aware = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    utc_text = aware.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    local_dt = aware.astimezone()
+    offset = local_dt.strftime('%z')
+    offset_text = f"{offset[:3]}:{offset[3:]}" if len(offset) == 5 else offset
+    local_text = local_dt.strftime('%Y-%m-%d %H:%M:%S')
+    return f"{utc_text} | local {local_text} (UTC{offset_text})"
+
+
+def _registry_snapshot(registry: ProblemRegistry) -> Dict[str, int]:
+    """Small registry snapshot for validator delta logs."""
+    total_occurrences = sum(int(getattr(p, 'occurrences', 0) or 0) for p in registry.problems.values())
+    return {
+        'problems': len(registry.problems),
+        'peaks': len(registry.peaks),
+        'occurrences': total_occurrences,
+    }
+
+
+def _one_line_error(err: Exception) -> str:
+    """Normalize multiline exceptions to one line for readable logs."""
+    return " | ".join(str(err).splitlines())
+
+
 def _normalize_message_for_dedup(message: str) -> str:
     if not message:
         return ""
@@ -500,14 +526,13 @@ def _build_peak_notification(
     is_known = known_peak is not None
     is_continues = False
     if known_peak and known_peak.last_seen:
-        is_continues = (known_peak.last_seen < window_start and
-                    known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes)))
+        is_continues = known_peak.last_seen >= (window_start - timedelta(minutes=window_minutes))
 
     known_label = "NEW"
     if is_known:
         known_label = f"KNOWN ({known_peak.id})"
 
-    peak_window_start = window_start
+    peak_window_start = _floor_to_window(known_peak.first_seen, window_minutes) if (is_continues and known_peak and known_peak.first_seen) else window_start
     peak_window_start_text = peak_window_start.strftime('%Y-%m-%d %H:%M') if peak_window_start else window_start.strftime('%Y-%m-%d %H:%M')
     peak_window_end_text = window_end.strftime('%Y-%m-%d %H:%M') if window_end else ""
 
@@ -603,14 +628,21 @@ def _build_peak_notification(
 # DB CONNECTION
 # =============================================================================
 
-def get_db_connection():
-    """Get database connection - uses DDL user for write operations
+def get_db_connection(read_only: bool = False):
+    """Get database connection.
+
+    - read_only=True: uses DB_USER/DB_PASSWORD for SELECT workloads.
+    - read_only=False: uses DDL user + SET ROLE for write workloads.
     
     CRITICAL: DDL user (ailog_analyzer_ddl_user_d1) must execute SET ROLE role_ailog_analyzer_ddl
     to gain permissions on ailog_peak schema. This is mandatory.
     """
-    user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
-    password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
+    if read_only:
+        user = os.getenv('DB_USER') or os.getenv('DB_DDL_USER')
+        password = os.getenv('DB_PASSWORD') or os.getenv('DB_DDL_PASSWORD')
+    else:
+        user = os.getenv('DB_DDL_USER') or os.getenv('DB_USER')
+        password = os.getenv('DB_DDL_PASSWORD') or os.getenv('DB_PASSWORD')
     
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST'),
@@ -622,10 +654,11 @@ def get_db_connection():
         options='-c statement_timeout=60000'  # 1 min
     )
     
-    # MANDATORY: Set role for DDL operations
-    cursor = conn.cursor()
-    set_db_role(cursor)
-    cursor.close()
+    if not read_only:
+        # MANDATORY: Set role for DDL operations
+        cursor = conn.cursor()
+        set_db_role(cursor)
+        cursor.close()
     
     return conn
 
@@ -657,7 +690,6 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        set_db_role(cursor)
         
         data = []
         for incident in collection.incidents:
@@ -890,10 +922,11 @@ def run_regular_phase(
     
     print("=" * 70)
     print("🚀 REGULAR PHASE - 15-minute Pipeline")
-    print(f"   Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"   Started: {_format_utc_local(now)}")
     print("=" * 70)
     
-    print(f"\n📅 Window: {window_start.strftime('%Y-%m-%dT%H:%M:%SZ')} → {window_end.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    print(f"\n📅 Window UTC: {window_start.strftime('%Y-%m-%dT%H:%M:%SZ')} → {window_end.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    print(f"   Window local: {window_start.astimezone().strftime('%Y-%m-%d %H:%M:%S')} → {window_end.astimezone().strftime('%Y-%m-%d %H:%M:%S')} ({datetime.now().astimezone().tzname()})")
     
     result = {
         'status': 'error',
@@ -909,6 +942,7 @@ def run_regular_phase(
     # ==========================================================================
     registry = init_registry()
     print(f"📋 Registry: {len(registry.fingerprint_index)} known fingerprints")
+    registry_before = _registry_snapshot(registry)
     
     # ==========================================================================
     # FETCH DATA
@@ -939,7 +973,7 @@ def run_regular_phase(
     # ==========================================================================
     historical_baseline = {}
     try:
-        db_conn = get_db_connection()
+        db_conn = get_db_connection(read_only=True)
         baseline_loader = BaselineLoader(db_conn)
         
         # Zjisti jaké error_types jsou v aktuálním okně
@@ -966,7 +1000,7 @@ def run_regular_phase(
         
         db_conn.close()
     except Exception as e:
-        print(f"   ⚠️ Baseline loading failed (non-blocking): {e}")
+        print(f"   ⚠️ Baseline loading failed (non-blocking): {_one_line_error(e)}")
         historical_baseline = {}
 
     # ==========================================================================
@@ -976,11 +1010,11 @@ def run_regular_phase(
     peak_detector = None
     try:
         from core.peak_detection import PeakDetector
-        peak_db_conn = get_db_connection()
+        peak_db_conn = get_db_connection(read_only=True)
         peak_detector = PeakDetector(conn=peak_db_conn)
         print("   P93/CAP peak detector loaded")
     except Exception as e:
-        print(f"   P93/CAP peak detector unavailable (falling back to EWMA): {e}")
+        print(f"   P93/CAP peak detector unavailable (falling back to EWMA): {_one_line_error(e)}")
 
     pipeline = Pipeline(
         ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
@@ -1044,6 +1078,15 @@ def run_regular_phase(
         print(f"\n📝 Registry updated:")
         print(f"   New problems: {stats['new_problems_added']}")
         print(f"   New peaks: {stats['new_peaks_added']}")
+
+        registry_after = _registry_snapshot(registry)
+        print("\n✅ VALIDATOR - Added data in this regular run:")
+        print(f"   Window UTC: {window_start.strftime('%Y-%m-%dT%H:%M:%SZ')} → {window_end.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+        print(f"   Fetched errors: +{result['error_count']:,}")
+        print(f"   DB rows inserted: +{result.get('saved', 0):,}")
+        print(f"   Registry occurrences delta: +{registry_after['occurrences'] - registry_before['occurrences']:,}")
+        print(f"   Registry problems delta: +{registry_after['problems'] - registry_before['problems']:,}")
+        print(f"   Registry peaks delta: +{registry_after['peaks'] - registry_before['peaks']:,}")
     
     problem_report_text = None
     enriched_problems = None
