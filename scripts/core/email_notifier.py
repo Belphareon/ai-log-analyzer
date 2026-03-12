@@ -177,6 +177,9 @@ Results:
 
         peak_status = "KNOWN" if is_known else "NEW"
         continuation = " (continued)" if is_known and is_continues else ""
+        trend_value = continuation_summary.get('trend', 'stable') if continuation_summary else 'stable'
+        trend_symbol = {'rising': '↑', 'falling': '↓', 'stable': '→'}.get(trend_value, '→')
+        status_short = 'CONT' if is_continues else ('KNOWN' if is_known else 'NEW')
 
         prague_tz = ZoneInfo('Europe/Prague')
         ws_local = window_start.astimezone(prague_tz) if window_start else None
@@ -328,7 +331,7 @@ Results:
             )
 
         # Build Trend display from continuation_summary if available
-        trend_display = continuation_summary.get('trend', 'stable') if continuation_summary else 'stable'
+        trend_display = trend_value
         
         html_body = f"""
         <html>
@@ -368,6 +371,7 @@ Results:
                     </div>
                     
                     {html_root}
+                    {html_continuation}
                     {html_trace}
                     {html_propagation}
                     
@@ -384,7 +388,10 @@ Results:
         </html>
         """
 
-        subject = f"[AI Log Analyzer] {severity_icon} {peak_status} {peak_type} - {peak_error_class}"
+        subject = (
+            f"[AI Log Analyzer] {severity_icon} {trend_symbol} {peak_error_class} "
+            f"{error_count:,} ({status_short})"
+        )
         return self._send_email(subject, body, html_body)
 
     def send_regular_phase_peak_digest(
