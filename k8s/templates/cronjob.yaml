@@ -134,6 +134,18 @@ spec:
                   value: {{ .Values.env.MIN_SAMPLES_FOR_THRESHOLD | quote }}
                 - name: DEFAULT_THRESHOLD
                   value: {{ .Values.env.DEFAULT_THRESHOLD | quote }}
+                - name: MAX_PEAK_ALERTS_PER_WINDOW
+                  value: {{ .Values.env.MAX_PEAK_ALERTS_PER_WINDOW | quote }}
+                - name: ALERT_DIGEST_ENABLED
+                  value: {{ .Values.env.ALERT_DIGEST_ENABLED | quote }}
+                - name: ALERT_COOLDOWN_MIN
+                  value: {{ .Values.env.ALERT_COOLDOWN_MIN | quote }}
+                - name: ALERT_HEARTBEAT_MIN
+                  value: {{ .Values.env.ALERT_HEARTBEAT_MIN | quote }}
+                - name: ALERT_MIN_DELTA_PCT
+                  value: {{ .Values.env.ALERT_MIN_DELTA_PCT | quote }}
+                - name: ALERT_CONTINUATION_LOOKBACK_MIN
+                  value: {{ .Values.env.ALERT_CONTINUATION_LOOKBACK_MIN | quote }}
                 - name: TEAMS_WEBHOOK_URL
                   value: {{ .Values.teams.webhook_url | quote }}
                 - name: TEAMS_EMAIL
@@ -314,6 +326,18 @@ spec:
                   value: {{ .Values.env.MIN_SAMPLES_FOR_THRESHOLD | quote }}
                 - name: DEFAULT_THRESHOLD
                   value: {{ .Values.env.DEFAULT_THRESHOLD | quote }}
+                - name: MAX_PEAK_ALERTS_PER_WINDOW
+                  value: {{ .Values.env.MAX_PEAK_ALERTS_PER_WINDOW | quote }}
+                - name: ALERT_DIGEST_ENABLED
+                  value: {{ .Values.env.ALERT_DIGEST_ENABLED | quote }}
+                - name: ALERT_COOLDOWN_MIN
+                  value: {{ .Values.env.ALERT_COOLDOWN_MIN | quote }}
+                - name: ALERT_HEARTBEAT_MIN
+                  value: {{ .Values.env.ALERT_HEARTBEAT_MIN | quote }}
+                - name: ALERT_MIN_DELTA_PCT
+                  value: {{ .Values.env.ALERT_MIN_DELTA_PCT | quote }}
+                - name: ALERT_CONTINUATION_LOOKBACK_MIN
+                  value: {{ .Values.env.ALERT_CONTINUATION_LOOKBACK_MIN | quote }}
                 - name: TEAMS_WEBHOOK_URL
                   value: {{ .Values.teams.webhook_url | quote }}
                 - name: TEAMS_EMAIL

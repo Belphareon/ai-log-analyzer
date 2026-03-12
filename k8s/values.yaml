@@ -108,6 +108,14 @@ env:
   PERCENTILE_LEVEL: "0.93"             # Percentil pro peak thresholds (P93 = 0.93)
   MIN_SAMPLES_FOR_THRESHOLD: "10"      # Min počet vzorků pro spolehlivý threshold
   DEFAULT_THRESHOLD: "100"             # Fallback threshold pokud není data v DB
+
+  # === Alerting (Regular Phase) ===
+  MAX_PEAK_ALERTS_PER_WINDOW: "3"      # Hard cap kandidátů na alert v jednom 15m běhu
+  ALERT_DIGEST_ENABLED: "true"         # true = 1 digest email za okno; false = individuální emaily
+  ALERT_COOLDOWN_MIN: "45"             # Suppress stejný peak po dobu cooldown okna
+  ALERT_HEARTBEAT_MIN: "120"           # Po kolika minutách poslat "stále trvá" heartbeat
+  ALERT_MIN_DELTA_PCT: "30"            # Min absolutní změna počtu chyb pro nové odeslání
+  ALERT_CONTINUATION_LOOKBACK_MIN: "60" # Tolerance continuation při scheduler driftu
   
 # -----------------------------------------------------------------------------
 # Init Job Configuration (one-shot bootstrap)
