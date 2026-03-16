@@ -408,22 +408,19 @@ Results:
         prague_tz = ZoneInfo('Europe/Prague')
         ws_local = window_start.astimezone(prague_tz) if window_start else None
         we_local = window_end.astimezone(prague_tz) if window_end else None
-        local_range = (
-            f"{ws_local.strftime('%Y-%m-%d %H:%M %Z')} - {we_local.strftime('%H:%M %Z')}"
-            if ws_local and we_local else "N/A"
-        )
+        if ws_local and we_local:
+            local_time_range = f"{ws_local.strftime('%H:%M')} - {we_local.strftime('%H:%M')}"
+            local_date = f"{ws_local.day}.{ws_local.month}.{ws_local.year}"
+        else:
+            local_time_range = "N/A"
+            local_date = "N/A"
 
         total_errors = sum(int(a.get('error_count', 0) or 0) for a in alerts)
-        subject = (
-            f"[AI Log Analyzer] Digest {local_range} | sent {len(alerts)} | suppressed {suppressed_count}"
-        )
+        subject = f"AI Log Analyzer | {local_time_range} | {local_date}"
 
         lines = [
-            "[AI Log Analyzer] Peak Alert Digest",
+            "Peak Alerts",
             "",
-            f"Window: {local_range}",
-            f"Alerts sent: {len(alerts)}",
-            f"Alerts suppressed: {suppressed_count}",
             f"Total errors in sent alerts: {total_errors:,}",
             "",
             "Dispatched Alerts:",
@@ -438,6 +435,19 @@ Results:
             lines.append(
                 f"  {idx}. {error_class} | {peak_type} | {status} | trend={trend} | errors={error_count:,}"
             )
+
+        lines.extend(["", "Details:"])
+        for idx, alert in enumerate(alerts, start=1):
+            error_class = str(alert.get('error_class', 'unknown') or 'unknown')
+            root_cause = str(alert.get('root_cause_text', '') or 'N/A')
+            message = str(alert.get('detail_message', '') or 'N/A')
+            trace_id = str(alert.get('trace_id', '') or 'N/A')
+            lines.extend([
+                f"  {idx}. {error_class}",
+                f"     Root cause: {root_cause}",
+                f"     Message: {message}",
+                f"     Trace ID: {trace_id}",
+            ])
 
         body = "\n".join(lines)
 
@@ -458,21 +468,34 @@ Results:
                 "</tr>"
             )
 
+        detail_blocks = []
+        for idx, alert in enumerate(alerts, start=1):
+            error_class = str(alert.get('error_class', 'unknown') or 'unknown')
+            root_cause = str(alert.get('root_cause_text', '') or 'N/A')
+            message = str(alert.get('detail_message', '') or 'N/A')
+            trace_id = str(alert.get('trace_id', '') or 'N/A')
+            detail_blocks.append(
+                '<details style="margin-top:12px;border:1px solid #d9d9d9;border-radius:8px;padding:10px;background:#fafafa;">'
+                f'<summary style="cursor:pointer;font-weight:700;">{idx}. {error_class}</summary>'
+                f'<div style="margin-top:10px;"><strong>Root cause:</strong> {root_cause}</div>'
+                f'<div style="margin-top:6px;"><strong>Message:</strong> {message}</div>'
+                f'<div style="margin-top:6px;"><strong>Trace ID:</strong> {trace_id}</div>'
+                '</details>'
+            )
+
         html_body = f"""
         <html>
-        <body style="font-family:'Segoe UI',Arial,sans-serif;color:inherit;background:transparent;margin:0;padding:20px;">
-            <div style="max-width:760px;margin:0 auto;border:1px solid #808080;">
-                <div style="padding:16px;border-bottom:1px solid #cfcfcf;">
-                    <h1 style="margin:0;font-size:21px;font-weight:700;">Peak Digest</h1>
-                    <div style="margin-top:4px;font-size:14px;">{local_range}</div>
+        <body style="font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;background:#f4f6f8;margin:0;padding:20px;">
+            <div style="max-width:900px;margin:0 auto;border:1px solid #d0d7de;border-radius:10px;background:white;overflow:hidden;">
+                <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;background:#f8fafc;">
+                    <h1 style="margin:0;font-size:22px;font-weight:700;">Peak Alerts</h1>
+                    <div style="margin-top:4px;font-size:14px;color:#4b5563;">{local_time_range} | {local_date}</div>
                 </div>
                 <div style="padding:20px;">
-                    <div><strong>Alerts sent:</strong> {len(alerts)}</div>
-                    <div><strong>Alerts suppressed:</strong> {suppressed_count}</div>
-                    <div><strong>Total errors in sent alerts:</strong> {total_errors:,}</div>
-                    <table style="margin-top:16px;border-collapse:collapse;width:100%;">
+                    <div style="font-size:16px;margin-bottom:14px;"><strong>Total errors in sent alerts:</strong> {total_errors:,}</div>
+                    <table style="margin-top:12px;border-collapse:collapse;width:100%;font-size:14px;">
                         <thead>
-                            <tr>
+                            <tr style="background:#f3f4f6;">
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Error Class</th>
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Peak Type</th>
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Status</th>
@@ -484,9 +507,14 @@ Results:
                             {''.join(rows)}
                         </tbody>
                     </table>
+
+                    <div style="margin-top:18px;font-size:17px;font-weight:700;">Details</div>
+                    <div style="margin-top:8px;">
+                        {''.join(detail_blocks)}
+                    </div>
                 </div>
                 <div style="text-align:center;padding:14px;border-top:1px solid #cfcfcf;font-size:12px;color:#555;">
-                    Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | AI Log Analyzer
+                    Generated: {datetime.now().strftime('%H:%M:%S')} | AI Log Analyzer
                 </div>
             </div>
         </body>

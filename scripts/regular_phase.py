@@ -462,6 +462,10 @@ def _build_peak_alert_payload(
         error_class = error_class_raw
         peak_error_details = f"top error types: {top_error_types_text}"
 
+    trace_id = ''
+    if flow and getattr(flow, 'trace_id', None):
+        trace_id = str(getattr(flow, 'trace_id', '') or '')
+
     if flow and getattr(flow, 'steps', None):
         steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
         for step in steps:
@@ -469,6 +473,8 @@ def _build_peak_alert_payload(
                 'app': getattr(step, 'app', '?'),
                 'message': getattr(step, 'message', '')
             })
+    if not trace_id and trigger_incident is not None:
+        trace_id = str(getattr(trigger_incident, 'trace_id', '') or '')
 
     current_window_errors = raw_error_count or problem.total_occurrences
     previous_average_errors = None
@@ -526,6 +532,20 @@ def _build_peak_alert_payload(
                 'duration_ms': propagation.propagation_time_ms
             }
 
+    digest_root_cause = ''
+    if root_cause:
+        digest_root_cause = str(root_cause.get('message', '') or root_cause.get('service', '') or '')
+    if not digest_root_cause and known_peak and getattr(known_peak, 'root_cause', None):
+        digest_root_cause = str(getattr(known_peak, 'root_cause', '') or '')
+    if not digest_root_cause and getattr(problem, 'root_cause', None):
+        digest_root_cause = str(getattr(problem, 'root_cause', '') or '')
+
+    digest_message = ''
+    if trace_steps:
+        digest_message = str(trace_steps[0].get('message', '') or '')
+    if not digest_message:
+        digest_message = str(peak_error_details or '')
+
     return {
         'peak_key': peak_key,
         'peak_identifier': peak_identifier,
@@ -550,6 +570,9 @@ def _build_peak_alert_payload(
         'new_apps': new_apps,
         'new_namespaces': new_namespaces,
         'window_key': window_start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'trace_id': trace_id,
+        'root_cause_text': digest_root_cause,
+        'detail_message': digest_message,
     }
 
 
