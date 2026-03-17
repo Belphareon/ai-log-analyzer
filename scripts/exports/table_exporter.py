@@ -185,7 +185,7 @@ class TableExporter:
         if previous == 0 and current > 0:
             # Only show "new" if this is genuinely a new error (first_seen < 24h)
             # Otherwise it's a known error with renewed activity
-            return f"{label}: ↑ new" if is_new_error else f"{label}: ↑ +inf%"
+            return f"{label}: ↑ new" if is_new_error else f"{label}: ↑ returned"
 
         change_pct = ((current - previous) / max(previous, 1)) * 100.0
         capped = max(-self.trend_display_cap_pct, min(self.trend_display_cap_pct, abs(change_pct)))

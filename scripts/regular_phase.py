@@ -484,6 +484,7 @@ def _build_peak_alert_payload(
         if historical_raw > 0:
             previous_average_errors = historical_raw / peak_occurrences
 
+    # Trend logic: digest shows historical trend; real-time trends use previous_window (see table_exporter.py)
     trend = 'stable'
     if previous_average_errors and previous_average_errors > 0:
         ratio_to_avg = current_window_errors / previous_average_errors

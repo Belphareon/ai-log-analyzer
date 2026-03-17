@@ -458,11 +458,18 @@ Results:
             error_count = int(alert.get('error_count', 0) or 0)
             peak_type = alert.get('peak_type', 'SPIKE')
             status = "KNOWN" if alert.get('is_known') else "NEW"
+            # Build NS list from namespace_counts
+            namespace_counts = alert.get('namespace_counts', {})
+            ns_list = sorted(namespace_counts.keys()) if namespace_counts else []
+            ns_display = ', '.join(ns_list[:3]) if ns_list else 'N/A'
+            if len(ns_list) > 3:
+                ns_display += f" +{len(ns_list)-3}"
             rows.append(
                 "<tr>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{error_class}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{peak_type}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{status}</td>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{ns_display}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{trend}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;text-align:right;\">{error_count:,}</td>"
                 "</tr>"
@@ -475,8 +482,9 @@ Results:
             message = str(alert.get('detail_message', '') or 'N/A')
             trace_id = str(alert.get('trace_id', '') or 'N/A')
             detail_blocks.append(
-                '<details style="margin-top:12px;border:1px solid #d9d9d9;border-radius:8px;padding:10px;background:#fafafa;">'
+                '<details style="margin-top:18px;margin-bottom:14px;border:1px solid #d9d9d9;border-radius:8px;padding:10px;background:#fafafa;">'
                 f'<summary style="cursor:pointer;font-weight:700;">{idx}. {error_class}</summary>'
+                f'<div style="margin-top:10px;"><strong>Applications:</strong> {(lambda apps: ", ".join(apps[:5]) + (" +" + str(len(apps)-5) if len(apps) > 5 else ""))(alert.get("affected_apps", []))}</div>'
                 f'<div style="margin-top:10px;"><strong>Root cause:</strong> {root_cause}</div>'
                 f'<div style="margin-top:6px;"><strong>Message:</strong> {message}</div>'
                 f'<div style="margin-top:6px;"><strong>Trace ID:</strong> {trace_id}</div>'
@@ -487,9 +495,9 @@ Results:
         <html>
         <body style="font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;background:#f4f6f8;margin:0;padding:20px;">
             <div style="max-width:900px;margin:0 auto;border:1px solid #d0d7de;border-radius:10px;background:white;overflow:hidden;">
-                <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;background:#f8fafc;">
+                <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;background:transparent;">
                     <h1 style="margin:0;font-size:22px;font-weight:700;">Peak Alerts</h1>
-                    <div style="margin-top:4px;font-size:14px;color:#4b5563;">{local_time_range} | {local_date}</div>
+                    <div style="margin-top:4px;font-size:14px;color:#666;">{local_time_range} | {local_date}</div>
                 </div>
                 <div style="padding:20px;">
                     <div style="font-size:16px;margin-bottom:14px;"><strong>Total errors in sent alerts:</strong> {total_errors:,}</div>
@@ -499,6 +507,7 @@ Results:
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Error Class</th>
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Peak Type</th>
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Status</th>
+                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">NS</th>
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Trend</th>
                                 <th style="padding:8px;border:1px solid #d9d9d9;text-align:right;">Errors</th>
                             </tr>

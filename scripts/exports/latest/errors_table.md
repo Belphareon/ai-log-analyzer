@@ -1,6 +1,6 @@
 # Error Problems Table
 
-**Generated:** 2026-02-27 12:26:25
+**Generated:** 2026-03-17 12:30:03
 **Total problems:** 346
 
 ## Summary by Category
@@ -28,9 +28,9 @@
 | ID | Category | Flow | Apps | Occurrences | Last Seen | Status |
 |-------|----------|------|------|-------------|-----------|--------|
 | KP-000015 | unknown | unknown | bl-pcb-v1, feapi-pca-v1 | 504,306 | 2026-02-27 | OPEN |
-| KP-000056 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 20,764 | 2026-02-27 | OPEN |
-| KP-000121 | unknown | unknown | bl-pcb-v1 | 2 | 2026-02-27 | OPEN |
 | KP-000336 | unknown | unknown | bl-pcb-v1 | 6 | 2026-02-27 | OPEN |
+| KP-000121 | unknown | unknown | bl-pcb-v1 | 2 | 2026-02-27 | OPEN |
+| KP-000056 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 20,764 | 2026-02-27 | OPEN |
 | KP-000346 | business | unknown | bl-pcb-v1 | 1 | 2026-02-27 | OPEN |
 | KP-000052 | business | unknown | bl-pcb-v1, feapi-pca-v1 | 10,488 | 2026-02-27 | OPEN |
 | KP-000045 | unknown | design_lifecycle | bff-pcb-ch-design-servicing-v1... | 154 | 2026-02-27 | OPEN |
@@ -386,14 +386,14 @@
 - **First seen:** 2026-01-14 10:01
 - **Last seen:** 2026-02-27 12:09
 
-### KP-000056: business/unknown
+### KP-000336: unknown/unknown
 
-- **Error class:** not_found
-- **Scope:** SYSTEMIC
-- **Occurrences:** 20,764
-- **Apps:** bl-pcb-v1, feapi-pca-v1
-- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-01-15 04:54
+- **Error class:** invalid_type_id_exception
+- **Scope:** CROSS_NS
+- **Occurrences:** 6
+- **Apps:** bl-pcb-v1
+- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-02-18 06:52
 - **Last seen:** 2026-02-27 12:09
 
 ### KP-000121: unknown/unknown
@@ -406,14 +406,14 @@
 - **First seen:** 2026-01-14 21:22
 - **Last seen:** 2026-02-27 12:09
 
-### KP-000336: unknown/unknown
+### KP-000056: business/unknown
 
-- **Error class:** invalid_type_id_exception
-- **Scope:** CROSS_NS
-- **Occurrences:** 6
-- **Apps:** bl-pcb-v1
-- **Namespaces:** pcb-dev-01-app, pcb-sit-01-app, pcb-uat-01-app
-- **First seen:** 2026-02-18 06:52
+- **Error class:** not_found
+- **Scope:** SYSTEMIC
+- **Occurrences:** 20,764
+- **Apps:** bl-pcb-v1, feapi-pca-v1
+- **Namespaces:** pca-dev-01-app, pca-sit-01-app, pcb-dev-01-app, pcb-fat-01-app, pcb-sit-01-app, pcb-uat-01-app
+- **First seen:** 2026-01-15 04:54
 - **Last seen:** 2026-02-27 12:09
 
 ### KP-000346: business/unknown
