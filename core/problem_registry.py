@@ -86,27 +86,23 @@ class ProblemEntry:
     
     # Counts
     occurrences: int = 0
-
-    # Track timestamps of last occurrences (max 100 for memory efficiency)
-    # Used for 24h trend calculation in CSV exports
-    occurrence_times: List[datetime] = field(default_factory=list)
-
+    
     # Linked fingerprints (1:N)
     fingerprints: List[str] = field(default_factory=list)
-
+    
     # Sample error messages - CRITICAL for understanding what the problem is!
     sample_messages: List[str] = field(default_factory=list)
     description: str = ""  # Human-readable description / root cause
-
+    
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
     deployments_seen: Set[str] = field(default_factory=set)  # app-v1, app-v2
     app_versions_seen: Set[str] = field(default_factory=set)  # 4.65.2, 4.65.3
-
+    
     # Scope classification
     scope: str = "LOCAL"  # LOCAL, CROSS_NS, SYSTEMIC
-
+    
     # Status
     status: str = "OPEN"  # OPEN, ACKNOWLEDGED, RESOLVED, WONT_FIX
     jira: Optional[str] = None
@@ -123,7 +119,6 @@ class ProblemEntry:
             'first_seen': self.first_seen.isoformat() if self.first_seen else None,
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
-            'occurrence_times': [ts.isoformat() if isinstance(ts, datetime) else ts for ts in self.occurrence_times],
             'fingerprints': self.fingerprints,
             'sample_messages': self.sample_messages[:MAX_SAMPLE_MESSAGES_PER_FP],  # Limit samples
             'description': self.description,
@@ -154,19 +149,6 @@ class ProblemEntry:
             entry.last_seen = datetime.fromisoformat(data['last_seen'])
         
         entry.occurrences = data.get('occurrences', 0)
-        
-        # Load occurrence_times (deserialize from ISO strings)
-        occurrence_times_data = data.get('occurrence_times', [])
-        entry.occurrence_times = []
-        for ts_str in occurrence_times_data:
-            if isinstance(ts_str, str):
-                try:
-                    entry.occurrence_times.append(datetime.fromisoformat(ts_str))
-                except (ValueError, TypeError):
-                    pass
-            elif isinstance(ts_str, datetime):
-                entry.occurrence_times.append(ts_str)
-        
         entry.fingerprints = data.get('fingerprints', [])
         entry.sample_messages = data.get('sample_messages', [])
         entry.description = data.get('description', '')
@@ -315,6 +297,17 @@ ERROR_CLASS_PATTERNS = {
     r'403': 'forbidden',
     r'500': 'internal_error',
     r'502|503|504': 'gateway_error',
+    # Additional patterns (r56)
+    r'ConstraintViolation': 'constraint_violation',
+    r'MismatchedInput': 'mismatched_input',
+    r'InvalidFormat|InvalidType': 'invalid_format',
+    r'DataIntegrityViolation': 'data_integrity_error',
+    r'RestClientException': 'rest_client_error',
+    r'HttpClientError|HttpServerError': 'http_client_error',
+    r'JsonParse|JsonMapping': 'json_error',
+    r'NotSupported': 'not_supported',
+    r'IllegalState': 'illegal_state',
+    r'IllegalArgument': 'invalid_argument',
 }
 
 
@@ -578,13 +571,7 @@ class ProblemRegistry:
                 for item in data:
                     peak = PeakEntry.from_dict(item)
                     self.peaks[peak.problem_key] = peak
-
-                    # Index peak fingerprints so is_fingerprint_known() finds them
-                    # This ensures recurring peaks are not marked as NEW
-                    for fp in peak.fingerprints:
-                        if fp not in self.fingerprint_index:
-                            self.fingerprint_index[fp] = peak.problem_key
-
+                    
                     # Track max ID
                     if peak.id.startswith('PK-'):
                         try:
@@ -592,7 +579,7 @@ class ProblemRegistry:
                             self._peak_counter = max(self._peak_counter, num)
                         except ValueError:
                             pass
-
+                
                 self.stats['peaks_loaded'] = len(self.peaks)
                 
             except Exception as e:
@@ -867,25 +854,8 @@ class ProblemRegistry:
         return fingerprint in self.fingerprint_index
     
     def is_problem_key_known(self, problem_key: str) -> bool:
-        """Zjistí zda je problem_key známý (v problems NEBO peaks)."""
-        if problem_key in self.problems:
-            return True
-        # Also check peaks (peak keys have format PEAK:category:flow:peak_type)
-        if problem_key in self.peaks:
-            return True
-        # Cross-check: try matching as peak key variant
-        # Detection generates CATEGORY:flow:error_class, peaks use PEAK:category:flow:peak_type
-        # Check if any peak matches the category+flow portion
-        parts = problem_key.split(':')
-        if len(parts) >= 2:
-            category = parts[0].lower()
-            flow = parts[1]
-            for peak_key in self.peaks:
-                peak_parts = peak_key.split(':')
-                # PEAK:category:flow:peak_type
-                if len(peak_parts) >= 3 and peak_parts[1] == category and peak_parts[2] == flow:
-                    return True
-        return False
+        """Zjistí zda je problem_key známý."""
+        return problem_key in self.problems
     
     def get_problem_for_fingerprint(self, fingerprint: str) -> Optional[ProblemEntry]:
         """Vrátí ProblemEntry pro fingerprint."""
@@ -995,26 +965,8 @@ class ProblemRegistry:
         if problem.last_seen is None or last_ts > problem.last_seen:
             problem.last_seen = last_ts
         
-        # Update counts — deduplicate by truncating last_ts to minute precision.
-        # Without this, repeated backfill runs (--force) for the same window
-        # would accumulate occurrences and duplicate timestamps each run.
-        if last_ts:
-            ts_bucket = last_ts.replace(second=0, microsecond=0)
-            existing_buckets = {
-                t.replace(second=0, microsecond=0) if hasattr(t, "replace") else t
-                for t in problem.occurrence_times
-            }
-            if ts_bucket not in existing_buckets:
-                # Genuinely new window — count it
-                problem.occurrences += count
-                problem.occurrence_times.append(last_ts)
-                # Keep only last 100 timestamps (memory efficient)
-                if len(problem.occurrence_times) > 100:
-                    problem.occurrence_times = problem.occurrence_times[-100:]
-            # else: same minute already recorded -> idempotent re-run, skip
-        else:
-            # No timestamp -> always count (e.g. regular phase rows)
-            problem.occurrences += count
+        # Update counts
+        problem.occurrences += count
         
         # Add fingerprint if new (with limit)
         if fingerprint not in problem.fingerprints:

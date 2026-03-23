@@ -97,6 +97,7 @@ class ErrorTableRow:
     score: float                    # Skóre detekce (0-100)
     ratio: float                    # Peak ratio vs. baseline
     behavior: str
+    activity_status: str = ''       # ACTIVE (<7d), STALE (7-30d), OLD (>30d)
 
 
 
@@ -159,73 +160,142 @@ class TableExporter:
             return cleaned
         return cleaned[: limit - 3] + "..."
 
+    # Category derived from error_class when category is unknown
+    _ERROR_CLASS_TO_CATEGORY = {
+        'not_found_error': 'business', 'constraint_violation': 'business',
+        'validation_error': 'business', 'mismatched_input_exception': 'business',
+        'mismatched_input': 'business', 'invalid_format_exception': 'business',
+        'invalid_format': 'business', 'query_param_exception': 'business',
+        'path_param_exception': 'business', 'null_pointer': 'business',
+        'illegal_state_exception': 'business', 'not_supported_exception': 'business',
+        'json_parse_exception': 'business', 'json_mapping_exception': 'business',
+        'invalid_type_id_exception': 'business', 'json_error': 'business',
+        'access_denied': 'auth', 'unauthorized': 'auth', 'authentication_error': 'auth',
+        'forbidden': 'auth', 'token_expired': 'auth',
+        'server_error': 'external', 'gateway_error': 'external',
+        'rest_client_exception': 'external', 'http_client_error': 'external',
+        'data_integrity_violation_exception': 'database', 'database_error': 'database',
+        'connection_error': 'network', 'io_error': 'network',
+        'timeout': 'timeout', 'timeout_error': 'timeout',
+        'memory_error': 'memory',
+    }
+
+    def _backfill_category(self, category: str, error_class: str) -> str:
+        """Derive category from error_class when category is unknown."""
+        if category.lower() not in ('unknown', 'unclassified', ''):
+            return category
+        return self._ERROR_CLASS_TO_CATEGORY.get(error_class.lower(), category)
+
     def _problem_behavior(self, problem: ProblemEntry) -> str:
+        # 1. Explicit behavior field
         behavior = self._clean_unknown(getattr(problem, 'behavior', ''))
         if behavior:
             return self._shorten(behavior, 180)
-        if getattr(problem, 'sample_messages', None):
-            return self._shorten(problem.sample_messages[0], 180)
-        detail_parts = [self._clean_unknown(problem.error_class), self._clean_unknown(problem.flow)]
-        detail_parts = [part for part in detail_parts if part]
-        return " / ".join(detail_parts)
+        # 2. Trace flow – use first non-empty message from trace steps
+        trace_flow = getattr(problem, 'trace_flow_summary', None)
+        if trace_flow:
+            for step in trace_flow:
+                msg = self._clean_unknown(step.get('message', ''))
+                if msg:
+                    return self._shorten(msg, 180)
+        # 3. Sample messages from registry
+        sample_msgs = getattr(problem, 'sample_messages', None)
+        if sample_msgs:
+            msg = self._clean_unknown(sample_msgs[0])
+            if msg:
+                return self._shorten(msg, 180)
+        # 4. Description (not empty)
+        desc = self._clean_unknown(getattr(problem, 'description', ''))
+        if desc:
+            return self._shorten(desc, 180)
+        # No meaningful fallback – return empty rather than useless error_class/flow
+        return ""
 
     def _problem_root_cause(self, problem: ProblemEntry) -> str:
+        # Priority 1: root_cause field (populated by write-back from trace enrichment)
         explicit_root = self._clean_unknown(getattr(problem, 'root_cause', ''))
         if explicit_root:
             return self._shorten(explicit_root, 180)
+        # Priority 2: description
         desc_root = self._clean_unknown(getattr(problem, 'description', ''))
         if desc_root:
             return self._shorten(desc_root, 180)
+        # Priority 3: error_class as last resort
+        err_class = self._clean_unknown(getattr(problem, 'error_class', ''))
+        if err_class:
+            return self._shorten(err_class, 180)
         return ""
 
-    def _format_window_trend(self, current: int, previous: int, label: str, is_new_error: bool = False) -> str:
-        if current == 0 and previous == 0:
+    def _format_window_trend(self, current: int, baseline: float, label: str) -> str:
+        """Format trend as percentage only — no word labels like 'returned' or 'new'."""
+        if current == 0 and baseline <= 0:
             return f"{label}: → 0"
 
-        if previous == 0 and current > 0:
-            # Only show "new" if this is genuinely a new error (first_seen < 24h)
-            # Otherwise it's a known error with renewed activity
-            return f"{label}: ↑ new" if is_new_error else f"{label}: ↑ returned"
+        if baseline <= 0:
+            # No baseline available — show raw count
+            return f"{label}: ↑ {current}"
 
-        change_pct = ((current - previous) / max(previous, 1)) * 100.0
+        change_pct = ((current - baseline) / baseline) * 100.0
         capped = max(-self.trend_display_cap_pct, min(self.trend_display_cap_pct, abs(change_pct)))
 
-        if change_pct >= self.trend_change_threshold_pct:
+        if abs(change_pct) >= self.trend_change_threshold_pct:
+            arrow = "↑" if change_pct > 0 else "↓"
             suffix = "+" if abs(change_pct) > self.trend_display_cap_pct else ""
-            return f"{label}: ↑ +{capped:.0f}%{suffix}"
-        if change_pct <= -self.trend_change_threshold_pct:
-            suffix = "+" if abs(change_pct) > self.trend_display_cap_pct else ""
-            return f"{label}: ↓ -{capped:.0f}%{suffix}"
+            sign = "+" if change_pct > 0 else "-"
+            return f"{label}: {arrow} {sign}{capped:.0f}%{suffix}"
         sign = "+" if change_pct >= 0 else ""
         return f"{label}: → {sign}{change_pct:.0f}%"
 
+    @staticmethod
+    def _volume_in_window(aware_times: list, counts: list, now: datetime,
+                          start_sec: float, end_sec: float) -> int:
+        """Sum error counts in [now - end_sec, now - start_sec)."""
+        total = 0
+        for i, ts in enumerate(aware_times):
+            delta = (now - ts).total_seconds()
+            if start_sec <= delta < end_sec:
+                total += counts[i] if i < len(counts) else 1
+        return total
+
     def _compute_error_trend(self, problem: ProblemEntry, now: datetime) -> tuple[str, str, int]:
         occurrence_times = getattr(problem, 'occurrence_times', None) or []
-        aware_times = [self._ensure_aware(ts) for ts in occurrence_times if self._ensure_aware(ts)]
+        occurrence_counts = getattr(problem, 'occurrence_counts', None) or []
+        aware_times = []
+        counts = []
+        for i, ts in enumerate(occurrence_times):
+            aware_ts = self._ensure_aware(ts)
+            if aware_ts:
+                aware_times.append(aware_ts)
+                counts.append(occurrence_counts[i] if i < len(occurrence_counts) else 1)
 
         if not aware_times:
-            return "→ 0", "→ 0", 0
+            return "2h: → 0", "24h: → 0", 0
 
-        # Check if this error is genuinely NEW (first_seen within 24h)
-        first_seen = getattr(problem, 'first_seen', None)
-        is_genuinely_new = False
-        if first_seen:
-            aware_first = self._ensure_aware(first_seen)
-            if aware_first and (now - aware_first).total_seconds() < 24 * 3600:
-                is_genuinely_new = True
+        H = 3600  # seconds in hour
 
-        # Keep trend sensitive to 2h backfill cadence
-        last_2h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 2 * 3600)
-        prev_2h = sum(1 for ts in aware_times if 2 * 3600 <= (now - ts).total_seconds() < 4 * 3600)
+        # --- Short trend (2h): current 2h vs average of previous 2h slots (up to 12h) ---
+        current_2h = self._volume_in_window(aware_times, counts, now, 0, 2 * H)
+        baseline_slots_2h = []
+        for slot in range(1, 6):  # slots 1-5 → 2h-4h, 4h-6h, ... 10h-12h
+            vol = self._volume_in_window(aware_times, counts, now, slot * 2 * H, (slot + 1) * 2 * H)
+            baseline_slots_2h.append(vol)
+        # Filter out zero-only baseline (all slots zero means no data)
+        non_zero_slots = [v for v in baseline_slots_2h if v > 0]
+        baseline_2h = sum(non_zero_slots) / len(non_zero_slots) if non_zero_slots else 0.0
 
-        # Long-term companion trend (day over day)
-        last_24h = sum(1 for ts in aware_times if 0 <= (now - ts).total_seconds() < 24 * 3600)
-        prev_24h = sum(1 for ts in aware_times if 24 * 3600 <= (now - ts).total_seconds() < 48 * 3600)
+        # --- Long trend (24h): current 24h vs average of previous days (up to 7 days) ---
+        current_24h = self._volume_in_window(aware_times, counts, now, 0, 24 * H)
+        baseline_slots_24h = []
+        for day in range(1, 7):  # days 1-6
+            vol = self._volume_in_window(aware_times, counts, now, day * 24 * H, (day + 1) * 24 * H)
+            baseline_slots_24h.append(vol)
+        non_zero_days = [v for v in baseline_slots_24h if v > 0]
+        baseline_24h = sum(non_zero_days) / len(non_zero_days) if non_zero_days else 0.0
 
-        short_trend = self._format_window_trend(last_2h, prev_2h, "2h", is_genuinely_new)
-        long_trend = self._format_window_trend(last_24h, prev_24h, "24h", is_genuinely_new)
+        short_trend = self._format_window_trend(current_2h, baseline_2h, "2h")
+        long_trend = self._format_window_trend(current_24h, baseline_24h, "24h")
 
-        return short_trend, long_trend, last_24h
+        return short_trend, long_trend, current_24h
 
     def _find_related_problem_for_peak(self, peak: PeakEntry, flow: str) -> Optional[ProblemEntry]:
         candidates: List[ProblemEntry] = []
@@ -259,6 +329,64 @@ class TableExporter:
         return value
 
     # =========================================================================
+    # SEVERITY / SCORE / RATIO DERIVATION
+    # =========================================================================
+
+    _SEVERITY_MAP = {
+        'SYSTEMIC': 'critical',
+        'CROSS_NS': 'high',
+    }
+    _CATEGORY_BOOST = {'database', 'auth', 'security', 'infrastructure'}
+
+    def _derive_severity(self, problem: ProblemEntry) -> str:
+        """Derive severity from scope + category + enriched data."""
+        # Priority 1: write-back from enrichment
+        enriched = getattr(problem, '_enriched_severity', None)
+        if enriched and enriched not in ('info', 'unknown'):
+            return enriched
+        # Priority 2: scope-based
+        sev = self._SEVERITY_MAP.get(problem.scope, 'low')
+        # Boost for critical categories
+        if problem.category in self._CATEGORY_BOOST and sev == 'low':
+            sev = 'medium'
+        return sev
+
+    def _derive_score(self, problem: ProblemEntry, occurrence_24h: int) -> float:
+        """Derive detection score: log-normalized daily rate (0-100)."""
+        enriched = getattr(problem, '_enriched_score', 0.0)
+        if enriched > 0:
+            return round(enriched, 1)
+        import math
+        if occurrence_24h <= 0:
+            return 0.0
+        # log10(count) scaled: 1→0, 10→33, 100→66, 1000→100
+        raw = math.log10(max(occurrence_24h, 1)) / 3.0 * 100.0
+        return round(min(raw, 100.0), 1)
+
+    def _derive_ratio(self, problem: ProblemEntry, current_24h: int, now: datetime) -> float:
+        """Derive ratio: current 24h volume vs historical daily average."""
+        occurrence_times = getattr(problem, 'occurrence_times', None) or []
+        occurrence_counts = getattr(problem, 'occurrence_counts', None) or []
+        aware_times = []
+        counts = []
+        for i, ts in enumerate(occurrence_times):
+            aware_ts = self._ensure_aware(ts)
+            if aware_ts:
+                aware_times.append(aware_ts)
+                counts.append(occurrence_counts[i] if i < len(occurrence_counts) else 1)
+
+        H = 3600
+        baseline_days = []
+        for day in range(1, 7):
+            vol = self._volume_in_window(aware_times, counts, now, day * 24 * H, (day + 1) * 24 * H)
+            baseline_days.append(vol)
+        non_zero = [v for v in baseline_days if v > 0]
+        if not non_zero:
+            return 1.0
+        avg = sum(non_zero) / len(non_zero)
+        return round(current_24h / avg, 2) if avg > 0 else 1.0
+
+    # =========================================================================
     # ERRORS TABLE
     # =========================================================================
 
@@ -277,12 +405,27 @@ class TableExporter:
             # NOTE: ProblemEntry uses 'description' field, enrichment may populate it
             root_cause = self._problem_root_cause(problem)
             behavior = self._problem_behavior(problem)
-            
+
+            # Category: backfill from error_class when category is unknown
+            category = self._backfill_category(problem.category, problem.error_class)
+
+            # Activity status: ACTIVE / STALE / OLD based on last_seen age
+            if last_seen:
+                age_days = (now - last_seen).days
+                if age_days <= 7:
+                    activity_status = 'ACTIVE'
+                elif age_days <= 30:
+                    activity_status = 'STALE'
+                else:
+                    activity_status = 'OLD'
+            else:
+                activity_status = 'UNKNOWN'
+
             # Detail - klíčová info (shorthand)
             detail = f"{problem.error_class}"
             if problem.flow:
                 detail = f"{detail} / {problem.flow[:30]}"
-            
+
             row = ErrorTableRow(
                 # NOVÉ POŘADÍ
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "Unknown",
@@ -308,10 +451,11 @@ class TableExporter:
                 notes=problem.notes or "",
                 
                 # INFORMATIVNÍ (na konci)
-                severity=getattr(problem, 'max_severity', 'unknown'),
-                score=float(getattr(problem, 'max_score', 0)),
-                ratio=float(getattr(problem, 'max_ratio', 1.0)) if hasattr(problem, 'max_ratio') else 1.0,
+                severity=self._derive_severity(problem),
+                score=self._derive_score(problem, occurrence_24h),
+                ratio=self._derive_ratio(problem, occurrence_24h, now),
                 behavior=behavior,
+                activity_status=activity_status,
             )
             rows.append(row)
 
@@ -330,12 +474,13 @@ class TableExporter:
         # NOVÉ pořadí sloupců - dle designu
         fieldnames = [
             'first_seen', 'last_seen', 'occurrence_total', 'occurrence_24h', 'trend_2h', 'trend_24h',
-            'root_cause', 'category', 'detail',
+            'root_cause', 'behavior',   # behavior immediately next to root_cause
+            'category', 'detail',
             # Historické
-            'problem_id', 'problem_key', 'flow', 'error_class', 
-            'affected_apps', 'affected_namespaces', 'scope', 'status', 'jira', 'notes',
+            'problem_id', 'problem_key', 'flow', 'error_class',
+            'affected_apps', 'affected_namespaces', 'scope', 'status', 'activity_status', 'jira', 'notes',
             # Informativní
-            'severity', 'score', 'ratio', 'behavior'
+            'severity', 'score', 'ratio',
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -399,14 +544,16 @@ class TableExporter:
             # Main table (compact version)
             lines.append("## All Problems")
             lines.append("")
-            lines.append("| ID | Category | Flow | Apps | Occurrences | Last Seen | Status |")
-            lines.append("|-------|----------|------|------|-------------|-----------|--------|")
+            lines.append("| ID | Age | Category | Root Cause | Behavior | Apps | Occurrences | Last Seen | Status |")
+            lines.append("|-------|-----|----------|-----------|----------|------|-------------|-----------|--------|")
 
             for row in rows:
-                apps_short = row.affected_apps[:30] + "..." if len(row.affected_apps) > 30 else row.affected_apps
+                apps_short = row.affected_apps[:25] + "..." if len(row.affected_apps) > 25 else row.affected_apps
                 last_seen_short = row.last_seen[:10] if row.last_seen else "-"
+                rc_short = (row.root_cause[:55] + "...") if len(row.root_cause) > 58 else row.root_cause
+                beh_short = (row.behavior[:55] + "...") if len(row.behavior) > 58 else row.behavior
                 lines.append(
-                    f"| {row.problem_id} | {row.category} | {row.flow} | "
+                    f"| {row.problem_id} | {row.activity_status} | {row.category} | {rc_short} | {beh_short} | "
                     f"{apps_short} | {row.occurrence_total:,} | {last_seen_short} | {row.status} |"
                 )
 

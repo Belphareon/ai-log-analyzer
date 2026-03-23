@@ -1291,6 +1291,57 @@ def run_regular_phase(
     result['status'] = 'success'
 
     # ==========================================================================
+    # WRITE-BACK ENRICHMENT TO REGISTRY
+    # ==========================================================================
+    if enriched_problems and _registry is not None:
+        write_back_count = 0
+        for pkey, aggregate in enriched_problems.items():
+            if pkey not in _registry.problems:
+                continue
+            entry = _registry.problems[pkey]
+
+            # Write-back root_cause from trace analysis (highest priority)
+            rc = getattr(aggregate, 'root_cause', None)
+            trc = getattr(aggregate, 'trace_root_cause', None)
+            if trc and isinstance(trc, dict) and trc.get('message'):
+                svc = trc.get('service', '')
+                msg = trc.get('message', '')
+                new_rc = f"{svc}: {msg}" if svc else msg
+                if new_rc and new_rc != entry.root_cause:
+                    entry.root_cause = new_rc[:500]
+                    write_back_count += 1
+            elif rc and hasattr(rc, 'message') and rc.message:
+                new_rc = f"{rc.service}: {rc.message}" if rc.service else rc.message
+                if new_rc and new_rc != entry.root_cause:
+                    entry.root_cause = new_rc[:500]
+                    write_back_count += 1
+
+            # Write-back behavior from trace flow summary
+            if aggregate.trace_flow_summary and not entry.behavior:
+                steps = aggregate.trace_flow_summary
+                if steps:
+                    last_step = steps[-1] if isinstance(steps[-1], dict) else {}
+                    behavior_msg = last_step.get('message', '')
+                    if behavior_msg:
+                        entry.behavior = behavior_msg[:500]
+
+            # Write-back severity and score
+            if aggregate.max_severity and aggregate.max_severity != 'info':
+                entry_sev = getattr(entry, '_enriched_severity', None)
+                if entry_sev != aggregate.max_severity:
+                    entry._enriched_severity = aggregate.max_severity
+            if aggregate.max_score > 0:
+                entry._enriched_score = aggregate.max_score
+
+        if write_back_count > 0:
+            print(f"\n📝 Write-back: updated root_cause for {write_back_count} problems")
+            try:
+                _registry.save()
+                print(f"   ✅ Registry saved with enriched data")
+            except Exception as e:
+                print(f"   ⚠️ Registry save failed: {e}")
+
+    # ==========================================================================
     # EXPORT TABLES (CSV, MD, JSON)
     # ==========================================================================
     if HAS_EXPORTS and _registry is not None:

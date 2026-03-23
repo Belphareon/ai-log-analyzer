@@ -37,6 +37,44 @@ from .version_analysis import enrich_problems_with_version_analysis, get_version
 from .category_refinement import refine_all_problems, get_refinement_stats
 
 
+# =============================================================================
+# DURATION HELPERS
+# =============================================================================
+
+def _format_duration_sec(seconds: int) -> str:
+    """Formats duration in seconds to human-readable: 45s / 23m 5s / 5h 12m 3s"""
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        m, s = divmod(seconds, 60)
+        return f"{m}m {s}s"
+    else:
+        h, rem = divmod(seconds, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h}h {m}m {s}s"
+
+
+def _format_duration_ms(ms: int) -> str:
+    """Formats duration in milliseconds to human-readable: 500ms / 45s 500ms / 23m 5s / 5h 12m 3s"""
+    total_secs = ms // 1000
+    remaining_ms = ms % 1000
+    if total_secs == 0:
+        return f"{ms}ms"
+    elif total_secs < 60:
+        if remaining_ms > 0:
+            return f"{total_secs}s {remaining_ms}ms"
+        return f"{total_secs}s"
+    elif total_secs < 3600:
+        m, s = divmod(total_secs, 60)
+        return f"{m}m {s}s"
+    else:
+        h, rem = divmod(total_secs, 3600)
+        m, s = divmod(rem, 60)
+        return f"{h}h {m}m {s}s"
+
+
+# =============================================================================
+
 class ProblemReportGenerator:
     """
     Generátor problem-centric reportů.
@@ -266,14 +304,26 @@ class ProblemReportGenerator:
 
         # Time
         if problem.first_seen and problem.last_seen:
-            lines.append(f"  Time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - {problem.last_seen.strftime('%H:%M')} ({problem.duration_sec}s)")
+            lines.append(f"  Time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - {problem.last_seen.strftime('%H:%M')} ({_format_duration_sec(problem.duration_sec)})")
 
         # Scope
         lines.append(f"  Scope: {len(problem.apps)} apps, {len(problem.namespaces)} namespaces")
         if problem.apps:
-            lines.append(f"    Apps: {', '.join(sorted(problem.apps)[:5])}")
+            app_counts = getattr(problem, 'app_counts', {})
+            if app_counts:
+                sorted_apps = sorted(app_counts.items(), key=lambda x: -x[1])[:5]
+                apps_str = ', '.join(f"{a} ({c:,})" for a, c in sorted_apps)
+            else:
+                apps_str = ', '.join(sorted(problem.apps)[:5])
+            lines.append(f"    Apps: {apps_str}")
         if problem.namespaces:
-            lines.append(f"    Namespaces: {', '.join(sorted(problem.namespaces)[:5])}")
+            ns_counts = getattr(problem, 'ns_counts', {})
+            if ns_counts:
+                sorted_ns = sorted(ns_counts.items(), key=lambda x: -x[1])[:5]
+                ns_str = ', '.join(f"{n} ({c:,})" for n, c in sorted_ns)
+            else:
+                ns_str = ', '.join(sorted(problem.namespaces)[:5])
+            lines.append(f"    Namespaces: {ns_str}")
 
         lines.append("")
 
@@ -339,7 +389,7 @@ class ProblemReportGenerator:
             lines.append(f"  Propagation [{propagation.propagation_type}]:")
             lines.append(f"    {propagation.to_short_string()}")
             if propagation.propagation_time_ms > 0:
-                lines.append(f"    Duration: {propagation.propagation_time_ms}ms")
+                lines.append(f"    Duration: {_format_duration_ms(propagation.propagation_time_ms)}")
 
         # Version Impact
         version_impact = getattr(problem, 'version_impact', None)

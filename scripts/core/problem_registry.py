@@ -91,6 +91,9 @@ class ProblemEntry:
     # Used for 24h trend calculation in CSV exports
     occurrence_times: List[datetime] = field(default_factory=list)
 
+    # Parallel list: error count per occurrence_times entry (volume tracking)
+    occurrence_counts: List[int] = field(default_factory=list)
+
     # Linked fingerprints (1:N)
     fingerprints: List[str] = field(default_factory=list)
 
@@ -126,6 +129,7 @@ class ProblemEntry:
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
             'occurrence_times': [ts.isoformat() if isinstance(ts, datetime) else ts for ts in self.occurrence_times],
+            'occurrence_counts': list(self.occurrence_counts),
             'fingerprints': self.fingerprints,
             'sample_messages': self.sample_messages[:MAX_SAMPLE_MESSAGES_PER_FP],  # Limit samples
             'description': self.description,
@@ -170,6 +174,14 @@ class ProblemEntry:
                     pass
             elif isinstance(ts_str, datetime):
                 entry.occurrence_times.append(ts_str)
+        
+        # Load occurrence_counts (parallel to occurrence_times).
+        # Migration: old YAML entries lack this field — default each slot to 1.
+        raw_counts = data.get('occurrence_counts', [])
+        if raw_counts and len(raw_counts) == len(entry.occurrence_times):
+            entry.occurrence_counts = [int(c) for c in raw_counts]
+        else:
+            entry.occurrence_counts = [1] * len(entry.occurrence_times)
         
         entry.fingerprints = data.get('fingerprints', [])
         entry.sample_messages = data.get('sample_messages', [])
@@ -1042,6 +1054,7 @@ class ProblemRegistry:
                 # Genuinely new window — count it
                 problem.occurrences += count
                 problem.occurrence_times.append(last_ts)
+                problem.occurrence_counts.append(count)
             # else: same minute already recorded -> idempotent re-run, skip
         else:
             # No timestamp -> always count (e.g. regular phase rows)
@@ -1123,6 +1136,8 @@ class ProblemRegistry:
             first_seen=first_ts,
             last_seen=last_ts,
             occurrences=count,
+            occurrence_times=[last_ts] if last_ts else [],
+            occurrence_counts=[count] if last_ts else [],
             fingerprints=[fingerprint],
             sample_messages=sample_messages,
             description=f"{error_type}: {normalized_message[:200] if normalized_message else 'N/A'}",

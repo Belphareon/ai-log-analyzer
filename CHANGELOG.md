@@ -4,6 +4,62 @@ Veskere zmeny projektu AI Log Analyzer, serazeno od nejnovejsiho.
 
 ---
 
+## v6.2.0 (2026-03-23) - r56 Known Errors + Recent Incidents Quality
+
+### Known Errors Report
+
+- **Category backfill from error_class** (`scripts/exports/table_exporter.py`)
+  - 135/346 problemu melo category=unknown. Nova metoda `_backfill_category()` odvodí kategorii z error_class (constraint_violation->business, access_denied->auth, gateway_error->external, atd.)
+  - Pridana mapa `_ERROR_CLASS_TO_CATEGORY` s 25 mapovanimi.
+
+- **Behavior sloupec presunut vedle Root Cause** (`scripts/exports/table_exporter.py`)
+  - V CSV: `behavior` je nyní hned za `root_cause`, na viditelnem miste.
+  - V Markdown tabulce All Problems: pridany sloupce Root Cause, Behavior a Age.
+  - Opravena `_problem_behavior()` fallback kaskada: behavior -> trace_flow -> sample_messages -> description (odstraneno neuzitecne error_class/flow).
+
+- **Age status indikator** (`scripts/exports/table_exporter.py`)
+  - Nove pole `activity_status` v `ErrorTableRow`: ACTIVE (<7d) / STALE (7-30d) / OLD (>30d).
+  - Zobrazeno v tabulce All Problems jako druhy sloupec.
+
+- **Nova klasifikacni pravidla** (`scripts/pipeline/phase_e_classify.py`, `core/problem_registry.py`)
+  - phase_e_classify: 6 novych pravidel (constraint_violation, json_deserialization, not_found, illegal_state, upstream_error, gateway_error).
+  - problem_registry ERROR_CLASS_PATTERNS: +11 vzoru (ConstraintViolation, MismatchedInput, DataIntegrity, RestClient, atd.).
+
+### Recent Incidents
+
+- **Opraven unknownerror v Problem Key** (`scripts/analysis/problem_aggregator.py`)
+  - `_extract_error_class()`: error_type UnknownError/unknown/error uz nevracejí `unknownerror`, ale `unclassified`.
+  - Pridana konstanta `_UNKNOWN_ERROR_TYPES` pro centralni spravu.
+
+- **Opraven bl fallback v Problem Key** (`scripts/analysis/problem_aggregator.py`)
+  - `_extract_flow()`: kompletne prepsan s PCB-specifickymi vzory (card-servicing, click2pay, design-lifecycle, atd.) a spravnym meaningful-parts fallbackem (skip: bff, bl, feapi, pcb, pca).
+  - 'bl' uz nebude v klici.
+
+- **Pocty raw errors k NS a Apps** (`scripts/analysis/problem_aggregator.py`, `scripts/analysis/problem_report.py`)
+  - `ProblemAggregate` ma nova pole `app_counts: Dict[str, int]` a `ns_counts: Dict[str, int]`.
+  - Sekce Scope zobrazuje: `bl-pcb-v1 (1234), feapi-pca-v1 (567)` misto pouheho vyctu.
+
+- **Orez trace flow messages** (`scripts/analysis/problem_report.py`)
+  - Zpravy v trace flow kraceny na max 200 znaku, pridan '...' suffix.
+
+- **Duration citelny format** (`scripts/analysis/problem_report.py`)
+  - Pridany helper funkce `_format_duration_sec()` a `_format_duration_ms()`.
+  - Time: `(83100s)` -> `(23h 5m 0s)` | `(45s)` -> `(45s)` | `(90s)` -> `(1m 30s)`
+  - Propagation Duration: `20121656ms` -> `5h 35m 21s` | `500ms` -> `500ms` | `1500ms` -> `1s 500ms`
+
+### Zmenene soubory
+
+| Soubor | Zmena |
+|--------|-------|
+| `scripts/analysis/problem_report.py` | Duration helpers, trace msg crop, per-app/ns counts |
+| `scripts/analysis/problem_aggregator.py` | unknownerror fix, flow fix, app_counts/ns_counts |
+| `scripts/exports/table_exporter.py` | behavior order, MD table, behavior fallback, category backfill, activity_status |
+| `scripts/pipeline/phase_e_classify.py` | +6 classification rules |
+| `core/problem_registry.py` | +11 ERROR_CLASS_PATTERNS |
+| `Dockerfile` | version r55 -> r56 |
+
+---
+
 ## v6.1.2 (2026-03-02) - r41 Peak Detection Logic Fix + Notification Clarity
 
 ### Opraveno

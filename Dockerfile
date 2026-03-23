@@ -2,17 +2,17 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r55 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r56 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r55 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r56 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r55"
+LABEL version="r56"
 LABEL description="AI Log Analyzer - digest email contrast update with raw error counts per namespace"
 
 # Set working directory

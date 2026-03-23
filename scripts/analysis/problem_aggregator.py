@@ -55,6 +55,10 @@ class ProblemAggregate:
     deployment_labels: Set[str] = field(default_factory=set)
     environments: Set[str] = field(default_factory=set)
 
+    # Per-entity raw error counts (for display: "bl-pcb-v1 (1234)")
+    app_counts: Dict[str, int] = field(default_factory=dict)
+    ns_counts: Dict[str, int] = field(default_factory=dict)
+
     # Trace IDs (jen unikátní, pro další analýzu)
     trace_ids: Set[str] = field(default_factory=set)
     trace_count: int = 0
@@ -116,6 +120,12 @@ class ProblemAggregate:
         self.app_versions.update(incident.app_versions)
         self.deployment_labels.update(incident.deployment_labels)
         self.environments.update(incident.environments)
+
+        # Per-entity counts
+        for app in incident.apps:
+            self.app_counts[app] = self.app_counts.get(app, 0) + count
+        for ns in incident.namespaces:
+            self.ns_counts[ns] = self.ns_counts.get(ns, 0) + count
 
         # Trace IDs
         if hasattr(incident, 'trace_ids'):
@@ -362,23 +372,37 @@ def _extract_flow(apps: List[str]) -> str:
     if not apps:
         return "unknown"
 
-    # Známé flow patterny
+    # PCB-specific patterns (ordered: more specific first)
     flow_patterns = {
-        'card': 'card_servicing',
+        'card-servicing': 'card_servicing',
+        'card-opening': 'card_opening',
+        'card-validation': 'card_validation',
+        'card-sensitive': 'card_servicing',
+        'click2pay': 'click2pay',
+        'billing': 'billing',
+        'document-signing': 'document_signing',
+        'batch-processor': 'batch_processing',
+        'event-processor': 'event_processing',
+        'rainbow-status': 'client_status',
+        'client-segment': 'client_segment',
+        'design-lifecycle': 'design_lifecycle',
+        'georisk': 'georisk',
+        'atm-locator': 'atm_locator',
+        'notification': 'notifications',
+        'pilot-context': 'pilot_context',
+        'token': 'token_service',
+        # Generic patterns
         'payment': 'payments',
         'auth': 'authentication',
         'user': 'user_management',
-        'notification': 'notifications',
         'report': 'reporting',
         'batch': 'batch_processing',
-        'api': 'api_gateway',
-        'gateway': 'api_gateway',
+        'api-gateway': 'api_gateway',
         'queue': 'messaging',
         'kafka': 'messaging',
         'rabbit': 'messaging',
         'redis': 'caching',
         'cache': 'caching',
-        'db': 'database',
         'postgres': 'database',
         'mysql': 'database',
         'mongo': 'database',
@@ -390,9 +414,19 @@ def _extract_flow(apps: List[str]) -> str:
             if pattern in app_lower:
                 return flow
 
-    # Default: první app bez verze
-    base_app = apps[0].split('-v')[0].split('-')[0] if apps else "unknown"
-    return base_app
+    # Fallback: extract meaningful parts from app name, skip technical prefixes
+    _SKIP_PARTS = frozenset({'bff', 'bl', 'feapi', 'pcb', 'pca', 'ch', 'v1', 'v2', 'v3', 'v4', 'v5'})
+    for app in apps:
+        parts = app.lower().replace('_', '-').split('-')
+        meaningful = [p for p in parts if p not in _SKIP_PARTS and not p.isdigit() and len(p) > 2]
+        if meaningful:
+            return '_'.join(meaningful[:2])
+
+    return "unknown"
+
+
+# Error types that carry no meaningful class information
+_UNKNOWN_ERROR_TYPES = frozenset({'unknownerror', 'unknown', 'error', 'exception', 'runtimeexception', ''})
 
 
 def _extract_error_class(error_type: str, normalized_message: str) -> str:
@@ -401,24 +435,25 @@ def _extract_error_class(error_type: str, normalized_message: str) -> str:
         # Normalize error type
         et = error_type.lower()
 
-        # Známé error classes
-        if 'connection' in et or 'connect' in et:
-            return 'connection_error'
-        if 'timeout' in et:
-            return 'timeout_error'
-        if 'validation' in et or 'invalid' in et:
-            return 'validation_error'
-        if 'auth' in et or 'unauthorized' in et or 'forbidden' in et:
-            return 'auth_error'
-        if 'null' in et or 'npe' in et:
-            return 'null_pointer'
-        if 'outofmemory' in et or 'oom' in et:
-            return 'memory_error'
-        if 'sql' in et or 'database' in et or 'db' in et:
-            return 'database_error'
-
-        # Použij error type přímo (normalizovaný)
-        return error_type.replace(' ', '_').lower()[:50]
+        # Skip meaningless error type names – fall through to message analysis
+        if et not in _UNKNOWN_ERROR_TYPES:
+            # Known classifications by keyword
+            if 'connection' in et or 'connect' in et:
+                return 'connection_error'
+            if 'timeout' in et:
+                return 'timeout_error'
+            if 'validation' in et or 'invalid' in et:
+                return 'validation_error'
+            if 'auth' in et or 'unauthorized' in et or 'forbidden' in et:
+                return 'auth_error'
+            if 'null' in et or 'npe' in et:
+                return 'null_pointer'
+            if 'outofmemory' in et or 'oom' in et:
+                return 'memory_error'
+            if 'sql' in et or 'database' in et or 'db' in et:
+                return 'database_error'
+            # Use error type directly (normalized) – but only for meaningful types
+            return error_type.replace(' ', '_').lower()[:50]
 
     if normalized_message:
         # Extrahuj z message

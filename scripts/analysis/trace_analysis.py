@@ -55,6 +55,30 @@ _ROOT_CAUSE_POSITIVE_PATTERNS = [
 ]
 
 
+def _smart_trim(msg: str, max_len: int = 200) -> str:
+    """
+    Smart message trim zachovavajici nejinformativnejsi casti:
+    - Stack trace (obsahuje newline + ' at '): vrati jen prvni radek (exception message)
+    - Dlouhy single-line: head + '...' + tail (dulezity kontext byva na konci)
+    - Kratka zprava: beze zmeny
+    """
+    if len(msg) <= max_len:
+        return msg
+
+    # Detekce Java stack trace: newline za exception message
+    if '\n' in msg:
+        first_line = msg.split('\n', 1)[0].rstrip()
+        if len(first_line) <= max_len:
+            return first_line
+        msg = first_line  # prvni radek je take prilis dlouhy - fadni do single-line
+
+    # Single-line dlouha zprava: zachovej hlavu i ocas
+    # Dulezity detail (kod chyby, URL, detail=) byva na konci
+    head = msg[:100]
+    tail = msg[-(max_len - 101):]
+    return head + '...' + tail
+
+
 def _message_signal_score(message: str) -> int:
     if not message:
         return 0
@@ -553,7 +577,7 @@ def summarize_trace_flow_to_dict(flow: TraceFlow) -> List[Dict[str, Any]]:
     return [
         {
             'app': step.app,
-            'message': step.message[:200],
+            'message': _smart_trim(step.message),
             'level': step.level,
             'ts': step.timestamp.isoformat() if step.timestamp else None,
         }

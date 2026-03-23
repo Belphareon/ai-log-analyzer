@@ -259,6 +259,44 @@ class PhaseE_Classify:
             patterns=[r'500', r'[Ii]nternal [Ss]erver [Ee]rror'],
             priority=80,
         ),
+
+        # ADDITIONAL RULES (r56) - previously unclassified error types
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
+            subcategory="constraint_violation",
+            patterns=[r'ConstraintViolationException', r'ConstraintViolation', r'DataIntegrityViolation'],
+            priority=78,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
+            subcategory="json_deserialization",
+            patterns=[r'MismatchedInputException', r'JsonParseException', r'JsonMappingException', r'InvalidTypeId'],
+            priority=77,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
+            subcategory="not_found",
+            patterns=[r'NotFoundException', r'ResourceNotFoundException', r'EntityNotFoundException'],
+            priority=76,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.BUSINESS,
+            subcategory="illegal_state",
+            patterns=[r'IllegalStateException', r'IllegalArgumentException'],
+            priority=75,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.EXTERNAL,
+            subcategory="upstream_error",
+            patterns=[r'RestClientException', r'HttpClientErrorException', r'HttpServerErrorException'],
+            priority=74,
+        ),
+        ClassificationRule(
+            category=IncidentCategory.EXTERNAL,
+            subcategory="gateway_error",
+            patterns=[r'502', r'504', r'[Bb]ad [Gg]ateway', r'[Gg]ateway [Tt]imeout'],
+            priority=73,
+        ),
     ]
     
     def __init__(self, rules: List[ClassificationRule] = None):
