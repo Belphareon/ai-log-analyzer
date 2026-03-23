@@ -1,17 +1,25 @@
 # 🕐 AI Log Analyzer - K8s CronJob Scheduling
 ## Timing, Deployment Status, a Monitoring
 
+## Important Deployment Note
+
+- Local `k8s/` in this repository is only a sample/reference structure.
+- Real manifests used for deployment to a cluster are typically maintained in a separate infrastructure repository.
+- That location is not official or fixed here and can differ by user, team, or environment.
+- Example of one local setup: `~/git/sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer`
+
 ---
 
-## 📋 CURRENT DEPLOYMENT STATUS (Feb 10, 2026)
+## 📋 CURRENT DEPLOYMENT STATUS (Mar 23, 2026)
 
 ### ✅ Configured & Ready
 - **Two CronJobs** deployed in K8s manifests
-- **Docker image**: r4 (174 MB) pushed to dockerhub.kb.cz
+- **Latest locally built image**: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r55`
+- **Current deployed image in external infra repo example**: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r47`
 - **Teams integration**: ENABLED (TEAMS_ENABLED=true)
 - **Confluence integration**: Ready (page 1334314207)
 
-### 🚀 Next: `kubectl apply -f k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/`
+### 🚀 Example deploy source: `~/git/sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer`
 
 ---
 
@@ -229,7 +237,7 @@ AUTH:card_opening:access_denied (89 occurrences)
 ```yaml
 # Image
 app:
-  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r36
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r47
   imagePullPolicy: IfNotPresent
 
 # Schedules are hardcoded in templates/cronjob.yaml

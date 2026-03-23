@@ -442,8 +442,15 @@ Results:
             root_cause = str(alert.get('root_cause_text', '') or 'N/A')
             message = str(alert.get('detail_message', '') or 'N/A')
             trace_id = str(alert.get('trace_id', '') or 'N/A')
+            namespace_counts = alert.get('namespace_counts', {}) or {}
+            ns_detail_parts = [
+                f"{ns}({namespace_counts.get(ns, 0)})"
+                for ns in sorted(namespace_counts.keys())
+            ]
+            ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
             lines.extend([
                 f"  {idx}. {error_class}",
+                f"     Namespaces (raw): {ns_detail_display}",
                 f"     Root cause: {root_cause}",
                 f"     Message: {message}",
                 f"     Trace ID: {trace_id}",
@@ -458,10 +465,11 @@ Results:
             error_count = int(alert.get('error_count', 0) or 0)
             peak_type = alert.get('peak_type', 'SPIKE')
             status = "KNOWN" if alert.get('is_known') else "NEW"
-            # Build NS list from namespace_counts
+            # Build NS list from namespace_counts with raw error counts
             namespace_counts = alert.get('namespace_counts', {})
             ns_list = sorted(namespace_counts.keys()) if namespace_counts else []
-            ns_display = ', '.join(ns_list[:3]) if ns_list else 'N/A'
+            ns_display_parts = [f"{ns}({namespace_counts.get(ns, 0)})" for ns in ns_list[:3]]
+            ns_display = ', '.join(ns_display_parts) if ns_display_parts else 'N/A'
             if len(ns_list) > 3:
                 ns_display += f" +{len(ns_list)-3}"
             rows.append(
@@ -481,35 +489,43 @@ Results:
             root_cause = str(alert.get('root_cause_text', '') or 'N/A')
             message = str(alert.get('detail_message', '') or 'N/A')
             trace_id = str(alert.get('trace_id', '') or 'N/A')
-            detail_blocks.append(
-                '<details style="margin-top:18px;margin-bottom:14px;border:1px solid #d9d9d9;border-radius:8px;padding:10px;background:#fafafa;">'
-                f'<summary style="cursor:pointer;font-weight:700;">{idx}. {error_class}</summary>'
-                f'<div style="margin-top:10px;"><strong>Applications:</strong> {(lambda apps: ", ".join(apps[:5]) + (" +" + str(len(apps)-5) if len(apps) > 5 else ""))(alert.get("affected_apps", []))}</div>'
-                f'<div style="margin-top:10px;"><strong>Root cause:</strong> {root_cause}</div>'
-                f'<div style="margin-top:6px;"><strong>Message:</strong> {message}</div>'
-                f'<div style="margin-top:6px;"><strong>Trace ID:</strong> {trace_id}</div>'
-                '</details>'
-            )
+            apps = alert.get('affected_apps', [])
+            apps_display = ', '.join(apps[:5]) + (f" +{len(apps)-5}" if len(apps) > 5 else "")
+            namespace_counts = alert.get('namespace_counts', {}) or {}
+            ns_detail_parts = [
+                f"{ns}({namespace_counts.get(ns, 0)})"
+                for ns in sorted(namespace_counts.keys())
+            ]
+            ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
+            
+            detail_html = f"""<div style="margin-top:18px;margin-bottom:14px;border-left:4px solid #2c5aa0;border-radius:4px;overflow:hidden;background:white;border:1px solid #d9d9d9;">
+<div style="background:#2c5aa0;padding:10px;font-weight:700;color:white;">{idx}. {error_class}</div>
+<div style="padding:12px;"><strong>Applications:</strong> {apps_display}</div>
+<div style="padding:0 12px 6px 12px;"><strong>Namespaces (raw):</strong> {ns_detail_display}</div>
+<div style="padding:0 12px 6px 12px;"><strong>Root cause:</strong> {root_cause}</div>
+<div style="padding:0 12px 6px 12px;"><strong>Message:</strong> {message}</div>
+<div style="padding:0 12px 12px 12px;"><strong>Trace ID:</strong> {trace_id}</div>
+</div>"""
+            detail_blocks.append(detail_html)
 
         html_body = f"""
         <html>
-        <body style="font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;background:#f4f6f8;margin:0;padding:20px;">
-            <div style="max-width:900px;margin:0 auto;border:1px solid #d0d7de;border-radius:10px;background:white;overflow:hidden;">
-                <div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;background:transparent;">
+        <body style="font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;background:#f0f4f8;margin:0;padding:20px;">
+            <div style="max-width:900px;margin:0 auto;border:1px solid #2c5aa0;border-radius:10px;background:white;overflow:hidden;">
+                <div style="padding:16px 20px;border-bottom:2px solid #2c5aa0;background:#2c5aa0;color:white;">
                     <h1 style="margin:0;font-size:22px;font-weight:700;">Peak Alerts</h1>
-                    <div style="margin-top:4px;font-size:14px;color:#666;">{local_time_range} | {local_date}</div>
                 </div>
                 <div style="padding:20px;">
                     <div style="font-size:16px;margin-bottom:14px;"><strong>Total errors in sent alerts:</strong> {total_errors:,}</div>
                     <table style="margin-top:12px;border-collapse:collapse;width:100%;font-size:14px;">
                         <thead>
-                            <tr style="background:#f3f4f6;">
-                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Error Class</th>
-                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Peak Type</th>
-                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Status</th>
-                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">NS</th>
-                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:left;">Trend</th>
-                                <th style="padding:8px;border:1px solid #d9d9d9;text-align:right;">Errors</th>
+                            <tr style="background:#2c5aa0;color:white;">
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Error Class</th>
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Peak Type</th>
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Status</th>
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">NS (Raw)</th>
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Trend</th>
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:right;">Errors</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -517,12 +533,12 @@ Results:
                         </tbody>
                     </table>
 
-                    <div style="margin-top:18px;font-size:17px;font-weight:700;">Details</div>
+                    <div style="margin-top:18px;font-size:17px;font-weight:700;color:#2c5aa0;">Details</div>
                     <div style="margin-top:8px;">
                         {''.join(detail_blocks)}
                     </div>
                 </div>
-                <div style="text-align:center;padding:14px;border-top:1px solid #cfcfcf;font-size:12px;color:#555;">
+                <div style="text-align:center;padding:14px;border-top:2px solid #2c5aa0;background:#f0f4f8;font-size:12px;color:#555;">
                     Generated: {datetime.now().strftime('%H:%M:%S')} | AI Log Analyzer
                 </div>
             </div>
