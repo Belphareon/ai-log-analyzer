@@ -4,6 +4,40 @@ Veskere zmeny projektu AI Log Analyzer, serazeno od nejnovejsiho.
 
 ---
 
+## v6.2.1 (2026-03-24) - r57 Peak Alerts opravy
+
+### Peak Alerts digest email
+
+- **Opraveny pocty NS a Apps** (`scripts/regular_phase.py`)
+  - Pocty erroru se chybne duplikovaly: kdyz 1 incident pokryval N namespaaces/apps, pripisoval se stejny pocet vsem.
+  - Oprava: `count_per_ns = count // len(ns_list)`, stejne pro apps. Kazdy NS/app dostane sve proporcionalni cislo.
+  - Pridano `app_counts` field do payloadu alertu (dict serazeny podle poctu desc).
+
+- **Trend: pouziva predchozi okno misto historickeho prumeru** (`scripts/regular_phase.py`)
+  - Trend se pocital oproti historickemu prumeru vsech minulych vyskytu, coz vedlo k tomu ze 'rising' se temer neobjevovalo.
+  - Oprava: Trend porovnava `current_window_errors` vs `last_error_count` z alertovacieho stavu (stavovy soubor).
+  - Prvni vyskyt (bez predesleho okna) = 'stable'. Dalsi okno: >=1.2x = rising, <=0.8x = falling.
+
+- **Behavior misto surove message** (`scripts/regular_phase.py`)
+  - `detail_message` se plnilo prvni zprávou z trace kroků (surová zprava).
+  - Oprava: pouziva `problem.trace_flow_summary` (max 3 kroky: app: zprava) = behavior jak je v Recent Incidents.
+
+- **Email template** (`scripts/core/email_notifier.py`)
+  - Odstranen sloupec 'NS (Raw)' z souhrnne tabulky (byl duplicitni s detailem nize).
+  - Detail blok: Apps s pocty erroru: `bl-pcb-v1 (1,234), feapi-pca-v1 (567)` misto prostého výčtu.
+  - Detail blok: Namespaces serazeny od nejvyssiho poctu, format `pcb-dev-01-app (1,234)`.
+  - Prejmenovano 'Message' -> 'Behavior' v detailu alertu (HTML i text).
+
+### Zmenene soubory
+
+| Soubor | Zmena |
+|--------|-------|
+| `scripts/regular_phase.py` | NS/app count fix, trend, behavior, app_counts payload |
+| `scripts/core/email_notifier.py` | Remove NS from table, apps s pocty, Behavior label |
+| `Dockerfile` | r56 -> r57 |
+
+---
+
 ## v6.2.0 (2026-03-23) - r56 Known Errors + Recent Incidents Quality
 
 ### Known Errors Report

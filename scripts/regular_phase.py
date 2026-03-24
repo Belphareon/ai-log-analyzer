@@ -335,6 +335,7 @@ def _build_peak_alert_payload(
     window_start: datetime,
     window_end: datetime,
     window_minutes: int,
+    alert_peaks: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     if not problem:
         return None
@@ -425,6 +426,7 @@ def _build_peak_alert_payload(
     flow = flow_list[0] if flow_list else None
     trace_steps = []
     namespace_counts: Dict[str, int] = {}
+    app_counts: Dict[str, int] = {}
     error_type_counts: Dict[str, int] = {}
     affected_apps = set()
     affected_namespaces = set()
@@ -432,6 +434,7 @@ def _build_peak_alert_payload(
 
     for inc in signal_incidents:
         ns_list = [ns for ns in (getattr(inc, 'namespaces', []) or []) if ns]
+        apps_list = [app for app in (getattr(inc, 'apps', []) or []) if app]
         count = 1
         if hasattr(inc, 'stats') and hasattr(inc.stats, 'current_count'):
             try:
@@ -440,16 +443,22 @@ def _build_peak_alert_payload(
                 count = 1
         raw_error_count += count
 
-        for app in (getattr(inc, 'apps', []) or []):
-            if app:
-                affected_apps.add(app)
+        # Distribute count evenly across apps to avoid duplication
+        n_apps = len(apps_list) if apps_list else 1
+        count_per_app = max(1, count // n_apps)
+        for app in apps_list:
+            affected_apps.add(app)
+            app_counts[app] = app_counts.get(app, 0) + count_per_app
 
         err_type = getattr(inc, 'error_type', None) or 'UnknownError'
         error_type_counts[err_type] = error_type_counts.get(err_type, 0) + count
 
+        # Distribute count evenly across namespaces to avoid duplication
+        n_ns = len(ns_list) if ns_list else 1
+        count_per_ns = max(1, count // n_ns)
         for ns in ns_list:
             affected_namespaces.add(ns)
-            namespace_counts[ns] = namespace_counts.get(ns, 0) + count
+            namespace_counts[ns] = namespace_counts.get(ns, 0) + count_per_ns
 
     top_error_types = sorted(error_type_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
     top_error_types_text = ', '.join(f"{name} ({cnt})" for name, cnt in top_error_types) if top_error_types else 'N/A'
@@ -486,12 +495,15 @@ def _build_peak_alert_payload(
 
     # Trend logic: digest shows historical trend; real-time trends use previous_window (see table_exporter.py)
     trend = 'stable'
-    if previous_average_errors and previous_average_errors > 0:
-        ratio_to_avg = current_window_errors / previous_average_errors
-        if ratio_to_avg >= 1.2:
-            trend = 'rising'
-        elif ratio_to_avg <= 0.8:
-            trend = 'falling'
+    if alert_peaks is not None:
+        _state = alert_peaks.get(peak_key, {})
+        _last_count = int(_state.get('last_error_count', 0) or 0)
+        if _last_count > 0:
+            _ratio = current_window_errors / _last_count
+            if _ratio >= 1.2:
+                trend = 'rising'
+            elif _ratio <= 0.8:
+                trend = 'falling'
 
     known_apps = set(getattr(known_peak, 'affected_apps', []) or []) if known_peak else set()
     known_namespaces = set(getattr(known_peak, 'affected_namespaces', []) or []) if known_peak else set()
@@ -542,7 +554,16 @@ def _build_peak_alert_payload(
         digest_root_cause = str(getattr(problem, 'root_cause', '') or '')
 
     digest_message = ''
-    if trace_steps:
+    _trace_flow_sum = getattr(problem, 'trace_flow_summary', None) or []
+    if _trace_flow_sum:
+        _parts = []
+        for _step in _trace_flow_sum[:3]:
+            _app = _step.get('app', '?')
+            _msg = _step.get('message', '')
+            if _msg:
+                _parts.append(f"{_app}: {_msg}")
+        digest_message = '\n'.join(_parts)
+    if not digest_message and trace_steps:
         digest_message = str(trace_steps[0].get('message', '') or '')
     if not digest_message:
         digest_message = str(peak_error_details or '')
@@ -562,6 +583,7 @@ def _build_peak_alert_payload(
         'affected_apps': sorted(affected_apps) if affected_apps else (sorted(problem.apps) if problem.apps else []),
         'affected_namespaces': sorted(affected_namespaces) if affected_namespaces else (sorted(problem.namespaces) if problem.namespaces else []),
         'namespace_counts': namespace_counts,
+        'app_counts': dict(sorted(app_counts.items(), key=lambda x: -x[1])),
         'trace_steps': trace_steps_for_email,
         'root_cause': root_cause,
         'propagation_info': propagation_info,
@@ -1392,7 +1414,8 @@ def run_regular_phase(
                         known_peaks_snapshot,
                         window_start,
                         window_end,
-                        window_minutes
+                        window_minutes,
+                        alert_peaks=alert_peaks,
                     )
                     if not payload:
                         continue
