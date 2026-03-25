@@ -440,12 +440,21 @@ Results:
         for idx, alert in enumerate(alerts, start=1):
             error_class = str(alert.get('error_class', 'unknown') or 'unknown')
             root_cause = str(alert.get('root_cause_text', '') or 'N/A')
-            message = str(alert.get('detail_message', '') or 'N/A')
+            behavior = str(alert.get('detail_message', '') or 'N/A')
             trace_id = str(alert.get('trace_id', '') or 'N/A')
+            app_counts_d = alert.get('app_counts', {}) or {}
+            if app_counts_d:
+                top_apps = sorted(app_counts_d.items(), key=lambda x: -x[1])[:5]
+                apps_display = ', '.join(f"{a} ({n:,})" for a, n in top_apps)
+                if len(app_counts_d) > 5:
+                    apps_display += f" +{len(app_counts_d)-5}"
+            else:
+                apps = alert.get('affected_apps', [])
+                apps_display = ', '.join(apps[:5]) + (f" +{len(apps)-5}" if len(apps) > 5 else "")
             namespace_counts = alert.get('namespace_counts', {}) or {}
             ns_detail_parts = [
-                f"{ns}({namespace_counts.get(ns, 0)})"
-                for ns in sorted(namespace_counts.keys())
+                f"{ns} ({cnt:,})"
+                for ns, cnt in sorted(namespace_counts.items(), key=lambda x: -x[1])
             ]
             ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
             lines.extend([
@@ -466,11 +475,10 @@ Results:
             error_count = int(alert.get('error_count', 0) or 0)
             peak_type = alert.get('peak_type', 'SPIKE')
             status = "KNOWN" if alert.get('is_known') else "NEW"
-            # Build NS list from namespace_counts with raw error counts
+            # Build NS list for summary (names only, no counts)
             namespace_counts = alert.get('namespace_counts', {})
             ns_list = sorted(namespace_counts.keys()) if namespace_counts else []
-            ns_display_parts = [f"{ns}({namespace_counts.get(ns, 0)})" for ns in ns_list[:3]]
-            ns_display = ', '.join(ns_display_parts) if ns_display_parts else 'N/A'
+            ns_display = ', '.join(ns_list[:3]) if ns_list else 'N/A'
             if len(ns_list) > 3:
                 ns_display += f" +{len(ns_list)-3}"
             rows.append(
@@ -478,6 +486,7 @@ Results:
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{error_class}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{peak_type}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{status}</td>"
+                f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{ns_display}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;\">{trend}</td>"
                 f"<td style=\"padding:8px;border:1px solid #d9d9d9;text-align:right;\">{error_count:,}</td>"
                 "</tr>"
@@ -530,6 +539,7 @@ Results:
                                 <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Error Class</th>
                                 <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Peak Type</th>
                                 <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Status</th>
+                                <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">NS</th>
                                 <th style="padding:8px;border:1px solid #2c5aa0;text-align:left;">Trend</th>
                                 <th style="padding:8px;border:1px solid #2c5aa0;text-align:right;">Errors</th>
                             </tr>
