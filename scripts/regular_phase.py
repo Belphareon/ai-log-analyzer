@@ -1340,14 +1340,38 @@ def run_regular_phase(
                     entry.root_cause = new_rc[:500]
                     write_back_count += 1
 
-            # Write-back behavior from trace flow summary
+            # Write-back behavior from trace flow summary as structured text
             if aggregate.trace_flow_summary and not entry.behavior:
                 steps = aggregate.trace_flow_summary
                 if steps:
-                    last_step = steps[-1] if isinstance(steps[-1], dict) else {}
-                    behavior_msg = last_step.get('message', '')
-                    if behavior_msg:
-                        entry.behavior = behavior_msg[:500]
+                    blines = [f"Behavior (trace flow): {len(steps)} messages"]
+                    prev_msg = None
+                    for si, step in enumerate(steps, start=1):
+                        s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
+                        s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
+                        if s_msg == prev_msg:
+                            blines.append(f"  {si}) {s_app} (same error)")
+                        else:
+                            blines.append(f"  {si}) {s_app}")
+                            if s_msg:
+                                blines.append(f'     "{s_msg[:200]}"')
+                        prev_msg = s_msg
+                    trc = getattr(aggregate, 'trace_root_cause', None)
+                    if trc and isinstance(trc, dict) and trc.get('message'):
+                        confidence = trc.get('confidence', '')
+                        conf_label = f' [{confidence}]' if confidence else ''
+                        blines.append(f"Inferred root cause{conf_label}:")
+                        blines.append(f"  - {trc.get('service', '?')}: {trc.get('message', '')[:200]}")
+                    prop = getattr(aggregate, 'propagation_result', None)
+                    if prop and getattr(prop, 'service_count', 0) > 1:
+                        prop_short = prop.to_short_string() if hasattr(prop, 'to_short_string') else ''
+                        blines.append(f"Propagation [{prop.propagation_type}]: {prop.service_count} services")
+                        if prop_short:
+                            blines.append(f"  {prop_short}")
+                        if prop.propagation_time_ms > 0:
+                            total_sec = prop.propagation_time_ms // 1000
+                            blines.append(f"  Duration: {total_sec // 60}m {total_sec % 60}s" if total_sec >= 60 else f"  Duration: {total_sec}s")
+                    entry.behavior = '\n'.join(blines)[:1000]
 
             # Write-back severity and score
             if aggregate.max_severity and aggregate.max_severity != 'info':

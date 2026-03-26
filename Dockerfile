@@ -12,8 +12,8 @@ FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r61"
-LABEL description="AI Log Analyzer - r61 fix: app/NS counts + structured behavior format"
+LABEL version="r62"
+LABEL description="AI Log Analyzer - r62 fix: app/NS counts + structured behavior format"
 
 # Set working directory
 WORKDIR /app

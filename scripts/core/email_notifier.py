@@ -567,7 +567,7 @@ Results:
                     f'<div style="margin-top:6px;font-weight:600;">Behavior (trace flow): {len(trace_steps)} messages</div>'
                 )
                 if trace_id and trace_id != 'N/A':
-                    behavior_html_parts.append(f'<div style="font-size:12px;color:#666;margin-bottom:4px;">TraceID: {trace_id}</div>')
+                    behavior_html_parts.append(f'<div style="font-size:12px;margin-bottom:4px;opacity:0.75;">TraceID: {trace_id}</div>')
                 prev_msg = None
                 for si, step in enumerate(trace_steps, start=1):
                     s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
@@ -575,14 +575,14 @@ Results:
                     if s_msg == prev_msg:
                         behavior_html_parts.append(
                             f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
-                            f'{si}) {s_app} <em style="color:#888;">(same error)</em></div>'
+                            f'<strong>{si})</strong> {s_app} <em>(same error)</em></div>'
                         )
                     else:
                         esc_msg = s_msg.replace('<', '&lt;').replace('>', '&gt;')[:300]
                         behavior_html_parts.append(
                             f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
-                            f'{si}) {s_app}<br>'
-                            f'&nbsp;&nbsp;&nbsp;<span style="color:#444;">&quot;{esc_msg}&quot;</span></div>'
+                            f'<strong>{si})</strong> {s_app}<br>'
+                            f'&nbsp;&nbsp;&nbsp;&quot;{esc_msg}&quot;</div>'
                         )
                     prev_msg = s_msg
             if root_cause_d and root_cause_d.get('message'):

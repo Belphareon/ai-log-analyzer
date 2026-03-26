@@ -574,6 +574,12 @@ class TableExporter:
                     lines.append(f"- **Namespaces:** {row.affected_namespaces}")
                     lines.append(f"- **First seen:** {row.first_seen}")
                     lines.append(f"- **Last seen:** {row.last_seen}")
+                    if row.root_cause:
+                        lines.append(f"- **Root cause:** {row.root_cause}")
+                    if row.behavior:
+                        lines.append("- **Behavior:**")
+                        for bline in row.behavior.splitlines():
+                            lines.append(f"  {bline}")
                     if row.jira:
                         lines.append(f"- **Jira:** {row.jira}")
                     if row.notes:
@@ -669,7 +675,7 @@ class TableExporter:
                 affected_namespaces=", ".join(sorted(peak.affected_namespaces)),
                 peak_count=raw_peak_count,
                 baseline_rate=peak.max_value,
-                peak_ratio=peak.max_ratio,
+                peak_ratio=round(float(peak.max_ratio or 0), 2),
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
                 occurrence_count=peak.occurrences,
@@ -735,8 +741,27 @@ class TableExporter:
                 apps_short = row.affected_apps[:25] + "..." if len(row.affected_apps) > 25 else row.affected_apps
                 lines.append(
                     f"| {row.peak_id} | {row.category} | {row.peak_type} | "
-                    f"{apps_short} | {row.peak_ratio:.1f}x | {row.last_seen[:10] if row.last_seen else '-'} | {row.status} |"
+                    f"{apps_short} | {row.peak_ratio:.2f}x | {row.last_seen[:10] if row.last_seen else '-'} | {row.status} |"
                 )
+            # Peak Details section
+            lines.append("")
+            lines.append("## Peak Details")
+            lines.append("")
+            for row in rows[:30]:
+                lines.append(f"### {row.peak_id}: {row.category} ({row.peak_type})")
+                lines.append("")
+                lines.append(f"- **Apps:** {row.affected_apps}")
+                lines.append(f"- **Namespaces:** {row.affected_namespaces}")
+                lines.append(f"- **Peak count:** {row.peak_count:,} | **Ratio:** {row.peak_ratio:.2f}x | **Occurrences:** {row.occurrence_count}")
+                lines.append(f"- **First seen:** {row.first_seen} | **Last seen:** {row.last_seen}")
+                lines.append(f"- **Status:** {row.status}")
+                if row.root_cause:
+                    lines.append(f"- **Root cause:** {row.root_cause}")
+                if row.behavior:
+                    lines.append("- **Behavior:**")
+                    for bline in row.behavior.splitlines():
+                        lines.append(f"  {bline}")
+                lines.append("")
         else:
             lines.append("*No peaks in registry.*")
 
