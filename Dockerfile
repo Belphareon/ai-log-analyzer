@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r60 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r61 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r60 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r61 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r60"
-LABEL description="AI Log Analyzer - r60 digest template fix: restore NS column, fix notification fallback"
+LABEL version="r61"
+LABEL description="AI Log Analyzer - r61 fix: app/NS counts + structured behavior format"
 
 # Set working directory
 WORKDIR /app
