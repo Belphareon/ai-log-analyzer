@@ -443,22 +443,23 @@ def _build_peak_alert_payload(
                 count = 1
         raw_error_count += count
 
-        # Distribute count evenly across apps to avoid duplication
-        n_apps = len(apps_list) if apps_list else 1
-        count_per_app = max(1, count // n_apps)
-        for app in apps_list:
+        # Count only primary app/NS (apps[0], namespaces[0]) to avoid double-counting across trace chain
+        primary_app = apps_list[0] if apps_list else None
+        if primary_app:
+            affected_apps.add(primary_app)
+            app_counts[primary_app] = app_counts.get(primary_app, 0) + count
+        for app in apps_list[1:]:
             affected_apps.add(app)
-            app_counts[app] = app_counts.get(app, 0) + count_per_app
 
         err_type = getattr(inc, 'error_type', None) or 'UnknownError'
         error_type_counts[err_type] = error_type_counts.get(err_type, 0) + count
 
-        # Distribute count evenly across namespaces to avoid duplication
-        n_ns = len(ns_list) if ns_list else 1
-        count_per_ns = max(1, count // n_ns)
-        for ns in ns_list:
+        primary_ns = ns_list[0] if ns_list else None
+        if primary_ns:
+            affected_namespaces.add(primary_ns)
+            namespace_counts[primary_ns] = namespace_counts.get(primary_ns, 0) + count
+        for ns in ns_list[1:]:
             affected_namespaces.add(ns)
-            namespace_counts[ns] = namespace_counts.get(ns, 0) + count_per_ns
 
     top_error_types = sorted(error_type_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
     top_error_types_text = ', '.join(f"{name} ({cnt})" for name, cnt in top_error_types) if top_error_types else 'N/A'
@@ -518,32 +519,33 @@ def _build_peak_alert_payload(
         'top_error_types': top_error_types_text,
     }
 
-    trace_steps_for_email = trace_steps if not is_continues else []
+    trace_steps_for_email = trace_steps  # always pass steps (formattin handles is_continues display)
 
     root_cause = None
-    if not is_continues:
-        rc = getattr(problem, 'trace_root_cause', None)
-        if rc:
-            root_cause = {
-                'service': rc.get('service', '?'),
-                'message': rc.get('message', '')
-            }
-        elif getattr(problem, 'root_cause', None):
-            rc_obj = problem.root_cause
-            root_cause = {
-                'service': getattr(rc_obj, 'service', '?'),
-                'message': getattr(rc_obj, 'message', '')
-            }
+    rc = getattr(problem, 'trace_root_cause', None)
+    if rc:
+        root_cause = {
+            'service': rc.get('service', '?'),
+            'message': rc.get('message', ''),
+            'confidence': rc.get('confidence', 'unknown'),
+        }
+    elif getattr(problem, 'root_cause', None):
+        rc_obj = problem.root_cause
+        root_cause = {
+            'service': getattr(rc_obj, 'service', '?'),
+            'message': getattr(rc_obj, 'message', '')
+        }
 
     propagation_info = None
-    if not is_continues:
-        propagation = getattr(problem, 'propagation_result', None)
-        if propagation and propagation.service_count > 1:
-            propagation_info = {
-                'type': propagation.propagation_type,
-                'service_count': propagation.service_count,
-                'duration_ms': propagation.propagation_time_ms
-            }
+    propagation = getattr(problem, 'propagation_result', None)
+    if propagation and propagation.service_count > 1:
+        prop_short = propagation.to_short_string() if hasattr(propagation, 'to_short_string') else ''
+        propagation_info = {
+            'type': propagation.propagation_type,
+            'service_count': propagation.service_count,
+            'duration_ms': propagation.propagation_time_ms,
+            'short_string': prop_short,
+        }
 
     digest_root_cause = ''
     if root_cause:

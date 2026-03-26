@@ -439,9 +439,11 @@ Results:
         lines.extend(["", "Details:"])
         for idx, alert in enumerate(alerts, start=1):
             error_class = str(alert.get('error_class', 'unknown') or 'unknown')
-            root_cause = str(alert.get('root_cause_text', '') or 'N/A')
-            behavior = str(alert.get('detail_message', '') or 'N/A')
+            root_cause_text = str(alert.get('root_cause_text', '') or 'N/A')
+            root_cause_d = alert.get('root_cause') or {}
             trace_id = str(alert.get('trace_id', '') or 'N/A')
+            trace_steps = alert.get('trace_steps', []) or []
+            propagation_info = alert.get('propagation_info') or {}
             app_counts_d = alert.get('app_counts', {}) or {}
             if app_counts_d:
                 top_apps = sorted(app_counts_d.items(), key=lambda x: -x[1])[:5]
@@ -459,13 +461,55 @@ Results:
             ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
             lines.extend([
                 f"  {idx}. {error_class}",
-                f"     Apps: {apps_display}",
-                f"     Namespaces: {ns_detail_display}",
-                f"     Root cause: {root_cause}",
-                f"     Behavior: {behavior}",
-                f"     Trace ID: {trace_id}",
+                f"     Applications: {apps_display}",
+                f"     Namespaces (raw): {ns_detail_display}",
+                f"     Root cause: {root_cause_text}",
             ])
-
+            if trace_steps:
+                lines.append(f"     Behavior (trace flow): {len(trace_steps)} messages")
+                if trace_id and trace_id != 'N/A':
+                    lines.append(f"     TraceID: {trace_id}")
+                lines.append("")
+                prev_msg = None
+                for si, step in enumerate(trace_steps, start=1):
+                    s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
+                    s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
+                    if s_msg == prev_msg:
+                        lines.append(f"       {si}) {s_app} (same error)")
+                    else:
+                        lines.append(f"       {si}) {s_app}")
+                        lines.append(f"          \"{s_msg[:200]}\"")
+                    prev_msg = s_msg
+            if root_cause_d and root_cause_d.get('message'):
+                confidence = root_cause_d.get('confidence', '')
+                conf_label = f' [{confidence}]' if confidence else ''
+                lines.append(f"     Inferred root cause{conf_label}:")
+                lines.append(f"       - {root_cause_d.get('service', '?')}: {root_cause_d.get('message', '')[:200]}")
+            if propagation_info and propagation_info.get('service_count', 0) > 1:
+                prop_type = propagation_info.get('type', '')
+                prop_count = propagation_info.get('service_count', '')
+                prop_short = propagation_info.get('short_string', '')
+                duration_ms = int(propagation_info.get('duration_ms', 0) or 0)
+                lines.append(f"     Propagation [{prop_type}]: {prop_count} services")
+                if prop_short:
+                    lines.append(f"       {prop_short}")
+                if duration_ms > 0:
+                    total_sec = duration_ms // 1000
+                    ms_rem = duration_ms % 1000
+                    minutes = total_sec // 60
+                    seconds = total_sec % 60
+                    if minutes > 0:
+                        lines.append(f"       Duration: {minutes}m {seconds}s")
+                    elif seconds > 0:
+                        lines.append(f"       Duration: {seconds}s {ms_rem}ms")
+                    else:
+                        lines.append(f"       Duration: {ms_rem}ms")
+            if not trace_steps and not (root_cause_d and root_cause_d.get('message')):
+                raw_behavior = str(alert.get('detail_message', '') or '')
+                if raw_behavior:
+                    lines.append(f"     Behavior: {raw_behavior[:300]}")
+            lines.append(f"     Trace ID: {trace_id}")
+            lines.append("")
         body = "\n".join(lines)
 
         rows = []
@@ -495,9 +539,11 @@ Results:
         detail_blocks = []
         for idx, alert in enumerate(alerts, start=1):
             error_class = str(alert.get('error_class', 'unknown') or 'unknown')
-            root_cause = str(alert.get('root_cause_text', '') or 'N/A')
-            behavior = str(alert.get('detail_message', '') or 'N/A')
+            root_cause_d = alert.get('root_cause') or {}
+            root_cause_text = str(alert.get('root_cause_text', '') or 'N/A')
             trace_id = str(alert.get('trace_id', '') or 'N/A')
+            trace_steps = alert.get('trace_steps', []) or []
+            propagation_info = alert.get('propagation_info') or {}
             app_counts_d = alert.get('app_counts', {}) or {}
             if app_counts_d:
                 top_apps = sorted(app_counts_d.items(), key=lambda x: -x[1])[:5]
@@ -513,13 +559,77 @@ Results:
                 for ns, cnt in sorted(namespace_counts.items(), key=lambda x: -x[1])
             ]
             ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
-            
+
+            # Build structured behavior block (HTML)
+            behavior_html_parts = []
+            if trace_steps:
+                behavior_html_parts.append(
+                    f'<div style="margin-top:6px;font-weight:600;">Behavior (trace flow): {len(trace_steps)} messages</div>'
+                )
+                if trace_id and trace_id != 'N/A':
+                    behavior_html_parts.append(f'<div style="font-size:12px;color:#666;margin-bottom:4px;">TraceID: {trace_id}</div>')
+                prev_msg = None
+                for si, step in enumerate(trace_steps, start=1):
+                    s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
+                    s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
+                    if s_msg == prev_msg:
+                        behavior_html_parts.append(
+                            f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
+                            f'{si}) {s_app} <em style="color:#888;">(same error)</em></div>'
+                        )
+                    else:
+                        esc_msg = s_msg.replace('<', '&lt;').replace('>', '&gt;')[:300]
+                        behavior_html_parts.append(
+                            f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
+                            f'{si}) {s_app}<br>'
+                            f'&nbsp;&nbsp;&nbsp;<span style="color:#444;">&quot;{esc_msg}&quot;</span></div>'
+                        )
+                    prev_msg = s_msg
+            if root_cause_d and root_cause_d.get('message'):
+                confidence = root_cause_d.get('confidence', '')
+                conf_label = f' [{confidence}]' if confidence else ''
+                rc_service = root_cause_d.get('service', '')
+                rc_msg = root_cause_d.get('message', '').replace('<', '&lt;').replace('>', '&gt;')[:300]
+                behavior_html_parts.append(
+                    f'<div style="margin-top:8px;font-weight:600;">Inferred root cause{conf_label}:</div>'
+                    f'<div style="padding-left:12px;font-size:13px;">- {rc_service}: {rc_msg}</div>'
+                )
+            if propagation_info and propagation_info.get('service_count', 0) > 1:
+                prop_type = propagation_info.get('type', '')
+                prop_count = propagation_info.get('service_count', '')
+                prop_short = propagation_info.get('short_string', '')
+                duration_ms = int(propagation_info.get('duration_ms', 0) or 0)
+                duration_str = ''
+                if duration_ms > 0:
+                    total_sec = duration_ms // 1000
+                    ms_rem = duration_ms % 1000
+                    minutes = total_sec // 60
+                    seconds = total_sec % 60
+                    if minutes > 0:
+                        duration_str = f'{minutes}m {seconds}s'
+                    elif seconds > 0:
+                        duration_str = f'{seconds}s {ms_rem}ms'
+                    else:
+                        duration_str = f'{ms_rem}ms'
+                behavior_html_parts.append(
+                    f'<div style="margin-top:8px;font-weight:600;">Propagation [{prop_type}]: {prop_count} services</div>'
+                )
+                if prop_short:
+                    behavior_html_parts.append(f'<div style="padding-left:12px;font-size:13px;">{prop_short}</div>')
+                if duration_str:
+                    behavior_html_parts.append(f'<div style="padding-left:12px;font-size:13px;">Duration: {duration_str}</div>')
+            if not behavior_html_parts:
+                raw_behavior = str(alert.get('detail_message', '') or '')
+                if raw_behavior:
+                    behavior_html_parts.append(f'<div style="font-size:13px;">{raw_behavior[:300]}</div>')
+            behavior_html = ''.join(behavior_html_parts) if behavior_html_parts else '<div style="color:#888;font-size:13px;">N/A</div>'
+
             detail_html = f"""<div style="margin-top:18px;margin-bottom:14px;border-left:4px solid #2c5aa0;border-radius:4px;overflow:hidden;background:white;border:1px solid #d9d9d9;">
 <div style="background:#2c5aa0;padding:10px;font-weight:700;color:white;">{idx}. {error_class}</div>
 <div style="padding:12px;"><strong>Applications:</strong> {apps_display}</div>
 <div style="padding:0 12px 6px 12px;"><strong>Namespaces (raw):</strong> {ns_detail_display}</div>
-<div style="padding:0 12px 6px 12px;"><strong>Root cause:</strong> {root_cause}</div>
-<div style="padding:0 12px 6px 12px;"><strong>Behavior:</strong> {behavior}</div>
+<div style="padding:0 12px 6px 12px;"><strong>Root cause:</strong> {root_cause_text}</div>
+<div style="padding:0 12px 6px 12px;">{behavior_html}</div>
 <div style="padding:0 12px 12px 12px;"><strong>Trace ID:</strong> {trace_id}</div>
 </div>"""
             detail_blocks.append(detail_html)
