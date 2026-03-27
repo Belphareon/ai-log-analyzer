@@ -1,6 +1,90 @@
 # Changelog
 
-Veskere zmeny projektu AI Log Analyzer, serazeno od nejnovejsiho.
+Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
+
+---
+
+## r62 (2026-03-26) — Dark mode, ratio rounding, structured behavior v Confluence
+
+### Opraveno
+
+- **Email dark mode** (`scripts/core/email_notifier.py`)
+  - Odstraněny hardcoded barvy `#444`, `#666`, `#888` z HTML šablony — v dark mode byly nečitelné
+  - Čísla trace kroků nyní zobrazena tučně (`<strong>`)
+  - TraceID div používá `opacity: 0.75` místo fixed šedé barvy
+
+- **Peak ratio zaokrouhlení** (`scripts/exports/table_exporter.py`)
+  - `peak_ratio` zaokrouhlen na 2 desetinná místa při uložení: `round(float(peak.max_ratio or 0), 2)`
+  - Formát v markdown tabulce: `{ratio:.2f}×` (např. `12.45×` místo `422.78057...×`)
+
+- **Structured behavior v Confluence** (`scripts/regular_phase.py`, `scripts/exports/table_exporter.py`)
+  - Write-back do `entry.behavior` nyní ukládá strukturovaný text s číslovanými trace kroky,
+    inferred root cause a propagation info (stejný formát jako v email digestu)
+  - Confluence Errors detail: přidány sekce Root Cause a Behavior (se splitlines zobrazením)
+  - Confluence Peaks: přidána nová sekce Peak Details s detaily per peak (apps, NS, behavior)
+
+### Změněné soubory
+
+| Soubor | Změna |
+|--------|-------|
+| `scripts/core/email_notifier.py` | Dark mode fix, tučná čísla kroků |
+| `scripts/exports/table_exporter.py` | ratio rounding, Errors/Peaks detail sekce |
+| `scripts/regular_phase.py` | Structured behavior write-back |
+| `Dockerfile` | r61 → r62 |
+
+---
+
+## r61 (2026-03-26) — Fix počtů app/NS, strukturovaný behavior v email digestu
+
+### Opraveno
+
+- **Duplicitní počty app a NS** (`scripts/regular_phase.py`)
+  - Pokud incident pokrýval N aplikací, každá dostala stejný počet (celkový), místo primárního
+  - Oprava: `app_counts[apps[0]] += count` — pouze primární app/NS získá počet;
+    ostatní jsou zapsány do `affected_apps` bez duplikace
+  - Výsledek: `bl-pcb-v1 (1,240), feapi-pca-v1 (89)` místo `bl-pcb-v1 (1,240), feapi-pca-v1 (1,240)`
+
+- **Strukturovaný behavior v email digestu** (`scripts/core/email_notifier.py`, `scripts/regular_phase.py`)
+  - Detail blok v HTML emailu zobrazuje číslované trace kroky s app názvem a zprávou
+  - Detekce "same error" (stejná zpráva v jiné app ve stejném trace)
+  - Confidence inferred root cause, propagation s typem a délkou trvání
+  - Plain-text varianta emailu má identický strukturovaný formát
+
+- **trace_steps vždy předávány** — odstraněna podmínka `if not is_continues`
+
+### Změněné soubory
+
+| Soubor | Změna |
+|--------|-------|
+| `scripts/regular_phase.py` | Count fix, trace_steps, root_cause confidence, propagation short_string |
+| `scripts/core/email_notifier.py` | Strukturovaný HTML + plain-text detail blok |
+| `Dockerfile` | r60 → r61 |
+
+---
+
+## r60 (2026-03-25) — Oprava regrese z r57 (NS sloupec, NameError)
+
+### Opraveno
+
+- **NS sloupec obnoven v souhrnné tabulce** (`scripts/core/email_notifier.py`)
+  - r57 commit omylem odstranil `<th>NS</th>` z HTML hlavičky a odpovídající `<td>` z řádků
+  - Obnoven; zobrazuje pouze jména namespace (bez duplicitních počtů)
+
+- **NameError v plain-text detail bloku** (`scripts/core/email_notifier.py`)
+  - Loop odkazoval na nedefinované proměnné `behavior` a `apps_display`
+  - Způsoboval pád `send_regular_phase_peak_digest()` a fallback na starší single-alert šablonu
+  - Opraveno definováním proměnných před jejich použitím
+
+### Poznámka k r58/r59
+
+r58 a r59 byly testovací builds vytvořené během iterace nad opravou r57 regrese. Neobsahují samostatné změny kódu.
+
+### Změněné soubory
+
+| Soubor | Změna |
+|--------|-------|
+| `scripts/core/email_notifier.py` | NS sloupec obnoven, NameError opraven |
+| `Dockerfile` | r57 → r60 |
 
 ---
 

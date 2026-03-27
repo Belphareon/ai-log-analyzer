@@ -1,219 +1,134 @@
 # AI Log Analyzer
 
-Automatizovana detekce a analyza incidentu z aplikacnich logu.
+Automatizovaný systém pro detekci, klasifikaci a eskalaci chybových incidentů z aplikačních logů v Kubernetes.
 
-**[Changelog](CHANGELOG.md)** | **[Quick Start](docs/QUICKSTART.md)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)** | **[CronJob Scheduling](docs/CRONJOB_SCHEDULING.md)**
+**[Jak to funguje](docs/HOW_IT_WORKS.md)** | **[Architektura](docs/ARCHITECTURE.md)** | **[Instalace](docs/INSTALLATION.md)** | **[Peak Detection](docs/PEAK_DETECTION.md)** | **[Changelog](CHANGELOG.md)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)**
 
-## Co to dela
+---
 
-System analyzuje error logy z Elasticsearch a automaticky:
-- Detekuje anomalie (spiky, bursty, nove errory) pomoci P93/CAP percentilovych thresholdu
-- Seskupuje souvisejici udalosti do incidentu
-- Klasifikuje role aplikaci (root, downstream, collateral)
-- Sleduje propagaci (jak rychle se incident siril)
-- Rozlisuje zname vs nove incidenty (registry + knowledge base)
-- Aktualizuje append-only registry (known_problems, known_peaks)
-- Generuje operacni reporty (15min / daily / backfill)
-- Publikuje do Teams a Confluence
+## Co program dělá
 
-## Poznamka k r40
+Systém každých 15 minut načte error logy ze všech sledovaných Kubernetes namespace z Elasticsearch
+a automaticky:
 
-- Regular phase peak email pouziva detailni HTML sablonu jen pro dany peak (NEW/KNOWN, time range, raw errors, trace flow).
-- Root cause a propagation se posilaji pouze pro NEW peak.
-- V peak exportech plati: `peak_count` = raw error logs, `occurrence_count` = kolikrat se peak vyskytl v case.
+1. **Detekuje anomálie** — porovní aktuální počty chyb s historickým P93/CAP prahem;
+   odhalí spike, burst, nový typ chyby nebo regresi
+2. **Identifikuje** — každá chyba dostane `fingerprint` (hash), je zařazena do kategorie
+   (BUSINESS, AUTH, DATABASE, NETWORK, TIMEOUT, MEMORY, EXTERNAL) a přiřazena k business flow
+3. **Určí, co je nové vs. co je známé** — registry drží historii všech dříve viděných
+   problémů; nová chyba = alert, opakující se = pouze monitoring a aktualizace statistik
+4. **Vyhodnotí závažnost** — deterministické bodování 0–100 (spike +25, burst +20, nový +15,
+   regrese +35, cross-namespace +15, ...)
+5. **Notifikuje** — při peaku odešle digest email s přehledem všech aktivních incidentů
+   a volitelně zprávu do Microsoft Teams
+6. **Aktualizuje Confluence** — Known Errors a Known Peaks tabulky se průběžně aktualizují
+7. **Sbírá historická data** — každý běh ukládá surové počty chyb do DB,
+   ze kterých se zpětně přepočítávají P93/CAP prahy
 
-## Poznamka k r41
+---
 
-- Pridano minimum `MIN_NAMESPACE_PEAK_VALUE` (default 20), aby se namespace spike neoznacoval na mikro poctech.
-- Detailni peak email je zjednoduseny a obsahuje peak type + namespace pocty + error-type breakdown.
+## Rychlý start
 
-## Architektura
+```bash
+# Kopie konfigurace
+cp .env.example .env
+# Vyplnit hodnoty v .env (ES_URL, DB_HOST, SMTP_HOST, ...)
 
-### Detection Pipeline (6 fazi)
+# Jednorázové spuštění 15min cyklu
+python3 scripts/regular_phase.py
 
-```
-A: Parse & Normalize  -->  Fingerprinting, error_type extraction
-B: Measure             -->  EWMA/MAD (informacni), trend ratio
-C: Detect              -->  P93/CAP spike, burst, new, cross_ns, regression
-D: Score               -->  Vahova funkce (0-100)
-E: Classify            -->  Taxonomie (category, subcategory)
-F: Report              -->  Formatovani vystupu
-```
+# Backfill — zpracování historických dat
+python3 scripts/backfill.py --days 7
 
-### Incident Analysis
-
-```
-TimelineBuilder       -->  Jak se problem siril (FACTS)
-ScopeBuilder          -->  Klasifikace roli aplikaci
-PropagationTracker    -->  Sledovani sireni
-CausalInferenceEngine -->  Proc (HYPOTHESIS)
-FixRecommender        -->  Konkretni opravy
+# Přepočet P93/CAP thresholdů (po nahromadění ≥2 týdny dat)
+python3 scripts/core/calculate_peak_thresholds.py
 ```
 
-### Problem Registry (dvouurovnova identita)
+V produkci běží jako Kubernetes CronJob — viz [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
-```
-PROBLEM REGISTRY (stabilni)        1:N     FINGERPRINT INDEX (technicky)
-  problem_key                  <---------->   fingerprint -> problem_key
-  first_seen / last_seen                      sample_messages
-  occurrences, scope
-```
+---
 
-- **Problem Key**: `CATEGORY:flow:error_class` (napr. `BUSINESS:card_servicing:validation_error`)
-- **Peak Key**: `PEAK:category:flow:peak_type` (napr. `PEAK:unknown:card_servicing:burst`)
+## Konfigurace
+
+Program je konfigurován přes `.env` soubor. Kompletní šablona je v `.env.example`.
+
+| Skupina         | Proměnné                                                              |
+|-----------------|-----------------------------------------------------------------------|
+| Elasticsearch   | `ES_URL`, `ES_INDEX`, `ES_USER`, `ES_PASSWORD`, `ES_VERIFY_CERTS`    |
+| PostgreSQL (čtení) | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`          |
+| PostgreSQL (zápis) | `DB_DDL_USER`, `DB_DDL_PASSWORD`, `DB_DDL_ROLE`                    |
+| Email           | `SMTP_HOST`, `SMTP_PORT`, `EMAIL_FROM`, `TEAMS_EMAIL`                 |
+| Teams           | `TEAMS_WEBHOOK_URL`                                                   |
+| Confluence      | `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN`       |
+| Alertování      | `ALERT_DIGEST_ENABLED`, `ALERT_COOLDOWN_MIN`, `ALERT_HEARTBEAT_MIN`, `MAX_PEAK_ALERTS_PER_WINDOW` |
+| Detekce         | `MIN_NAMESPACE_PEAK_VALUE`, `PERCENTILE_LEVEL`, `EWMA_ALPHA`          |
+
+---
+
+## Kde jsou data uložena
+
+| Typ dat                | Uložiště                               | Popis                                                        |
+|------------------------|----------------------------------------|--------------------------------------------------------------|
+| Surové počty chyb      | DB `ailog_peak.peak_raw_data`          | Vstupní data pro výpočet P93/CAP                             |
+| P93 prahy              | DB `ailog_peak.peak_thresholds`        | Per (namespace, day_of_week)                                 |
+| CAP prahy              | DB `ailog_peak.peak_threshold_caps`    | Per namespace                                                |
+| Evidované peaky        | DB `ailog_peak.peak_investigation`     | Pro Confluence reporty                                       |
+| Známé problémy         | `registry/known_problems.yaml`         | Append-only, nikdy se nemaže                                 |
+| Známé peaky            | `registry/known_peaks.yaml`            | Append-only, nikdy se nemaže                                 |
+| Index fingerprintů     | `registry/fingerprint_index.yaml`      | Lookup: fingerprint → problem_key                            |
+| Stav alertů            | `registry/alert_state_regular_phase.json` | Cooldown, trend, počet alertů per okno                   |
+| Sledované namespace    | `config/namespaces.yaml`               | Seznam namespace pro monitoring                               |
+| Manuální knowledge base | `config/known_issues/*.yaml`          | Lidský kontext ke známým problémům (workaround, JIRA, ...)   |
+
+---
 
 ## Struktura projektu
 
 ```
 ai-log-analyzer/
 ├── scripts/
-│   ├── backfill.py                 # Denni backfill pipeline
-│   ├── regular_phase.py            # 15-min real-time pipeline
-│   ├── daily_report_generator.py   # Daily report -> Teams
-│   ├── publish_daily_reports.sh    # Orchestrace reportu
+│   ├── regular_phase.py            # Hlavní 15min pipeline — entry point
+│   ├── backfill.py                 # Historický backfill
 │   ├── core/
-│   │   ├── problem_registry.py     # Registry modul
-│   │   ├── peak_detection.py       # P93/CAP spike detector (DB thresholds)
-│   │   ├── calculate_peak_thresholds.py  # Vypocet P93/CAP z peak_raw_data
-│   │   ├── baseline_loader.py      # Historicky baseline z DB
-│   │   ├── fetch_unlimited.py      # ES data fetcher
-│   │   └── teams_notifier.py       # Teams integrace
+│   │   ├── email_notifier.py       # Email notifikace (digest + detail)
+│   │   ├── peak_detection.py       # P93/CAP spike detektor (čte z DB)
+│   │   ├── calculate_peak_thresholds.py  # Výpočet P93/CAP, zápis do DB
+│   │   ├── baseline_loader.py      # Načítání historického baseline z DB
+│   │   ├── fetch_unlimited.py      # Elasticsearch fetcher (stránkovaný)
+│   │   └── teams_notifier.py       # Microsoft Teams integrace
 │   ├── pipeline/
-│   │   ├── pipeline.py             # Pipeline orchestrator
-│   │   ├── phase_a_parse.py        # Parse & Normalize
-│   │   ├── phase_b_measure.py      # EWMA/MAD statistiky
-│   │   ├── phase_c_detect.py       # Boolean detekce
-│   │   ├── phase_d_score.py        # Scoring (0-100)
-│   │   ├── phase_e_classify.py     # Taxonomie
-│   │   └── phase_f_report.py       # Report rendering
-│   └── exports/
-│       └── table_exporter.py       # CSV/MD/JSON export
-├── incident_analysis/              # Analyza incidentu
-│   ├── models.py                   # IncidentScope, Propagation
+│   │   ├── phase_a_parse.py        # Parse & Normalize, fingerprinting
+│   │   ├── phase_b_measure.py      # EWMA/MAD statistiky, baseline
+│   │   ├── phase_c_detect.py       # Detekce (spike/burst/new/regression)
+│   │   ├── phase_d_score.py        # Skórování 0–100
+│   │   ├── phase_e_classify.py     # Taxonomická klasifikace
+│   │   └── phase_f_report.py       # Formátování výstupu
+│   ├── exports/
+│   │   └── table_exporter.py       # CSV/MD/JSON export pro Confluence
+│   └── analysis/
+│       ├── problem_aggregator.py   # Agregace incidentů do problémů
+│       └── problem_report.py       # Formátování reportu
+├── incident_analysis/
 │   ├── analyzer.py                 # IncidentAnalysisEngine
-│   └── formatter.py                # ReportFormatter
-├── registry/                       # Append-only evidence
+│   ├── timeline_builder.py         # Časová osa incidentů
+│   ├── causal_inference.py         # Kauzální dedukce (deterministická)
+│   └── fix_recommender.py          # Doporučené akce pro SRE
+├── core/
+│   └── problem_registry.py         # Registry: problema + fingerprint index + klasifikační pravidla
+├── registry/                       # Append-only YAML evidence (live data, není v gitu)
 │   ├── known_problems.yaml
 │   ├── known_peaks.yaml
-│   └── fingerprint_index.yaml
-├── config/known_issues/            # Knowledge base (manualni)
-├── k8s/                            # Kubernetes manifesty
-└── docs/                           # Dokumentace
-    └── PEAK_DETECTION_OPS.md       # P93/CAP provozni prirucka
+│   ├── fingerprint_index.yaml
+│   └── alert_state_regular_phase.json
+├── config/
+│   ├── namespaces.yaml             # Sledované namespace
+│   └── known_issues/               # Manuální knowledge base
+│       ├── known_errors.yaml
+│       └── known_peaks.yaml
+└── k8s/                            # Kubernetes CronJob manifesty
 ```
 
-## Instalace
-
-```bash
-pip install psycopg2-binary python-dotenv requests pyyaml tqdm
-cp config/.env.example config/.env
-# Upravit .env: DB_HOST, DB_USER, DB_PASSWORD, ES_HOST, ...
-```
-
-Viz [INSTALL.md](INSTALL.md) pro detailni navod.
-
-## Pouziti
-
-```bash
-# 15min cyklus
-python3 scripts/regular_phase.py
-
-# Backfill N dni
-python3 scripts/backfill.py --days 7 --workers 4
-
-# Backfill s force reprocessing
-python3 scripts/backfill.py --days 14 --force
-
-# Pipeline standalone
-python3 scripts/pipeline/pipeline.py data/batches/2026-01-20/
-```
-
-## Konfigurace (.env)
-
-```bash
-# Database (read)
-DB_HOST=...
-DB_PORT=5432
-DB_NAME=d_ailog
-DB_USER=...
-DB_PASSWORD=...
-
-# Database (write - DDL)
-DB_DDL_USER=...
-DB_DDL_PASSWORD=...
-DB_DDL_ROLE=role_ailog_analyzer_ddl
-
-# Elasticsearch
-ES_HOST=...
-ES_USER=...
-ES_PASSWORD=...
-
-# Integrace (optional)
-TEAMS_WEBHOOK_URL=...
-CONFLUENCE_URL=...
-CONFLUENCE_USERNAME=...
-CONFLUENCE_API_TOKEN=...
-```
-
-## K8s Deployment
-
-```bash
-# Regular phase - kazdych 15 minut
-kubectl apply -f k8s/cronjob-regular.yaml
-
-# Backfill - denne v 02:00 UTC
-kubectl apply -f k8s/cronjob-backfill.yaml
-```
-
-Viz [docs/CRONJOB_SCHEDULING.md](docs/CRONJOB_SCHEDULING.md) pro detaily.
-
-## Klicove koncepty
-
-### Detection
-
-| Flag | Popis | Threshold |
-|------|-------|-----------|
-| `is_spike` | Narust oproti P93/CAP threshold | value > P93_per_DOW OR value > CAP |
-| `is_burst` | Nahlý narust v kratkem okne | rate change > 5.0 |
-| `is_new` | Fingerprint neni v registry | - |
-| `is_cross_namespace` | Vyskyty ve vice NS | >= 2 namespaces |
-
-### Scoring
-
-| Komponenta | Vaha |
-|-----------|------|
-| Spike | 25 |
-| Burst | 20 |
-| New | 15 |
-| Regression | 35 |
-| Cascade | 20 |
-| Cross-NS | 15 |
-
-Severity: >= 80 critical, >= 60 high, >= 40 medium, >= 20 low, < 20 info
-
-### Priority
-
-```
-P1: NEW AND (CRITICAL OR cross-app >= 3 OR fast_propagation < 30s)
-P2: NEW AND not critical
-P3: KNOWN AND stable
-P4: ostatni
-```
-
-### DB Write Flow
-
-Pro zapis do PostgreSQL je nutne:
-1. Pripojit se jako DDL user
-2. `SET ROLE role_ailog_analyzer_ddl`
-3. Teprve pak INSERT/UPDATE operace
-
-## Principy navrhu
-
-1. **Report VZDY** - i prazdny
-2. **Registry = append-only** - nikdy se nemaze
-3. **Scope != Propagation** - oddelene koncepty
-4. **FACT vs HYPOTHESIS** - jasne oddelene
-5. **Non-blocking integrace** - selhani Teams/Confluence neblokuje pipeline
+---
 
 ## Licence
 
