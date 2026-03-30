@@ -470,7 +470,16 @@ Results:
             grp_alerts = group['alerts']
             primary = grp_alerts[0]
             trace_id = str(primary.get('trace_id', '') or 'N/A')
-            trace_steps = primary.get('trace_steps', []) or []
+            # Merge trace_steps from all alerts in group, dedup by message
+            all_trace_steps = []
+            seen_msgs = set()
+            for a in grp_alerts:
+                for step in (a.get('trace_steps', []) or []):
+                    s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
+                    if s_msg not in seen_msgs:
+                        all_trace_steps.append(step)
+                        seen_msgs.add(s_msg)
+            trace_steps = all_trace_steps
             root_cause_d = primary.get('root_cause') or {}
             propagation_info = primary.get('propagation_info') or {}
 
@@ -511,11 +520,9 @@ Results:
                 f"     Namespaces (raw): {ns_display}",
                 f"     Root cause: {root_cause_text}",
             ])
-            # Trace flow (from primary - only once)
+            # Trace flow - merged from all correlated alerts
             if trace_steps:
                 lines.append(f"     Behavior (trace flow): {len(trace_steps)} messages")
-                if trace_id and trace_id != 'N/A':
-                    lines.append(f"     TraceID: {trace_id}")
                 lines.append("")
                 prev_msg = None
                 for si, step in enumerate(trace_steps, start=1):
@@ -575,7 +582,16 @@ Results:
             grp_alerts = group['alerts']
             primary = grp_alerts[0]
             trace_id = str(primary.get('trace_id', '') or 'N/A')
-            trace_steps = primary.get('trace_steps', []) or []
+            # Merge trace_steps from all alerts in group, dedup by message
+            all_trace_steps = []
+            seen_msgs = set()
+            for a in grp_alerts:
+                for step in (a.get('trace_steps', []) or []):
+                    s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
+                    if s_msg not in seen_msgs:
+                        all_trace_steps.append(step)
+                        seen_msgs.add(s_msg)
+            trace_steps = all_trace_steps
             root_cause_d = primary.get('root_cause') or {}
             root_cause_text = str(primary.get('root_cause_text', '') or 'N/A')
             propagation_info = primary.get('propagation_info') or {}
@@ -621,14 +637,12 @@ Results:
                     f'{gidx}. {ec}</div>'
                 )
 
-            # Behavior HTML (trace flow from primary only)
+            # Behavior HTML - merged from all correlated alerts
             behavior_html_parts = []
             if trace_steps:
                 behavior_html_parts.append(
-                    f'<div style="margin-top:6px;font-weight:600;">Behavior (trace flow): {len(trace_steps)} messages</div>'
+                    f'<div style="margin-top:6px;font-weight:700;text-decoration:underline;">Behavior (trace flow): {len(trace_steps)} messages</div>'
                 )
-                if trace_id and trace_id != 'N/A':
-                    behavior_html_parts.append(f'<div style="font-size:12px;margin-bottom:4px;opacity:0.75;">TraceID: {trace_id}</div>')
                 prev_msg = None
                 for si, step in enumerate(trace_steps, start=1):
                     s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
@@ -636,13 +650,13 @@ Results:
                     if s_msg == prev_msg:
                         behavior_html_parts.append(
                             f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
-                            f'<strong>{si})</strong> {s_app} <em>(same error)</em></div>'
+                            f'<strong>{si}) {s_app}</strong> <em>(same error)</em></div>'
                         )
                     else:
                         esc_msg = s_msg.replace('<', '&lt;').replace('>', '&gt;')[:300]
                         behavior_html_parts.append(
                             f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
-                            f'<strong>{si})</strong> {s_app}<br>'
+                            f'<strong>{si}) {s_app}</strong><br>'
                             f'&nbsp;&nbsp;&nbsp;&quot;{esc_msg}&quot;</div>'
                         )
                     prev_msg = s_msg
