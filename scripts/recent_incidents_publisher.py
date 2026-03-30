@@ -17,7 +17,7 @@ if 'confluence.kb.cz' in CONFLUENCE_URL:
     print(f"⚠️ CONFLUENCE_URL overridden: {CONFLUENCE_URL} -> https://wiki.kb.cz")
     CONFLUENCE_URL = 'https://wiki.kb.cz'
 CONFLUENCE_USERNAME = os.getenv('CONFLUENCE_USERNAME')
-CONFLUENCE_PASSWORD = os.getenv('CONFLUENCE_PASSWORD')
+CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_PASSWORD')
 CONFLUENCE_PAGE_ID = '1334314207'  # Recent Incidents page
 REPORTS_DIR = Path(__file__).parent / 'reports'
 
@@ -125,8 +125,8 @@ def convert_to_html(report_data):
 
 def upload_via_confluence_api(html_content):
     """Upload HTML content directly to Confluence via API"""
-    if not CONFLUENCE_USERNAME or not CONFLUENCE_PASSWORD:
-        print("❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_PASSWORD")
+    if not CONFLUENCE_USERNAME or not CONFLUENCE_TOKEN:
+        print("❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_TOKEN")
         return False
     
     import base64
@@ -138,11 +138,11 @@ def upload_via_confluence_api(html_content):
     # Wiki.kb.cz requires OAuth token (Personal Access Token)
     # Token should be stored in CyberArk as CONFLUENCE_PASSWORD
     auth_header = base64.b64encode(
-        f"{CONFLUENCE_USERNAME}:{CONFLUENCE_PASSWORD}".encode()
+        f"{CONFLUENCE_USERNAME}:{CONFLUENCE_TOKEN}".encode()
     ).decode()
     
     headers = {
-        'Authorization': f'Bearer {CONFLUENCE_PASSWORD}',
+        'Authorization': f'Bearer {CONFLUENCE_TOKEN}',
         'Content-Type': 'application/json',
         'Accept': 'application/json'
     }

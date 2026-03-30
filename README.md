@@ -25,16 +25,14 @@ Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespac
 ### Kubernetes (produkce)
 
 ```bash
-# 1. Vyplnit values.yaml pro prostředí
-#    k8s-infra-apps-<env>/infra-apps/ai-log-analyzer/values.yaml
+# 1. Vyplnit .env.example → .env (credentials, registry, prostředí)
+cp .env.example .env && vi .env
 
-# 2. Docker build & push
-docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag> .
-docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
+# 2. Spustit install.sh — validuje → DB migrace → Docker build+push → K8s manifesty → git branch+push
+./install.sh
 
-# 3. Deploy + init bootstrap
-helm template k8s/ | kubectl apply -f -
-helm template k8s/ | kubectl apply -f - -l job-type=init
+# 3. Po merge PR → ArgoCD sync → spustit init job
+kubectl create job log-analyzer-init --from=cronjob/log-analyzer-backfill -n ai-log-analyzer
 kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
@@ -82,7 +80,7 @@ Credentials: CyberArk (EPV) safe → Conjur secrets provider → K8s Secret.
 | PostgreSQL DDL | `DB_DDL_USER`, `DB_DDL_PASSWORD`, `DB_DDL_ROLE` |
 | Email | `SMTP_HOST`, `SMTP_PORT`, `EMAIL_FROM`, `TEAMS_EMAIL` |
 | Teams | `TEAMS_WEBHOOK_URL` |
-| Confluence | `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_API_TOKEN` |
+| Confluence | `CONFLUENCE_URL`, `CONFLUENCE_USERNAME`, `CONFLUENCE_TOKEN` |
 | Alertování | `ALERT_DIGEST_ENABLED`, `ALERT_COOLDOWN_MIN`, `ALERT_HEARTBEAT_MIN` |
 | Detekce | `PERCENTILE_LEVEL`, `DEFAULT_THRESHOLD`, `EWMA_ALPHA` |
 
@@ -137,7 +135,8 @@ ai-log-analyzer/
 │       ├── pvc.yaml                # Persistent Volume Claim
 │       ├── secrets.yaml            # Conjur secret mapping
 │       └── serviceaccount.yaml     # ServiceAccount + RBAC
-└── .env.example                    # Template pro lokální config
+├── .env.example                    # Template pro konfiguraci
+└── install.sh                       # Instalační orchestrace (DB + Docker + K8s + git)
 ```
 
 ---

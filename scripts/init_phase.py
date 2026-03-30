@@ -58,21 +58,21 @@ def get_db_connection():
 
 
 def load_namespaces():
-    """Load namespaces from config"""
+    """Load namespaces from env or config file."""
+    # Priority 1: MONITORED_NAMESPACES env var (comma-separated)
+    env_ns = os.getenv('MONITORED_NAMESPACES', '').strip()
+    if env_ns:
+        return [ns.strip() for ns in env_ns.split(',') if ns.strip()]
+
+    # Priority 2: config/namespaces.yaml
     config_path = SCRIPT_DIR.parent / 'config' / 'namespaces.yaml'
-    
     if config_path.exists() and HAS_YAML:
         with open(config_path) as f:
             config = yaml.safe_load(f)
             return config.get('namespaces', [])
     
-    # Default namespaces
-    return [
-        'pcb-dev-01-app',
-        'pcb-sit-01-app',
-        'pcb-uat-01-app',
-        'pcb-prd-01-app',
-    ]
+    print('WARNING: No MONITORED_NAMESPACES env var and no config/namespaces.yaml found')
+    return []
 
 
 def group_into_windows(errors: list, namespaces: list) -> dict:

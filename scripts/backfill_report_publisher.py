@@ -225,11 +225,11 @@ def main():
     # Načti config
     base_url = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
     username = os.getenv('CONFLUENCE_USERNAME')
-    api_token = os.getenv('CONFLUENCE_API_TOKEN')
+    api_token = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_API_TOKEN')
     page_id = args.page_id or os.getenv('CONFLUENCE_RECENT_INCIDENTS_PAGE_ID')
     
     if not username or not api_token:
-        print("❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_API_TOKEN")
+        print("❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_TOKEN")
         return 1
     
     if not page_id:

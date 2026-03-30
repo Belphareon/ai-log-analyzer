@@ -20,7 +20,7 @@ from typing import Optional, List, Dict
 
 # Configuration
 CONFLUENCE_URL = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
-CONFLUENCE_PASSWORD = os.getenv('CONFLUENCE_PASSWORD')  # OAuth token
+CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_PASSWORD')  # OAuth token
 CONFLUENCE_KNOWN_ERRORS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_ERRORS_PAGE_ID', '1334314201')
 CONFLUENCE_KNOWN_PEAKS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_PEAKS_PAGE_ID', '1334314203')
 
@@ -74,12 +74,12 @@ def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
 
 def upload_to_confluence(page_id: str, title: str, html_content: str) -> bool:
     """Upload HTML content to Confluence page."""
-    if not CONFLUENCE_PASSWORD:
-        print("❌ Missing CONFLUENCE_PASSWORD (OAuth token)")
+    if not CONFLUENCE_TOKEN:
+        print("❌ Missing CONFLUENCE_TOKEN")
         return False
     
     headers = {
-        'Authorization': f'Bearer {CONFLUENCE_PASSWORD}',
+        'Authorization': f'Bearer {CONFLUENCE_TOKEN}',
         'Content-Type': 'application/json',
         'Accept': 'application/json'
     }
