@@ -401,7 +401,12 @@ Results:
         alerts: List[Dict[str, Any]],
         suppressed_count: int = 0,
     ) -> bool:
-        """Send one digest email for all dispatched alerts in current window."""
+        """Send one digest email for all dispatched alerts in current window.
+
+        Correlated alerts (same trace_id + same namespace set) are grouped into
+        a single detail block so the reader sees ONE incident, not N duplicates.
+        The summary table still lists every error_class for searchability.
+        """
         if not self.is_enabled():
             return False
 
@@ -418,53 +423,95 @@ Results:
         total_errors = sum(int(a.get('error_count', 0) or 0) for a in alerts)
         subject = f"AI Log Analyzer | {local_time_range} | {local_date}"
 
+        # ── Correlation: group alerts that share the same trace_id + namespaces ──
+        groups: List[Dict[str, Any]] = []          # ordered list of groups
+        group_index: Dict[str, int] = {}           # correlation_key → index in groups
+        for alert in alerts:
+            tid = str(alert.get('trace_id', '') or '').strip()
+            ns_set = frozenset((alert.get('namespace_counts') or {}).keys())
+            # Only correlate when trace_id is known AND namespaces overlap
+            corr_key = f"{tid}||{'|'.join(sorted(ns_set))}" if tid else None
+            if corr_key and corr_key in group_index:
+                groups[group_index[corr_key]]['alerts'].append(alert)
+            else:
+                idx = len(groups)
+                entry = {'alerts': [alert], 'correlation_key': corr_key}
+                groups.append(entry)
+                if corr_key:
+                    group_index[corr_key] = idx
+
+        # ── PLAIN TEXT body ──────────────────────────────────────────────────
         lines = [
             "Peak Alerts",
             "",
             f"Total errors in sent alerts: {total_errors:,}",
             "",
-            "Dispatched Alerts:",
         ]
-
-        for idx, alert in enumerate(alerts, start=1):
+        # Summary table header
+        lines.append(f"{'Error Class':<45} {'Type':<7} {'Status':<8} {'NS':<25} {'Trend':<8} {'Errors':>10}")
+        lines.append("-" * 110)
+        for alert in alerts:
             trend = alert.get('trend', 'stable')
-            error_class = alert.get('error_class', 'unknown')
+            error_class = str(alert.get('error_class', 'unknown'))[:44]
             error_count = int(alert.get('error_count', 0) or 0)
             peak_type = alert.get('peak_type', 'SPIKE')
             status = "KNOWN" if alert.get('is_known') else "NEW"
-            lines.append(
-                f"  {idx}. {error_class} | {peak_type} | {status} | trend={trend} | errors={error_count:,}"
-            )
-
-        lines.extend(["", "Details:"])
-        for idx, alert in enumerate(alerts, start=1):
-            error_class = str(alert.get('error_class', 'unknown') or 'unknown')
-            root_cause_text = str(alert.get('root_cause_text', '') or 'N/A')
-            root_cause_d = alert.get('root_cause') or {}
-            trace_id = str(alert.get('trace_id', '') or 'N/A')
-            trace_steps = alert.get('trace_steps', []) or []
-            propagation_info = alert.get('propagation_info') or {}
-            app_counts_d = alert.get('app_counts', {}) or {}
-            if app_counts_d:
-                top_apps = sorted(app_counts_d.items(), key=lambda x: -x[1])[:5]
-                apps_display = ', '.join(f"{a} ({n:,})" for a, n in top_apps)
-                if len(app_counts_d) > 5:
-                    apps_display += f" +{len(app_counts_d)-5}"
-            else:
-                apps = alert.get('affected_apps', [])
-                apps_display = ', '.join(apps[:5]) + (f" +{len(apps)-5}" if len(apps) > 5 else "")
             namespace_counts = alert.get('namespace_counts', {}) or {}
-            ns_detail_parts = [
-                f"{ns} ({cnt:,})"
-                for ns, cnt in sorted(namespace_counts.items(), key=lambda x: -x[1])
-            ]
-            ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
+            ns_list = sorted(namespace_counts.keys())
+            ns_display = ', '.join(ns_list[:3]) if ns_list else 'N/A'
+            if len(ns_list) > 3:
+                ns_display += f" +{len(ns_list)-3}"
+            lines.append(f"  {error_class:<43} {peak_type:<7} {status:<8} {ns_display:<25} {trend:<8} {error_count:>10,}")
+        lines.append("")
+
+        # Details section - one block per group
+        lines.append("Details:")
+        for gidx, group in enumerate(groups, start=1):
+            grp_alerts = group['alerts']
+            primary = grp_alerts[0]
+            trace_id = str(primary.get('trace_id', '') or 'N/A')
+            trace_steps = primary.get('trace_steps', []) or []
+            root_cause_d = primary.get('root_cause') or {}
+            propagation_info = primary.get('propagation_info') or {}
+
+            # Header: list correlated error classes
+            class_parts = []
+            total_grp_errors = 0
+            for a in grp_alerts:
+                ec = str(a.get('error_class', 'unknown'))
+                cnt = int(a.get('error_count', 0) or 0)
+                class_parts.append(f"{ec} ({cnt:,})")
+                total_grp_errors += cnt
+
+            if len(grp_alerts) > 1:
+                lines.append(f"  {gidx}. CORRELATED INCIDENT ({len(grp_alerts)} error classes, {total_grp_errors:,} total)")
+                for cp in class_parts:
+                    lines.append(f"       - {cp}")
+            else:
+                lines.append(f"  {gidx}. {class_parts[0]}")
+
+            # Merged apps/NS from all alerts in group
+            merged_app_counts: Dict[str, int] = {}
+            merged_ns_counts: Dict[str, int] = {}
+            for a in grp_alerts:
+                for app, cnt in (a.get('app_counts') or {}).items():
+                    merged_app_counts[app] = merged_app_counts.get(app, 0) + cnt
+                for ns, cnt in (a.get('namespace_counts') or {}).items():
+                    merged_ns_counts[ns] = merged_ns_counts.get(ns, 0) + cnt
+            if merged_app_counts:
+                top_apps = sorted(merged_app_counts.items(), key=lambda x: -x[1])[:5]
+                apps_display = ', '.join(f"{a} ({n:,})" for a, n in top_apps)
+            else:
+                apps = sorted(set(app for a in grp_alerts for app in (a.get('affected_apps') or [])))
+                apps_display = ', '.join(apps[:5])
+            ns_display = ', '.join(f"{ns} ({cnt:,})" for ns, cnt in sorted(merged_ns_counts.items(), key=lambda x: -x[1])) or 'N/A'
+            root_cause_text = str(primary.get('root_cause_text', '') or 'N/A')
             lines.extend([
-                f"  {idx}. {error_class}",
                 f"     Applications: {apps_display}",
-                f"     Namespaces (raw): {ns_detail_display}",
+                f"     Namespaces (raw): {ns_display}",
                 f"     Root cause: {root_cause_text}",
             ])
+            # Trace flow (from primary - only once)
             if trace_steps:
                 lines.append(f"     Behavior (trace flow): {len(trace_steps)} messages")
                 if trace_id and trace_id != 'N/A':
@@ -489,29 +536,16 @@ Results:
                 prop_type = propagation_info.get('type', '')
                 prop_count = propagation_info.get('service_count', '')
                 prop_short = propagation_info.get('short_string', '')
-                duration_ms = int(propagation_info.get('duration_ms', 0) or 0)
                 lines.append(f"     Propagation [{prop_type}]: {prop_count} services")
                 if prop_short:
                     lines.append(f"       {prop_short}")
-                if duration_ms > 0:
-                    total_sec = duration_ms // 1000
-                    ms_rem = duration_ms % 1000
-                    minutes = total_sec // 60
-                    seconds = total_sec % 60
-                    if minutes > 0:
-                        lines.append(f"       Duration: {minutes}m {seconds}s")
-                    elif seconds > 0:
-                        lines.append(f"       Duration: {seconds}s {ms_rem}ms")
-                    else:
-                        lines.append(f"       Duration: {ms_rem}ms")
-            if not trace_steps and not (root_cause_d and root_cause_d.get('message')):
-                raw_behavior = str(alert.get('detail_message', '') or '')
-                if raw_behavior:
-                    lines.append(f"     Behavior: {raw_behavior[:300]}")
             lines.append(f"     Trace ID: {trace_id}")
             lines.append("")
+
         body = "\n".join(lines)
 
+        # ── HTML body ────────────────────────────────────────────────────────
+        # Summary table rows (all alerts individually for searchability)
         rows = []
         for alert in alerts:
             trend = alert.get('trend', 'stable')
@@ -519,7 +553,6 @@ Results:
             error_count = int(alert.get('error_count', 0) or 0)
             peak_type = alert.get('peak_type', 'SPIKE')
             status = "KNOWN" if alert.get('is_known') else "NEW"
-            # Build NS list for summary (names only, no counts)
             namespace_counts = alert.get('namespace_counts', {})
             ns_list = sorted(namespace_counts.keys()) if namespace_counts else []
             ns_display = ', '.join(ns_list[:3]) if ns_list else 'N/A'
@@ -536,31 +569,59 @@ Results:
                 "</tr>"
             )
 
+        # Detail blocks - one per correlated group
         detail_blocks = []
-        for idx, alert in enumerate(alerts, start=1):
-            error_class = str(alert.get('error_class', 'unknown') or 'unknown')
-            root_cause_d = alert.get('root_cause') or {}
-            root_cause_text = str(alert.get('root_cause_text', '') or 'N/A')
-            trace_id = str(alert.get('trace_id', '') or 'N/A')
-            trace_steps = alert.get('trace_steps', []) or []
-            propagation_info = alert.get('propagation_info') or {}
-            app_counts_d = alert.get('app_counts', {}) or {}
-            if app_counts_d:
-                top_apps = sorted(app_counts_d.items(), key=lambda x: -x[1])[:5]
-                apps_display = ', '.join(f"{a} ({n:,})" for a, n in top_apps)
-                if len(app_counts_d) > 5:
-                    apps_display += f" +{len(app_counts_d)-5}"
-            else:
-                apps = alert.get('affected_apps', [])
-                apps_display = ', '.join(apps[:5]) + (f" +{len(apps)-5}" if len(apps) > 5 else "")
-            namespace_counts = alert.get('namespace_counts', {}) or {}
-            ns_detail_parts = [
-                f"{ns} ({cnt:,})"
-                for ns, cnt in sorted(namespace_counts.items(), key=lambda x: -x[1])
-            ]
-            ns_detail_display = ', '.join(ns_detail_parts) if ns_detail_parts else 'N/A'
+        for gidx, group in enumerate(groups, start=1):
+            grp_alerts = group['alerts']
+            primary = grp_alerts[0]
+            trace_id = str(primary.get('trace_id', '') or 'N/A')
+            trace_steps = primary.get('trace_steps', []) or []
+            root_cause_d = primary.get('root_cause') or {}
+            root_cause_text = str(primary.get('root_cause_text', '') or 'N/A')
+            propagation_info = primary.get('propagation_info') or {}
 
-            # Build structured behavior block (HTML)
+            # Merged counts
+            merged_app_counts: Dict[str, int] = {}
+            merged_ns_counts: Dict[str, int] = {}
+            for a in grp_alerts:
+                for app, cnt in (a.get('app_counts') or {}).items():
+                    merged_app_counts[app] = merged_app_counts.get(app, 0) + cnt
+                for ns, cnt in (a.get('namespace_counts') or {}).items():
+                    merged_ns_counts[ns] = merged_ns_counts.get(ns, 0) + cnt
+            if merged_app_counts:
+                top_apps = sorted(merged_app_counts.items(), key=lambda x: -x[1])[:5]
+                apps_display = ', '.join(f"{a} ({n:,})" for a, n in top_apps)
+                if len(merged_app_counts) > 5:
+                    apps_display += f" +{len(merged_app_counts)-5}"
+            else:
+                apps = sorted(set(app for a in grp_alerts for app in (a.get('affected_apps') or [])))
+                apps_display = ', '.join(apps[:5])
+            ns_detail_display = ', '.join(
+                f"{ns} ({cnt:,})" for ns, cnt in sorted(merged_ns_counts.items(), key=lambda x: -x[1])
+            ) or 'N/A'
+
+            # Header: correlated or single
+            total_grp_errors = sum(int(a.get('error_count', 0) or 0) for a in grp_alerts)
+            if len(grp_alerts) > 1:
+                class_tags = ''.join(
+                    f'<span style="display:inline-block;background:#e8f0fe;border:1px solid #b0c4de;border-radius:4px;'
+                    f'padding:2px 8px;margin:2px 4px 2px 0;font-size:13px;">'
+                    f'{a.get("error_class","?")} ({int(a.get("error_count",0) or 0):,})</span>'
+                    for a in grp_alerts
+                )
+                header_html = (
+                    f'<div style="background:#2c5aa0;padding:10px;font-weight:700;color:white;">'
+                    f'{gidx}. Correlated Incident ({total_grp_errors:,} total errors)</div>'
+                    f'<div style="padding:8px 12px;background:#f0f4f8;">{class_tags}</div>'
+                )
+            else:
+                ec = str(grp_alerts[0].get('error_class', 'unknown'))
+                header_html = (
+                    f'<div style="background:#2c5aa0;padding:10px;font-weight:700;color:white;">'
+                    f'{gidx}. {ec}</div>'
+                )
+
+            # Behavior HTML (trace flow from primary only)
             behavior_html_parts = []
             if trace_steps:
                 behavior_html_parts.append(
@@ -619,19 +680,22 @@ Results:
                 if duration_str:
                     behavior_html_parts.append(f'<div style="padding-left:12px;font-size:13px;">Duration: {duration_str}</div>')
             if not behavior_html_parts:
-                raw_behavior = str(alert.get('detail_message', '') or '')
+                raw_behavior = str(primary.get('detail_message', '') or '')
                 if raw_behavior:
                     behavior_html_parts.append(f'<div style="font-size:13px;">{raw_behavior[:300]}</div>')
             behavior_html = ''.join(behavior_html_parts) if behavior_html_parts else '<div style="color:#888;font-size:13px;">N/A</div>'
 
-            detail_html = f"""<div style="margin-top:18px;margin-bottom:14px;border-left:4px solid #2c5aa0;border-radius:4px;overflow:hidden;background:white;border:1px solid #d9d9d9;">
-<div style="background:#2c5aa0;padding:10px;font-weight:700;color:white;">{idx}. {error_class}</div>
-<div style="padding:12px;"><strong>Applications:</strong> {apps_display}</div>
-<div style="padding:0 12px 6px 12px;"><strong>Namespaces (raw):</strong> {ns_detail_display}</div>
-<div style="padding:0 12px 6px 12px;"><strong>Root cause:</strong> {root_cause_text}</div>
-<div style="padding:0 12px 6px 12px;">{behavior_html}</div>
-<div style="padding:0 12px 12px 12px;"><strong>Trace ID:</strong> {trace_id}</div>
-</div>"""
+            detail_html = (
+                f'<div style="margin-top:18px;margin-bottom:14px;border-left:4px solid #2c5aa0;border-radius:4px;overflow:hidden;'
+                f'background:white;border:1px solid #d9d9d9;">'
+                f'{header_html}'
+                f'<div style="padding:12px;"><strong>Applications:</strong> {apps_display}</div>'
+                f'<div style="padding:0 12px 6px 12px;"><strong>Namespaces (raw):</strong> {ns_detail_display}</div>'
+                f'<div style="padding:0 12px 6px 12px;"><strong>Root cause:</strong> {root_cause_text}</div>'
+                f'<div style="padding:0 12px 6px 12px;">{behavior_html}</div>'
+                f'<div style="padding:0 12px 12px 12px;"><strong>Trace ID:</strong> {trace_id}</div>'
+                f'</div>'
+            )
             detail_blocks.append(detail_html)
 
         html_body = f"""
