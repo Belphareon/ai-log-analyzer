@@ -1,26 +1,29 @@
 # =============================================================================
-# Log Analyzer v6 - Kubernetes Values (OPRAVENO podle showcase)
+# AI Log Analyzer - Kubernetes Values
+# =============================================================================
+# Tento soubor je ŠABLONA. Pro každé prostředí existuje kopie v:
+#   k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/values.yaml
+#   k8s-infra-apps-prod/infra-apps/ai-log-analyzer/values.yaml
+#
+# Docker image:
+#   docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag> .
+#   docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# POVINNÉ - VYPLNIT PŘED DEPLOYEM
+# POVINNÉ — VYPLNIT PŘED DEPLOYEM
 # -----------------------------------------------------------------------------
-namespace: ai-log-analyzer          # např: ai-log-analyzer-app
-environment: nprod                  # nprod | prod (ovlivňuje Conjur URL)
+namespace: ai-log-analyzer            # K8s namespace pro deployment
+environment: nprod                     # nprod | prod
 
 # -----------------------------------------------------------------------------
 # Application Image
 # -----------------------------------------------------------------------------
 app:
   name: log-analyzer
-  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r36
+  image: dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>   # ← Doplnit squad a tag
   imagePullPolicy: IfNotPresent
-  secretName: log-analyzer-secrets  
-
-# -----------------------------------------------------------------------------
-# CronJob Schedule
-# -----------------------------------------------------------------------------
-schedule: "*/15 * * * *"             # Každých 15 minut
+  secretName: log-analyzer-secrets
 
 # -----------------------------------------------------------------------------
 # Resources
@@ -38,102 +41,97 @@ resources:
 # -----------------------------------------------------------------------------
 persistence:
   enabled: true
-  claimName: log-analyzer-data       # PVC pro registry/exports (z pvc.yaml)
+  claimName: log-analyzer-data
   mountPath: /data
   subPaths:
-    registry: registry                # /data/registry - YAML fingerprinty a známé chyby
-    exports: exports                  # /data/exports - JSON/MD reporty
+    registry: registry                # /data/registry - YAML fingerprinty
+    exports: exports                  # /data/exports - JSON/MD/CSV reporty
     reports: reports                  # /data/reports - dočasné výstupy
 
 # -----------------------------------------------------------------------------
-# Conjur Configuration (podle showcase)
+# Conjur Configuration (CyberArk)
+# -----------------------------------------------------------------------------
+# Credentials jsou uloženy v CyberArk safe a injektovány přes Conjur.
+# Registrace: PSIAM portál → Application Identity + Safe.
+# Viz: docs/INSTALLATION.md#12-cyberark--conjur
 # -----------------------------------------------------------------------------
 conjur:
-  # KB interní image - NEPOUŽÍVAT veřejný cyberark image!
   image: dockerhub.kb.cz/ps-sq008-pub/cyberark/secrets-provider-for-k8s:1.7.3-kb.1
   imagePullPolicy: IfNotPresent
   containerName: conjur-secrets-provider
-  
-  # Conjur Application Identity (registrace přes PSIAM)
-  applicationId: AI-LOG-ANALYZER      # Tvá registrovaná aplikace v Conjur
-  componentId: restricted             # nebo jiný component podle registrace
-  
-  # EPV/CyberArk Safe konfigurace
-  lobUser: CAR_TA_LOBUser_TEST           # např: CAR_TA_LOBUser_PROD
-  safeName: DAN_AI-LOG-ANALYZER          # např: DAN_AI_LOG_ANALYZER
-  
-  # Účty v CyberArk safe
+
+  applicationId: <PSIAM_APP_ID>          # ← Z PSIAM registrace
+  componentId: restricted
+
+  # EPV/CyberArk Safe
+  lobUser: CAR_TA_LOBUser_<ENV>          # TEST pro nprod, PROD pro prod
+  safeName: DAN_<SAFE_NAME>             # Název safe v CyberArk
+
+  # Účty v safe
   accounts:
-    confluence: XX_CONFLUENCE_USER
-    database: ailog_analyzer_user_d1       # PostgreSQL DML: username = ailog_analyzer_user_d1
-    database_ddl: ailog_analyzer_ddl_user_d1   # PostgreSQL DDL: username = ailog_analyzer_ddl_user_d1
-    elastic: XX_PCBS_ES_READ              # Elasticsearch: username = XX_PCBS_ES_READ
+    confluence: <CONFLUENCE_USER>        # Confluence service account
+    database: <DB_DML_USER>              # PostgreSQL DML user
+    database_ddl: <DB_DDL_USER>          # PostgreSQL DDL user
+    elastic: <ES_READ_USER>              # Elasticsearch read-only user
 
 # -----------------------------------------------------------------------------
-# Environment Variables pro aplikaci
+# Environment Variables
 # -----------------------------------------------------------------------------
 env:
   # === General ===
-  ENVIRONMENT: nprod
+  ENVIRONMENT: nprod                     # nprod | prod
   LOG_LEVEL: INFO
-  
-  # === Directories (mapované na PVC) ===
+
+  # === Directories (PVC mount) ===
   REGISTRY_DIR: /data/registry
   EXPORT_DIR: /data/exports
-  
-  # === PostgreSQL Database ===
-  DB_HOST: P050TD01.DEV.KB.CZ          # PostgreSQL hostname (liší se podle env)
-  DB_NAME: ailog_analyzer              # Název databáze
-  DB_PORT: "5432"                      # Port (default)
-  
-  # === Elasticsearch ===
-  ES_HOST: https://elasticsearch-test.kb.cz:9500  # ES endpoint URL (liší se podle env)
-  ES_INDEX: "cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*"
 
-  # === Confluence Proxy (CNTLM in WSL) ===
-  # Example: http://<wsl-host>:<port>
+  # === PostgreSQL Database ===
+  DB_HOST: <db_hostname>                 # nprod: P050TD01.DEV.KB.CZ | prod: <prod_host>
+  DB_NAME: ailog_analyzer
+  DB_PORT: "5432"
+
+  # === Elasticsearch ===
+  ES_HOST: <es_url>                      # nprod: https://elasticsearch-test.kb.cz:9500
+  ES_INDEX: "cluster-app_<prefix>-*"   # Vzor pro vaše namespace
+
+  # === Confluence ===
   CONFLUENCE_URL: "https://wiki.kb.cz"
   CONFLUENCE_PROXY: "http://cntlm.speed-default:3128"
   HTTP_PROXY: "http://cntlm.speed-default:3128"
   HTTPS_PROXY: "http://cntlm.speed-default:3128"
-  CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "1334314201"   # Known Errors page
-  CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "1334314203"    # Known Peaks page
-  
-  # === Error Detection Algorithm (legacy, informational) ===
-  SPIKE_THRESHOLD: "3.0"               # EWMA spike ratio (jen informacni, P93/CAP je primarni)
-  EWMA_ALPHA: "0.3"                    # EWMA smoothing faktor (jen informacni metriky)
-  WINDOW_MINUTES: "15"                 # Časové okno pro analýzu (default: 15 min)
-  
-  # === Peak Detection Algorithm (P93 OR CAP) ===
-  PERCENTILE_LEVEL: "0.93"             # Percentil pro peak thresholds (P93 = 0.93)
-  MIN_SAMPLES_FOR_THRESHOLD: "10"      # Min počet vzorků pro spolehlivý threshold
-  DEFAULT_THRESHOLD: "100"             # Fallback threshold pokud není data v DB
+  CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "<page_id>"
+  CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "<page_id>"
 
-  # === Alerting (Regular Phase) ===
-  MAX_PEAK_ALERTS_PER_WINDOW: "3"      # Hard cap kandidátů na alert v jednom 15m běhu
-  ALERT_DIGEST_ENABLED: "true"         # true = 1 digest email za okno; false = individuální emaily
-  ALERT_COOLDOWN_MIN: "45"             # Suppress stejný peak po dobu cooldown okna
-  ALERT_HEARTBEAT_MIN: "120"           # Po kolika minutách poslat "stále trvá" heartbeat
-  ALERT_MIN_DELTA_PCT: "30"            # Min absolutní změna počtu chyb pro nové odeslání
-  ALERT_CONTINUATION_LOOKBACK_MIN: "60" # Tolerance continuation při scheduler driftu
-  
+  # === Peak Detection ===
+  SPIKE_THRESHOLD: "3.0"
+  EWMA_ALPHA: "0.3"
+  WINDOW_MINUTES: "15"
+  PERCENTILE_LEVEL: "0.93"
+  MIN_SAMPLES_FOR_THRESHOLD: "10"
+  DEFAULT_THRESHOLD: "100"
+
+  # === Alerting ===
+  MAX_PEAK_ALERTS_PER_WINDOW: "3"
+  ALERT_DIGEST_ENABLED: "true"
+  ALERT_COOLDOWN_MIN: "45"
+  ALERT_HEARTBEAT_MIN: "120"
+  ALERT_MIN_DELTA_PCT: "30"
+  ALERT_CONTINUATION_LOOKBACK_MIN: "60"
+
 # -----------------------------------------------------------------------------
-# Init Job Configuration (one-shot bootstrap)
-# Spuštění: helm template . | kubectl apply -f - -l job-type=init
+# Init Job (one-shot bootstrap)
+# Spuštění: helm template k8s/ | kubectl apply -f - -l job-type=init
 # -----------------------------------------------------------------------------
 init:
-  backfillDays: 21                      # Kolik dní zpětně naplnit
-  backfillWorkers: 4                    # Paralelní workery pro backfill
-  thresholdWeeks: 3                     # Z kolika týdnů počítat P93/CAP
-  activeDeadlineSeconds: 14400          # Max 4 hodiny pro init job
+  backfillDays: 21                       # Počet dní zpětně
+  backfillWorkers: 4                     # Paralelní workery
+  thresholdWeeks: 3                      # Týdnů pro výpočet P93/CAP
+  activeDeadlineSeconds: 14400           # Max 4 hodiny
 
-  # === Telemetry & Context ===
-  # Odvozování environment z namespace (viz TELEMETRY.md)
-  # Podporované patterny: -prod-, -uat-, -sit-, -dev-
-
-# ============================================================================
+# -----------------------------------------------------------------------------
 # Teams Webhook
-# ============================================================================
+# -----------------------------------------------------------------------------
 teams:
-  webhook_url: "https://sgcz.webhook.office.com/webhookb2/54a63e23-321f-41da-aebf-c6297b257519@c79e7c80-cff5-4503-b468-3702cea89272/IncomingWebhook/5191045a6b60470f986bef32667a1618/a91fa8b7-5d02-4808-a8ec-71b71211304c/V24B9RzJIJB98T3cFwWy3-jWDCNu-Q_RO3DTCYzgUEBAk1"
-  email: "68152a24.sgcz.onmicrosoft.com@emea.teams.ms"
+  webhook_url: "<webhook_url>"
+  email: "<teams_channel_email>"

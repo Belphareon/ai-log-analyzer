@@ -190,7 +190,7 @@ class TableExporter:
         # 1. Explicit behavior field
         behavior = self._clean_unknown(getattr(problem, 'behavior', ''))
         if behavior:
-            return self._shorten(behavior, 180)
+            return behavior
         # 2. Trace flow – use first non-empty message from trace steps
         trace_flow = getattr(problem, 'trace_flow_summary', None)
         if trace_flow:
@@ -680,8 +680,8 @@ class TableExporter:
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
                 occurrence_count=peak.occurrences,
                 status=peak.status,
-                root_cause=self._shorten(peak_root_cause, 180),
-                behavior=self._shorten(peak_behavior, 180),
+                root_cause=self._shorten(peak_root_cause, 300),
+                behavior=peak_behavior,
             )
             rows.append(row)
 

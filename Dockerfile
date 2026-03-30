@@ -2,18 +2,17 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r61 .
+#   docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag> .
 #
-# Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r61 python scripts/regular_phase.py
+# Push:
+#   docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
-LABEL maintainer="your-team@company.com"
-LABEL version="r62"
-LABEL description="AI Log Analyzer - r62 fix: app/NS counts + structured behavior format"
+LABEL maintainer="ai-log-analyzer-team"
+LABEL description="AI Log Analyzer - peak detection, alerting, Confluence reporting"
 
 # Set working directory
 WORKDIR /app

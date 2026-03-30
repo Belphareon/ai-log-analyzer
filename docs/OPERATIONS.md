@@ -1,327 +1,348 @@
 # Provoz — AI Log Analyzer
 
-Vše co SRE/ops potřebuje pro běžný provoz, ladění a rozšíření systému.
+Vše co SRE/ops potřebuje pro běžný provoz přes Kubernetes.
+
+> **Konvence:** Veškeré operace se provádějí **přes K8s joby** (CronJob / manuální Job). Lokální spouštění je pouze pro vývoj/debugging.
 
 ---
 
 ## Obsah
 
-1. [CronJob scheduling](#cronjob-scheduling)
-2. [Alerting tuning](#alerting-tuning)
-3. [Přidání nové aplikace / namespace](#přidání-nové-aplikace--namespace)
-4. [Přidání application.version](#přidání-applicationversion)
-5. [Přepočet thresholdů](#přepočet-thresholdů)
-6. [Manuální operace](#manuální-operace)
-7. [Testing schedule](#testing-schedule)
-8. [Deployment checklist](#deployment-checklist)
+1. [CronJob přehled](#1-cronjob-přehled)
+2. [Parametry jobů (values.yaml)](#2-parametry-jobů-valuesyaml)
+3. [Manuální spuštění jobů](#3-manuální-spuštění-jobů)
+4. [Alerting tuning](#4-alerting-tuning)
+5. [Přidání nové aplikace / namespace](#5-přidání-nové-aplikace--namespace)
+6. [Přepočet thresholdů](#6-přepočet-thresholdů)
+7. [Monitoring a diagnostika](#7-monitoring-a-diagnostika)
+8. [Lokální testování (development)](#8-lokální-testování-development)
 
 ---
 
-## CronJob scheduling
+## 1. CronJob přehled
 
-### Přehled jobů
+Po úspěšné instalaci systém běží autonomně přes 3 CronJoby:
 
-| CronJob | Schedule | Popis | Duration |
-|---------|----------|-------|----------|
-| `ai-log-analyzer-regular` | `*/15 * * * *` | Hlavní pipeline: fetch → detect → alert | 1-5 min |
-| `ai-log-analyzer-backfill` | `0 2 * * *` | Denní backfill předchozího dne | 10-60 min |
-| `ai-log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet P93/CAP z peak_raw_data | 1-5 min |
+| CronJob | Schedule | Co dělá | Typická doba |
+|---------|----------|---------|--------------|
+| `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → email alert → export | 1–5 min |
+| `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish (Known Errors, Known Peaks, Recent Incidents) | 10–60 min |
+| `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet P93/CAP thresholdů z peak_raw_data | 1–5 min |
 
 ### Pořadí závislostí
 
 ```
-backfill (2:00) → plní peak_raw_data
-    │
-    ├─ regular phase (*/15) → čte P93/CAP z DB, plní peak_raw_data
-    │
-    └─ thresholds (neděle 3:00) → čte peak_raw_data, přepočítá P93/CAP
+Init Job (jednorázově)
+  └─ backfill 21 dní → plní peak_raw_data + peak_investigation
+  └─ threshold calc → vypočítá P93/CAP z backfill dat
+
+Poté běží autonomně:
+  regular (*/15)    → fetch ES → detect → alert → plní peak_raw_data
+  backfill (09:00)  → zpracuje předchozí den → publikuje Confluence
+  thresholds (Ne 03:00) → přepočítá P93/CAP z posledních 4 týdnů
 ```
 
-### Regular Phase CronJob
+### Stav CronJobů
 
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: ai-log-analyzer-regular
-  namespace: ai-log-analyzer
-spec:
-  schedule: "*/15 * * * *"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: regular
-            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest
-            command: ["python3", "scripts/regular_phase.py", "--quiet"]
-            resources:
-              requests: { memory: "1Gi", cpu: "500m" }
-              limits: { memory: "2Gi", cpu: "1000m" }
-          restartPolicy: OnFailure
-          backoffLimit: 2
-  successfulJobsHistoryLimit: 5
-  failedJobsHistoryLimit: 3
-```
+```bash
+# Přehled CronJobů
+kubectl get cronjobs -n ai-log-analyzer
 
-### Backfill CronJob
+# Posledních 5 jobů
+kubectl get jobs -n ai-log-analyzer --sort-by=.metadata.creationTimestamp | tail -5
 
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: ai-log-analyzer-backfill
-  namespace: ai-log-analyzer
-spec:
-  schedule: "0 2 * * *"
-  concurrencyPolicy: Forbid
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: backfill
-            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest
-            command: ["python3", "scripts/backfill.py", "--days", "1"]
-            resources:
-              requests: { memory: "2Gi", cpu: "1000m" }
-              limits: { memory: "4Gi", cpu: "2000m" }
-          restartPolicy: OnFailure
-          backoffLimit: 3
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 5
-```
-
-### Threshold CronJob
-
-```yaml
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: ai-log-analyzer-thresholds
-  namespace: ai-log-analyzer
-spec:
-  schedule: "0 3 * * 0"  # Neděle 03:00 UTC
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: thresholds
-            image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest
-            command: ["python3", "scripts/core/calculate_peak_thresholds.py", "--weeks", "4"]
-          restartPolicy: OnFailure
+# Logy konkrétního jobu
+kubectl logs job/<job-name> -n ai-log-analyzer
 ```
 
 ---
 
-## Alerting tuning
+## 2. Parametry jobů (values.yaml)
 
-### Doporučený profil (SIT/UAT)
+Všechny parametry jsou v `values.yaml` daného prostředí — v repozitáři `k8s-infra-apps-<env>/infra-apps/ai-log-analyzer/values.yaml`.
 
-Profil pro snížení spamu při zachování signálu o nových nebo eskalujících problémech:
+### Regular Phase — parametry alertingu
 
-| Proměnná | Hodnota | Popis |
+| Parametr | Default | Popis |
 |----------|---------|-------|
-| `MAX_PEAK_ALERTS_PER_WINDOW` | 3 | Max peaků v jednom digest emailu |
-| `ALERT_DIGEST_ENABLED` | true | Digest místo jednotlivých emailů |
-| `ALERT_COOLDOWN_MIN` | 45 | Min. interval mezi alerty pro stejný peak |
-| `ALERT_HEARTBEAT_MIN` | 120 | Opakovaný alert pro pokračující peak |
-| `ALERT_MIN_DELTA_PCT` | 30 | Min. změna error_count pro znovu-odeslání |
-| `ALERT_CONTINUATION_LOOKBACK_MIN` | 60 | Lookback pro pokračující peak |
+| `env.WINDOW_MINUTES` | `15` | Časové okno pro analýzu |
+| `env.MAX_PEAK_ALERTS_PER_WINDOW` | `3` | Max peaků v jednom digest emailu |
+| `env.ALERT_DIGEST_ENABLED` | `true` | Digest místo individuálních emailů |
+| `env.ALERT_COOLDOWN_MIN` | `45` | Min. interval mezi alerty pro stejný peak |
+| `env.ALERT_HEARTBEAT_MIN` | `120` | Opakovat alert pro trvající peak |
+| `env.ALERT_MIN_DELTA_PCT` | `30` | Min. změna error_count pro znovu-odeslání |
+| `env.ALERT_CONTINUATION_LOOKBACK_MIN` | `60` | Lookback pro pokračující peak |
+
+### Regular Phase — parametry detekce
+
+| Parametr | Default | Popis |
+|----------|---------|-------|
+| `env.PERCENTILE_LEVEL` | `0.93` | Percentil pro peak thresholds (P93) |
+| `env.MIN_SAMPLES_FOR_THRESHOLD` | `10` | Min počet vzorků pro spolehlivý threshold |
+| `env.DEFAULT_THRESHOLD` | `100` | Fallback threshold pokud není data v DB |
+| `env.SPIKE_THRESHOLD` | `3.0` | EWMA spike ratio (sekundární metrika) |
+| `env.EWMA_ALPHA` | `0.3` | EWMA smoothing faktor |
+
+### Init Job — parametry bootstrapu
+
+| Parametr | Default | Popis |
+|----------|---------|-------|
+| `init.backfillDays` | `21` | Počet dní zpětně pro backfill |
+| `init.backfillWorkers` | `4` | Paralelní workery |
+| `init.thresholdWeeks` | `3` | Týdnů pro výpočet thresholdů |
+| `init.activeDeadlineSeconds` | `14400` | Max doba běhu init jobu (4h) |
+
+### Resources
+
+| Job | CPU request | Memory request | CPU limit | Memory limit |
+|-----|-------------|----------------|-----------|--------------|
+| Regular | 500m | 1Gi | 2 | 4Gi |
+| Backfill | 500m | 1Gi | 2 | 4Gi |
+| Thresholds | 250m | 512Mi | 1 | 2Gi |
+| Init | 250m | 512Mi | 1 | 2Gi |
+
+---
+
+## 3. Manuální spuštění jobů
+
+Když potřebujete spustit job mimo schedule (ad-hoc backfill, přepočet thresholdů, test):
+
+### 3.1 Manuální trigger CronJobu
+
+```bash
+# Spustit regular phase ručně
+kubectl create job log-analyzer-manual --from=cronjob/log-analyzer -n ai-log-analyzer
+
+# Spustit backfill ručně
+kubectl create job backfill-manual --from=cronjob/log-analyzer-backfill -n ai-log-analyzer
+
+# Spustit threshold recalc ručně
+kubectl create job thresholds-manual --from=cronjob/log-analyzer-thresholds -n ai-log-analyzer
+
+# Sledovat logy
+kubectl logs -f job/<job-name> -n ai-log-analyzer
+
+# Po dokončení uklidit
+kubectl delete job <job-name> -n ai-log-analyzer
+```
+
+### 3.2 Init Job (re-bootstrap)
+
+Pro přeplnění dat od nuly (např. po změně namespace):
+
+```bash
+# Smazat starý init job (pokud existuje)
+kubectl delete job log-analyzer-init -n ai-log-analyzer --ignore-not-found
+
+# Spustit nový init
+helm template k8s/ | kubectl apply -f - -l job-type=init
+
+# Sledovat
+kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
+```
+
+---
+
+## 4. Alerting tuning
+
+### Doporučené profily
+
+**Standardní (SIT/UAT):**
+
+```yaml
+env:
+  MAX_PEAK_ALERTS_PER_WINDOW: "3"
+  ALERT_DIGEST_ENABLED: "true"
+  ALERT_COOLDOWN_MIN: "45"
+  ALERT_HEARTBEAT_MIN: "120"
+  ALERT_MIN_DELTA_PCT: "30"
+```
+
+**Méně emailů** (vyšší thresholdy):
+
+```yaml
+env:
+  ALERT_COOLDOWN_MIN: "90"
+  ALERT_HEARTBEAT_MIN: "180"
+  ALERT_MIN_DELTA_PCT: "50"
+```
+
+**Více citlivé:**
+
+```yaml
+env:
+  ALERT_COOLDOWN_MIN: "30"
+  ALERT_HEARTBEAT_MIN: "60"
+  ALERT_MIN_DELTA_PCT: "20"
+```
 
 ### Chování
 
 - Jeden digest email za 15min okno (pokud jsou alerty k odeslání)
 - Pokračující peak bez materiální změny se potlačí
 - Znovu se posílá při: změně trendu, změně error_count ≥ `ALERT_MIN_DELTA_PCT`, nové aplikaci/namespace, heartbeat intervalu
+- Fallback na per-peak emaily: `ALERT_DIGEST_ENABLED=false`
 
-### Rychlý tuning
+### Změna parametrů
 
-**Méně emailů:**
-- Zvýšit `ALERT_COOLDOWN_MIN` na 60–90
-- Zvýšit `ALERT_MIN_DELTA_PCT` na 40–50
-- Zvýšit `ALERT_HEARTBEAT_MIN` na 180
-
-**Více citlivé alerty:**
-- Snížit `ALERT_COOLDOWN_MIN` na 30
-- Snížit `ALERT_MIN_DELTA_PCT` na 20
-- Snížit `ALERT_HEARTBEAT_MIN` na 60
-
-**Fallback na per-peak emaily:** `ALERT_DIGEST_ENABLED=false`
+1. Upravit `values.yaml` v příslušném infra-apps repozitáři
+2. Commitnout a pushnout
+3. Aplikovat: `helm template k8s/ | kubectl apply -f -`
+4. Nový parametr se projeví při příštím běhu CronJobu (do 15 min)
 
 ---
 
-## Přidání nové aplikace / namespace
+## 5. Přidání nové aplikace / namespace
 
-### 1. Přidat namespace do monitoringu
+### Krok 1: config/namespaces.yaml
+
+Přidat namespace do monitoringu:
 
 ```yaml
-# config/namespaces.yaml
 namespaces:
-  - pcb-dev-01-app
-  - pcb-sit-01-app
+  - <existing-ns>
   - nova-app-01-app    # ← přidat
 ```
 
-### 2. Naplnit historická data
+### Krok 2: Nový Docker image
 
 ```bash
-# Backfill pro nový namespace (14+ dní)
-python3 scripts/backfill.py --days 14 --workers 4
-
-# Přepočítat thresholdy
-python3 scripts/core/calculate_peak_thresholds.py --weeks 3
+docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<new_tag> .
+docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<new_tag>
 ```
 
-### 3. Ověřit
+### Krok 3: Aktualizovat values.yaml
+
+```yaml
+app:
+  image: dockerhub.kb.cz/<squad>/ai-log-analyzer:<new_tag>
+```
+
+### Krok 4: Naplnit historická data
+
+Spustit init job (nebo ad-hoc backfill):
 
 ```bash
-python3 scripts/core/peak_detection.py --show-thresholds
-# Zkontrolovat, že nový namespace má P93/CAP hodnoty
+# Smazat starý init job
+kubectl delete job log-analyzer-init -n ai-log-analyzer --ignore-not-found
+
+# Spustit nový init (backfill + threshold calc)
+helm template k8s/ | kubectl apply -f - -l job-type=init
+kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
-> **Poznámka:** Pro nový namespace bez P93/CAP dat použije PeakDetector fallback `default_threshold` (100).
+### Krok 5: Ověřit
+
+```bash
+# Ověřit thresholdy pro nový namespace
+kubectl create job verify-thresholds --from=cronjob/log-analyzer-thresholds -n ai-log-analyzer
+kubectl logs -f job/verify-thresholds -n ai-log-analyzer
+# Výstup musí obsahovat thresholdy pro nový namespace
+```
+
+> **Poznámka:** Bez P93/CAP dat pro nový namespace použije detektor fallback `DEFAULT_THRESHOLD` (100).
 
 ---
 
-## Přidání application.version
-
-Pro detekci regresí po deployi je potřeba mít `application.version` v ES logech.
-
-### 1. DB migrace
-
-```sql
-ALTER TABLE ailog_peak.peak_investigation
-ADD COLUMN application_version VARCHAR(50);
-
-CREATE INDEX idx_peak_inv_app_version
-ON ailog_peak.peak_investigation(namespace, application_version);
-```
-
-### 2. ES query — přidat do `_source`
-
-```python
-# fetch_unlimited.py
-"_source": [
-    "timestamp", "namespace", "message",
-    "application.version",  # ← přidat
-]
-```
-
-### 3. Pipeline — uložit verzi
-
-V `regular_phase.py` / `backfill.py` přidat verzi do INSERT do `peak_investigation`.
-
-### 4. Výsledek
-
-Incident Analysis automaticky:
-- Detekuje `version_change_detected`
-- Zobrazí v FACTS: `⚠️ VERSION CHANGE: order-service (1.8.3 → 1.8.4)`
-- Upraví IMMEDIATE ACTIONS: `Review recent deployment`
-
----
-
-## Přepočet thresholdů
+## 6. Přepočet thresholdů
 
 ### Automatický (CronJob)
 
-Běží každou neděli 03:00 UTC. Žádná akce potřeba.
+Běží každou neděli 03:00 UTC — žádná akce potřeba.
 
 ### Manuální
 
 ```bash
-# Přepočítat z posledních 4 týdnů
-python3 scripts/core/calculate_peak_thresholds.py --weeks 4
+kubectl create job thresholds-manual --from=cronjob/log-analyzer-thresholds -n ai-log-analyzer
+kubectl logs -f job/thresholds-manual -n ai-log-analyzer
+```
 
-# Dry-run (jen zobrazí, neuloží)
-python3 scripts/core/calculate_peak_thresholds.py --weeks 4 --dry-run
+### Po manuálním backfillu
+
+Vždy přepočítat po backfillu:
+
+```bash
+# 1. Backfill
+kubectl create job backfill-manual --from=cronjob/log-analyzer-backfill -n ai-log-analyzer
+kubectl logs -f job/backfill-manual -n ai-log-analyzer
+
+# 2. Přepočet thresholdů
+kubectl create job thresholds-manual --from=cronjob/log-analyzer-thresholds -n ai-log-analyzer
+kubectl logs -f job/thresholds-manual -n ai-log-analyzer
+
+# 3. Úklid
+kubectl delete job backfill-manual thresholds-manual -n ai-log-analyzer
+```
+
+---
+
+## 7. Monitoring a diagnostika
+
+### Kontrola stavu
+
+```bash
+# CronJoby a jejich poslední spuštění
+kubectl get cronjobs -n ai-log-analyzer
+
+# Posledních 10 jobů
+kubectl get jobs -n ai-log-analyzer --sort-by=.metadata.creationTimestamp | tail -10
+
+# Failed joby
+kubectl get jobs -n ai-log-analyzer --field-selector=status.successful=0
+
+# Logy posledního failed jobu
+kubectl logs job/<failed-job> -n ai-log-analyzer
+```
+
+### Typické chyby
+
+| Chyba v logu | Příčina | Řešení |
+|--------------|---------|--------|
+| `connection refused DB_HOST` | DB není dostupná z klusteru | Ověřit DB_HOST v values.yaml, network policy |
+| `ES connection timeout` | ES není dostupný | Ověřit ES_HOST, proxy konfigurace |
+| `401 Unauthorized (Confluence)` | Neplatný Confluence token | Obnovit credentials v CyberArk |
+| `No thresholds found` | Prázdná DB (po fresh install) | Spustit init job |
+| `SMTP connection refused` | Mail server nedostupný | Ověřit SMTP_HOST:SMTP_PORT z K8s |
+
+### DB diagnostika
+
+```sql
+-- Poslední data v peak_raw_data
+SELECT MAX(created_at) FROM ailog_peak.peak_raw_data;
+
+-- Počet thresholdů per namespace
+SELECT namespace, COUNT(*) FROM ailog_peak.peak_thresholds GROUP BY namespace;
+
+-- Počet investigation záznamů za posledních 24h
+SELECT COUNT(*) FROM ailog_peak.peak_investigation
+WHERE created_at > NOW() - INTERVAL '24 hours';
+```
+
+---
+
+## 8. Lokální testování (development)
+
+> **Pozor:** Lokální testy vyžadují přímý přístup k DB a ES. V produkčním prostředí je to obvykle dostupné pouze z K8s clusteru.
+
+### Příprava
+
+```bash
+cp .env.example .env
+# Vyplnit credentials
+```
+
+### Testy
+
+```bash
+# Dry-run regular phase (bez alertů)
+python3 scripts/regular_phase.py --window 15 --dry-run
+
+# Dry-run backfill (1 den, bez zápisu)
+python3 scripts/backfill.py --days 1 --dry-run
+
+# Dry-run thresholdů
+python3 scripts/core/calculate_peak_thresholds.py --dry-run --verbose
 
 # Zobrazit aktuální thresholdy z DB
 python3 scripts/core/peak_detection.py --show-thresholds
 ```
-
-### Po backfillu
-
-Vždy po manuálním backfillu přepočítat:
-```bash
-python3 scripts/backfill.py --days 14 --workers 4
-python3 scripts/core/calculate_peak_thresholds.py --weeks 4
-```
-
----
-
-## Manuální operace
-
-### Ad-hoc backfill
-
-```bash
-# Doplnit konkrétní období
-python3 scripts/backfill.py --from "2026-02-01" --to "2026-02-14" --workers 4
-```
-
-### Dry-run regular phase
-
-```bash
-python3 scripts/regular_phase.py --window 15 --dry-run
-```
-
-### Test Teams notifikace
-
-```python
-from core.teams_notifier import TeamsNotifier
-notifier = TeamsNotifier()
-notifier.send_backfill_completed(
-    days_processed=1, successful_days=1, failed_days=0,
-    total_incidents=100, saved_count=100,
-    registry_updates={'problems': 5, 'peaks': 1}, duration_minutes=5.5
-)
-```
-
-### Test Confluence
-
-```bash
-python3 scripts/confluence_publisher.py \
-  --page-id 1334314201 \
-  --csv-file ./scripts/exports/errors_table_latest.csv \
-  --title "Test: Known Errors"
-```
-
----
-
-## Testing schedule
-
-Před deployem do produkce:
-
-```bash
-# 1. Test backfill (dry-run)
-python3 scripts/backfill.py --days 1 --dry-run
-
-# 2. Test regular phase
-python3 scripts/regular_phase.py --window 15 --dry-run
-
-# 3. Test P93/CAP thresholds
-python3 scripts/core/calculate_peak_thresholds.py --dry-run --verbose
-
-# 4. Zobrazit thresholdy
-python3 scripts/core/peak_detection.py --show-thresholds
-
-# 5. Test Confluence connection
-python3 scripts/confluence_publisher.py --page-id ... --csv-file ... --title "Test"
-```
-
----
-
-## Deployment checklist
-
-- [ ] Backfill testován lokálně (1 den)
-- [ ] Regular phase testován (15 min okno)
-- [ ] P93/CAP thresholds naplněny
-- [ ] PeakDetector ověřen (`--show-thresholds`)
-- [ ] Teams webhook ověřen
-- [ ] Confluence credentials ověřeny
-- [ ] K8s manifesty vytvořeny / aktualizovány
-- [ ] Resource limits nastaveny
-- [ ] Monitoring/alerting setup
-- [ ] Backup strategie (registry YAML)

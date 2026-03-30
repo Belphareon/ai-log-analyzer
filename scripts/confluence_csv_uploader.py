@@ -60,6 +60,8 @@ def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
             for cell in row:
                 # Escape HTML special chars
                 escaped = cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                # Convert newlines to <br/> for structured multi-line fields (behavior)
+                escaped = escaped.replace('\n', '<br/>')
                 html_parts.append(f'<td><p>{escaped}</p></td>')
             html_parts.append('</tr>')
             row_count += 1
