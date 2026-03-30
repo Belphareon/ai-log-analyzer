@@ -1,27 +1,57 @@
 # Architektura — AI Log Analyzer
 
-Tento dokument popisuje technickou strukturu systému: komponenty, datové toky, persistence a integrační body.
+Technická struktura systému: komponenty, datové toky, persistence a integrační body.
 
 ---
 
 ## Přehled
 
-Systém se skládá ze čtyř hlavních vrstev:
-
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  ZDROJ DAT              │  Elasticsearch (aplikační error logy)  │
-├─────────────────────────┼─────────────────────────────────────────┤
-│  DETEKCE                │  Detection Pipeline (fáze A–F)          │
-├─────────────────────────┼─────────────────────────────────────────┤
-│  ANALÝZA                │  Incident Analysis Engine               │
-├─────────────────────────┼─────────────────────────────────────────┤
-│  VÝSTUP                 │  Email / Teams / Confluence             │
-└─────────────────────────┴─────────────────────────────────────────┘
+│                    ELASTICSEARCH                                │
+│                    (aplikační logy)                              │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                     fetch_unlimited()
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                DETECTION PIPELINE                                │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐           │
+│  │ Phase A │→ │ Phase B │→ │ Phase C │→ │ Phase D │           │
+│  │ Parse   │  │ Measure │  │ Detect  │  │ Score   │           │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────┘           │
+│       ↓            ↓            ↓            ↓                  │
+│  ┌─────────┐  ┌─────────┐                                      │
+│  │ Phase E │→ │ Phase F │                                      │
+│  │Classify │  │ Report  │                                      │
+│  └─────────┘  └─────────┘                                      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    IncidentCollection
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              INCIDENT ANALYSIS                                  │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
+│  │ TimelineBuilder│→ │  ScopeBuilder  │→ │ CausalInference│    │
+│  │                │  │ + Propagation  │  │                │    │
+│  └────────────────┘  └────────────────┘  └────────────────┘    │
+│           ↓                   ↓                   ↓             │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
+│  │ FixRecommender │→ │KnowledgeMatcher│→ │    Formatter   │    │
+│  └────────────────┘  └────────────────┘  └────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    OUTPUT                                        │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
+│  │   Email/Teams  │  │   registry/    │  │  PostgreSQL DB │    │
+│  │    Confluence   │  │ (append-only)  │  │ (peak_invest.) │    │
+│  └────────────────┘  └────────────────┘  └────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 Dva vstupní body:
-- **`scripts/regular_phase.py`** — spouštěn každých 15 minut jako Kubernetes CronJob; čte logy za poslední okno, běží pipeline, případně odesílá alert
+- **`scripts/regular_phase.py`** — každých 15 minut jako K8s CronJob; čte logy za aktuální okno, běží pipeline, případně odesílá alert
 - **`scripts/backfill.py`** — zpracovává historická data po dnech; slouží k doplnění chybějících dat nebo inicializaci nové instance
 
 ---
@@ -73,98 +103,168 @@ Elasticsearch
 
 ---
 
-## Komponenty
+## Detection Pipeline
 
-### `scripts/regular_phase.py`
+Orchestrátor: `scripts/pipeline/pipeline.py` — třída `Pipeline`
 
-Hlavní orchestrátor 15min cyklu. Zodpovídá za:
-- načtení konfigurace a registru před pipeline
-- spuštění pipeline pro každý namespace/okno
-- rozhodnutí, zda odeslat alert (cooldown, digest limit, continuation)
-- zápis výsledků do DB a aktualizaci YAML registru
-- write-back behavior popisu ke známým problémům
+### Phase A: Parse & Normalize
 
-### `scripts/core/fetch_unlimited.py`
+**Soubor:** `scripts/pipeline/phase_a_parse.py` — třída `PhaseA_Parser`
 
-Stránkovaný Elasticsearch fetcher. Obchází limit 10 000 výsledků pomocí `search_after`. Vrací raw logy jako seznam dictu.
+- **Vstup:** Raw log záznamy z Elasticsearch (list of dicts)
+- **Výstup:** `List[NormalizedRecord]` + groups by fingerprint
+- **Činnost:**
+  1. Extrakce polí: timestamp, namespace, app_name, app_version, trace_id, span_id
+  2. Normalizace message: nahrazení variabilních částí (UUID→`<UUID>`, IP→`<IP>`, čísla→`<ID>`)
+  3. Extrakce error_type z message (např. `NullPointerException`, `TimeoutException`)
+  4. Generování fingerprint: `MD5(error_type:normalized_message)[:16]`
+  5. Seskupení records podle fingerprint
 
-### `scripts/pipeline/phase_a_parse.py`
+**Datový model:**
+```python
+@dataclass
+class NormalizedRecord:
+    raw_message: str
+    timestamp: datetime
+    namespace: str
+    app_name: str
+    app_version: str
+    trace_id: str
+    normalized_message: str
+    error_type: str          # "NullPointerException", "TimeoutException", ...
+    fingerprint: str         # MD5 hash (16 chars)
+```
 
-Normalizuje raw log záznamy:
-- extrahuje strukturovaná pole (app_name, namespace, trace_id, environment, ...)
-- normalizuje message (odstraňuje dynamické hodnoty: ID, timestamp, IP)
-- generuje **fingerprint** = `MD5(error_type:normalized_message)[:16]`
-  - fingerprint identifikuje *typ* chyby, ne konkrétní instanci
-  - dvě chyby se stejným typem a stejnou (normalizovanou) zprávou dostanou stejný fingerprint
+### Phase B: Measure
 
-### `scripts/pipeline/phase_b_measure.py`
+**Soubor:** `scripts/pipeline/phase_b_measure.py` — třída `PhaseB_Measure`
 
-Počítá statistiky:
-- **baseline** — historický průměr z DB (7 dní, EWMA)
-- **current_count** — počet výskytů v aktuálním okně
-- **trend_ratio** — aktuální / baseline
-- EWMA s konfigurovatelným alpha (default 0.3)
+- **Vstup:** `List[NormalizedRecord]`
+- **Výstup:** `Dict[fingerprint, MeasurementResult]`
+- **Činnost:** Výpočet baseline a aktuálních statistik pro každý fingerprint
 
-### `scripts/pipeline/phase_c_detect.py`
+**Algoritmus:**
 
-Detekuje anomálie pro každý fingerprint:
+1. **Groupování** (O(n)): Seskup records podle `(fingerprint, window_idx)`. Window = 15 min.
+2. **Pro každý fingerprint:** Chronologický array rates `[count_w0, count_w1, ...]`
+3. **Historický baseline z DB** (`BaselineLoader` → tabulka `peak_raw_data`, 7 dní)
+4. **EWMA** (alpha=0.3): `ewma[i] = alpha * rates[i] + (1-alpha) * ewma[i-1]` — informativní metrika pro trend, NE pro spike detekci
+5. **MAD** (Median Absolute Deviation): robustnější než stddev — informativní metrika
 
-| Flag | Podmínka |
-|------|----------|
-| `is_spike` | `value > P93_DOW` NEBO `value > CAP` |
-| `is_burst` | rate change > 5.0× (konfigurováno `burst_threshold`) |
-| `is_new` | fingerprint nenalezen v registry + `count >= new_error_min_count` |
-| `is_regression` | fingerprint byl znám, dlouho neviděn, nyní znovu se objevil |
-| `is_cross_namespace` | fingerprint nalezen ve ≥ 2 namespace |
+**Datový model:**
+```python
+@dataclass
+class MeasurementResult:
+    fingerprint: str
+    current_count: int
+    current_rate: float
+    baseline_ewma: float
+    baseline_mad: float
+    baseline_median: float
+    trend_ratio: float        # current_rate / baseline_ewma
+    trend_direction: str      # "increasing" / "stable" / "decreasing"
+    namespaces: List[str]
+    namespace_count: int
+    apps: List[str]
+    first_seen: datetime
+    last_seen: datetime
+```
 
-P93 a CAP se čtou z DB (viz sekce Databáze). Pokud DB data nejsou k dispozici, použije se fallback na poměr vůči baseline.
+### Phase C: Detect
 
-### `scripts/pipeline/phase_d_score.py`
+**Soubor:** `scripts/pipeline/phase_c_detect.py` — třída `PhaseC_Detect`
 
-Deterministická váhová funkce:
+- **Vstup:** `Dict[fingerprint, MeasurementResult]` + records + registry + PeakDetector
+- **Výstup:** `Dict[fingerprint, DetectionResult]` s boolean flagy
+- **Činnost:** Spike detekce na úrovni namespace (P93/CAP), ostatní pravidla per fingerprint
+
+**Detection flags:**
+
+| Flag | Pravidlo | Popis |
+|------|----------|-------|
+| `is_spike` | P93/CAP (namespace-level) | Namespace má celkový error rate nad P93 percentilem |
+| `is_burst` | Sliding window (60s), rate > 5.0× | Náhlá lokální koncentrace v krátkém okně |
+| `is_new` | Registry lookup | Fingerprint/problem_key dosud nebyl viděn |
+| `is_cross_namespace` | NS count ≥ 2 | Stejný error se objevuje ve více prostředích |
+| `is_silence` | Absence check | Očekávaný error se neobjevil (baseline > 5, current = 0) |
+| `is_regression` | Version check | Error, který byl opraven, se znovu objevil |
+
+Podrobný popis spike detekce viz [HOW_IT_WORKS.md](HOW_IT_WORKS.md#5-detekce-anomálií--p93cap).
+
+### Phase D: Score
+
+**Soubor:** `scripts/pipeline/phase_d_score.py` — třída `PhaseD_Score`
 
 ```
 score = base_score + Σ(flag_bonus)
-
 base_score = min(count / 10, 30)
 ```
 
-| Flag        | Bonus |
-|-------------|------:|
-| spike       |  +25  |
-| burst       |  +20  |
-| new         |  +15  |
-| regression  |  +35  |
-| cascade     |  +20  |
-| cross-ns    |  +15  |
+| Flag | Bonus |   | Score | Severity |
+|------|------:|---|------:|----------|
+| spike | +25  |   | ≥ 80  | critical |
+| burst | +20  |   | ≥ 60  | high     |
+| new   | +15  |   | ≥ 40  | medium   |
+| regression | +35 | | ≥ 20 | low     |
+| cascade | +20 |  | < 20  | info     |
+| cross-ns | +15 | |       |          |
 
-Výsledný score se mapuje na severity:
+Scaling bonusy: `trend_ratio` nad 2.0 → +2 per 1.0; `namespace_count` nad 2 → +3 per NS.
 
-| Score    | Severity |
-|----------|----------|
-| ≥ 80     | critical |
-| ≥ 60     | high     |
-| ≥ 40     | medium   |
-| ≥ 20     | low      |
-| < 20     | info     |
+### Phase E: Classify
 
-### `scripts/pipeline/phase_e_classify.py`
+**Soubor:** `scripts/pipeline/phase_e_classify.py` — třída `PhaseE_Classify`
 
-Klasifikuje incidenty do taxonomie pomocí explicitních regexových pravidel (žádné ML):
+Deterministická klasifikace pomocí regex pravidel (žádné ML/LLM):
 
-| Kategorie  | Příklady subcategory                                     |
-|------------|----------------------------------------------------------|
-| BUSINESS   | not_found, validation, constraint_violation, not_found   |
-| AUTH       | unauthorized, forbidden, token_expired                   |
-| DATABASE   | connection, deadlock, constraint_violation, query_error  |
-| NETWORK    | connection_refused, connection_reset, dns, ssl           |
-| TIMEOUT    | read_timeout, connect_timeout, request_timeout           |
-| MEMORY     | out_of_memory, memory_leak                               |
-| EXTERNAL   | api_error, service_unavailable, gateway_error            |
+| Kategorie | Příklady subcategory |
+|------------|------------------------------------------------------|
+| BUSINESS | not_found, validation, constraint_violation |
+| AUTH | unauthorized, forbidden, token_expired |
+| DATABASE | connection, deadlock, query_error |
+| NETWORK | connection_refused, connection_reset, dns, ssl |
+| TIMEOUT | read_timeout, connect_timeout, request_timeout |
+| MEMORY | out_of_memory, memory_leak |
+| EXTERNAL | api_error, service_unavailable, gateway_error |
 
-Pravidla jsou definována v `phase_e_classify.py` (DEFAULT_RULES, 30+ pravidel) a `core/problem_registry.py` (ERROR_CLASS_PATTERNS, 40+ vzorů).
+Pravidla: `phase_e_classify.py` (DEFAULT_RULES, 30+) + `core/problem_registry.py` (ERROR_CLASS_PATTERNS, 40+).
 
-### `core/problem_registry.py`
+### Phase F: Report
+
+**Soubor:** `scripts/pipeline/phase_f_report.py` — třída `PhaseF_Report`
+
+Formátování a export IncidentCollection: konzolový výstup, JSON, Markdown, snapshots.
+
+---
+
+## Incident Analysis
+
+**Adresář:** `incident_analysis/`
+
+| Komponenta | Vstup | Výstup |
+|------------|-------|--------|
+| `analyzer.py` — IncidentAnalysisEngine | Events | IncidentAnalysis |
+| `timeline_builder.py` — TimelineBuilder | Events | Timeline (FACTS) |
+| `causal_inference.py` — CausalInferenceEngine | Timeline + Scope | CausalChain (HYPOTHESIS) |
+| `fix_recommender.py` — FixRecommender | Analysis | RecommendedAction[] |
+
+**Datový model:**
+```python
+class IncidentAnalysis:
+    incident_id: str
+    scope: IncidentScope          # KDE (apps, root_apps, downstream_apps)
+    propagation: IncidentPropagation  # JAK (propagated, propagation_time_sec)
+    timeline: List[TimelineEvent]  # Časová osa (FACTS)
+    causal_chain: CausalChain     # Root cause (HYPOTHESIS)
+    priority: IncidentPriority    # P1-P4
+    recommended_actions: List[RecommendedAction]
+```
+
+---
+
+## Problem Registry
+
+**Soubor:** `scripts/core/problem_registry.py`
 
 Dvouúrovňová identita problémů:
 
@@ -175,37 +275,29 @@ PROBLEM REGISTRY (stabilní, málo záznamů)     1:N     FINGERPRINT INDEX (tec
   occurrences, behavior, root_cause
 ```
 
-**Problem Key** — trvalý identifikátor ve formátu `CATEGORY:flow:error_class`
-- např. `BUSINESS:card_servicing:validation_error`
+**Problem Key** — trvalý identifikátor: `CATEGORY:flow:error_class` (např. `BUSINESS:card_servicing:validation_error`)
 
-**Peak Key** — identifikátor v formátu `PEAK:category:flow:peak_type`
-- např. `PEAK:business:card_servicing:spike`
+**Peak Key** — identifikátor: `PEAK:category:flow:peak_type` (např. `PEAK:business:card_servicing:spike`)
 
-**Flow** se extrahuje z názvu aplikace pomocí FLOW_PATTERNS:
+**Flow** se extrahuje z názvu aplikace pomocí FLOW_PATTERNS (14 definovaných vzorů):
 - `bff-pcb-ch-card-servicing-v1` → `card_servicing`
 - `bl-pcb-billing-v1` → `billing`
-- 14 definovaných flow vzorů v kódu; pro neznámé aplikace fallback na první část jména
 
-### `incident_analysis/`
+---
 
-Vrstva kauzální analýzy nad výsledky pipeline:
-- **`analyzer.py`** — `IncidentAnalysisEngine`: grupuje incidenty do událostí, stavební timeline, spouští kauzální dedukci
-- **`timeline_builder.py`** — sestavuje chronologickou osu: kdy se co objevilo a v jakém pořadí
-- **`causal_inference.py`** — deterministicky inferuje kořenovou příčinu z trace kroků (žádné ML)
-- **`fix_recommender.py`** — generuje konkrétní doporučené akce pro SRE na základě kategorie a severity
+## Notifikace
 
-### `scripts/core/email_notifier.py`
+### Email Notifier (`scripts/core/email_notifier.py`)
 
-Dvě varianty notifikace (řízeno `ALERT_DIGEST_ENABLED`):
+Dvě varianty (řízeno `ALERT_DIGEST_ENABLED`):
 
-- **Digest** (`send_regular_phase_peak_digest`) — jeden email per cron okno s přehlednou HTML tabulkou všech aktivních peaků; obsahuje NS sloupec, counts per app, strukturovaný trace flow, inferred root cause
-- **Detail** (`send_regular_phase_peak_alert_detailed`) — jeden email per peak; používá se jako fallback nebo pro specifické případy
+- **Digest** (`send_regular_phase_peak_digest`) — jeden email per cron okno; HTML tabulka všech aktivních peaků s NS, app counts, trace flow, inferred root cause; korelované alerty (stejný trace_id + namespace) se seskupí do jednoho detail bloku
+- **Detail** (`send_regular_phase_peak_alert_detailed`) — jeden email per peak; fallback/specifické případy
 
-### `scripts/exports/table_exporter.py`
+### Confluence Export (`scripts/exports/table_exporter.py`)
 
-Generuje exporty pro Confluence:
-- **Known Errors** — tabulka `ErrorTableRow` s kategoriemi, root cause, behavior, activity status (ACTIVE/STALE/OLD)
-- **Known Peaks** — tabulka `PeakTableRow` s peak_count, peak_ratio (zaokrouhleno na 2 desetinná místa), occurrences, first/last seen, status + Peak Details sekce
+- **Known Errors** — tabulka `ErrorTableRow`: kategorie, root cause, behavior, activity status (ACTIVE/STALE/OLD)
+- **Known Peaks** — tabulka `PeakTableRow`: peak_count, peak_ratio, occurrences, first/last seen, status + Peak Details
 
 ---
 
@@ -213,168 +305,114 @@ Generuje exporty pro Confluence:
 
 Schema: `ailog_peak`
 
-### `peak_raw_data`
+| Tabulka | Popis | Klíč |
+|---------|-------|------|
+| `peak_raw_data` | 15-min error counts per namespace | `(namespace, window_start, window_end, day_of_week)` |
+| `peak_thresholds` | P93 per (namespace, day_of_week) | `(namespace, day_of_week)` |
+| `peak_threshold_caps` | CAP per namespace | `(namespace)` |
+| `peak_investigation` | Detekované incidenty | `(peak_key, problem_key, namespace, ...)` |
 
-```sql
-(namespace, window_start, window_end, error_count, day_of_week)
-```
-
-Surové počty chyb per namespace per 15min okno. Každý regular_phase běh zde ukládá výsledky. Tato data jsou vstupem pro výpočet P93/CAP thresholdů.
-
-### `peak_thresholds`
-
-```sql
-(namespace, day_of_week, percentile_value, sample_count)
-```
-
-P93 (nebo jiný percentil dle `PERCENTILE_LEVEL`) pro každou kombinaci `(namespace, den_v_týdnu)`. Přepočítává se příkazem `calculate_peak_thresholds.py`.
-
-### `peak_threshold_caps`
-
-```sql
-(namespace, cap_value)
-```
-
-CAP = `(median_P93 + avg_P93) / 2` per namespace. Funguje jako zastropování pro namespace s málo daty.
-
-### `peak_investigation`
-
-```sql
-(peak_key, problem_key, namespace, first_seen, last_seen, peak_type, ...)
-```
-
-Evidence jednotlivých peaků pro Confluence export a historii.
-
-### Zápis do DB
-
-Pro zápis je nutná sekvence:
+**Zápis do DB** vyžaduje sekvenci:
 1. Připojit se jako DDL user (`DB_DDL_USER`)
-2. `SET ROLE role_ailog_analyzer_ddl` (viz `set_db_role()` v `regular_phase.py`)
+2. `SET ROLE role_ailog_analyzer_ddl`
 3. Teprve pak `INSERT / UPDATE`
 
 ---
 
 ## YAML Registry (persistence)
 
-Adresář `registry/` — **nikdy se z něj nemaže**, pouze se přidává a aktualizuje.
+Adresář `registry/` — **append-only, nikdy se nemaže**.
 
-### `registry/known_problems.yaml`
-
-Seznam všech dříve viděných problémů. Každý záznam:
-```yaml
-- id: KP-000123
-  problem_key: BUSINESS:card_servicing:validation_error
-  category: business
-  flow: card_servicing
-  error_class: validation_error
-  first_seen: '2026-01-14T10:01:54+00:00'
-  last_seen: '2026-03-26T09:15:00+00:00'
-  occurrences: 1842
-  behavior: |
-    Behavior (trace flow): 3 messages
-      1) bff-pcb-ch-card-servicing-v1
-         "ValidationException: card number invalid"
-      2) bl-pcb-v1 (same error)
-    Inferred root cause: bff-pcb-ch-card-servicing-v1: ValidationException
-```
-
-### `registry/known_peaks.yaml`
-
-Seznam všech detekovaných peaků:
-```yaml
-- id: PK-000042
-  problem_key: PEAK:business:card_servicing:spike
-  peak_type: SPIKE
-  first_seen: '2026-03-01T08:00:00+00:00'
-  last_seen: '2026-03-01T09:15:00+00:00'
-  occurrences: 4
-  affected_apps: [bff-pcb-ch-card-servicing-v1, bl-pcb-v1]
-  affected_namespaces: [pcb-dev-01-app, pcb-sit-01-app]
-```
-
-### `registry/fingerprint_index.yaml`
-
-Inverzní index pro rychlý lookup:
-```yaml
-BUSINESS:card_servicing:validation_error:
-  - a1b2c3d4e5f6a7b8
-  - 9f8e7d6c5b4a3f2e
-```
-
-### `registry/alert_state_regular_phase.json`
-
-Stavový soubor pro řízení alertů:
-```json
-{
-  "peaks": {
-    "PK-000042": {
-      "last_alert_sent": "2026-03-26T09:00:00+00:00",
-      "alert_count": 2,
-      "last_error_count": 1540
-    }
-  }
-}
-```
-
-Slouží pro:
-- **Cooldown** — default 45 min (`ALERT_COOLDOWN_MIN`)
-- **Heartbeat** — opakovaný alert i pro pokračující peak po 120 min (`ALERT_HEARTBEAT_MIN`)
-- **Trend** — porovnání s předchozím oknem (rising/falling/stable)
-- **Continuation** — detekce zda peak přetrvává z předchozího okna (`ALERT_CONTINUATION_LOOKBACK_MIN=60`)
+| Soubor | Popis |
+|--------|-------|
+| `known_problems.yaml` | Všechny dříve viděné problémy (problem_key, category, flow, behavior, root_cause) |
+| `known_peaks.yaml` | Všechny detekované peaky (peak_type, affected_apps, affected_namespaces) |
+| `fingerprint_index.yaml` | Inverzní index: fingerprint → problem_key |
+| `alert_state_regular_phase.json` | Stav alertů: cooldown, heartbeat, trend, počet alertů per okno |
 
 ---
 
 ## Konfigurační soubory
 
-### `config/namespaces.yaml`
-
-Seznam Kubernetes namespace, které jsou monitorovány:
-```yaml
-namespaces:
-  - pca-dev-01-app
-  - pcb-dev-01-app
-  - pcb-sit-01-app
-  - pcb-uat-01-app
-  # ...
-```
-
-### `config/known_issues/known_errors.yaml`
-
-Manuální knowledge base — lidský kontext ke známým fingerprintům:
-```yaml
-a1b2c3d4e5f6a7b8:
-  description: "ValidationException při zadání neplatného čísla karty"
-  first_seen: 2026-01-10
-  workaround: "Ověřit formát vstupu na frontend straně"
-  fix_status: in_progress  # open | in_progress | fixed | wont_fix
-  jira_ticket: "PCBS-1234"
-```
+| Soubor | Popis |
+|--------|-------|
+| `.env` | Hlavní konfigurace (ES, DB, SMTP, Teams, Confluence, alertování, detekce) |
+| `config/namespaces.yaml` | Seznam monitorovaných K8s namespace |
+| `config/known_issues/known_errors.yaml` | Manuální knowledge base (popis, workaround, JIRA ticket) |
 
 ---
 
 ## Integrace
 
-| Systém        | Typ             | Použití                                              |
-|---------------|-----------------|------------------------------------------------------|
-| Elasticsearch | HTTP REST (čtení)| Zdrojová data — error logy aplikací                  |
-| PostgreSQL    | psycopg2        | Persistence thresholdů, raw dat, peaků              |
-| SMTP / Teams  | HTTP/email (zápis) | Notifikace při detekci peaku                      |
-| Confluence    | HTTP REST (zápis) | Known Errors a Known Peaks stránky                 |
+| Systém | Typ | Použití |
+|--------|-----|---------|
+| Elasticsearch | HTTP REST (čtení) | Zdrojová data — error logy aplikací |
+| PostgreSQL | psycopg2 | Persistence thresholdů, raw dat, peaků |
+| SMTP / Teams | HTTP/email (zápis) | Notifikace při detekci peaku |
+| Confluence | HTTP REST (zápis) | Known Errors a Known Peaks stránky |
 
-Všechny integrace jsou **non-blocking** — selhání Teams nebo Confluence neblokuje pipeline, pouze se loguje chyba.
+Všechny integrace jsou **non-blocking** — selhání Teams nebo Confluence neblokuje pipeline.
+
+---
+
+## Orchestrace
+
+### regular_phase.py (15min)
+
+```python
+def run_regular_pipeline():
+    errors = fetch_unlimited(window_start, window_end)
+    baseline_loader = BaselineLoader(db_conn)
+    peak_detector = PeakDetector(conn=get_db_connection())
+    pipeline = Pipeline(peak_detector=peak_detector, ewma_alpha=0.3)
+    pipeline.phase_b.error_type_baseline = baseline_loader.load_historical_rates(...)
+    pipeline.phase_c.registry = registry
+    collection = pipeline.run(errors)
+    save_incidents_to_db(collection)
+    save_namespace_totals_to_raw_data(collection)
+    registry.update_from_incidents(collection.incidents)
+    # dispatch alerts, reports, Confluence export
+```
+
+### backfill.py (daily)
+
+Pro každý den: fetch 24h dat po 15-min oknech → pipeline → DB save → registry update → daily report
+
+### calculate_peak_thresholds.py (týdně)
+
+Čte `peak_raw_data` za N týdnů → počítá P93 per (namespace, DOW) → CAP per namespace → ukládá do DB.
+
+---
+
+## Výstupní soubory
+
+```
+scripts/reports/            # Reporty (text, JSON)
+registry/                   # Append-only YAML evidence (live data, není v gitu)
+scripts/exports/latest/     # CSV/MD pro Confluence upload
+```
+
+---
+
+## Klíčové principy
+
+1. **6 fází, každá přidává data** — žádná fáze neodstraňuje výstup předchozí
+2. **Deterministické** — žádné ML/LLM, jen statistika a pravidla
+3. **Report VŽDY** — generuje se i prázdný
+4. **Registry = append-only** — nikdy se nemaže
+5. **Scope ≠ Propagation** — oddělené datové struktury
+6. **FACT vs HYPOTHESIS** — jasně oddělené v reportech
+7. **P93/CAP spike detekce** — na úrovni namespace, thresholds z DB
+8. **Samozdokonalovací smyčka** — regular phase ukládá namespace totaly do `peak_raw_data`, periodický přepočet P93/CAP
 
 ---
 
 ## Kubernetes nasazení
 
-Dva CronJoby:
-
-| Job              | Schedule        | Skript                          |
-|------------------|-----------------|---------------------------------|
+| Job | Schedule | Skript |
+|-----|----------|--------|
 | `log-analyzer-regular` | `*/15 * * * *` | `scripts/regular_phase.py` |
-| `log-analyzer-backfill` | `0 2 * * *`   | `scripts/backfill.py --days 1` |
+| `log-analyzer-backfill` | `0 2 * * *` | `scripts/backfill.py --days 1` |
+| `log-analyzer-thresholds` | `0 3 * * 0` | `scripts/core/calculate_peak_thresholds.py --weeks 4` |
 
 Image: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:<tag>`
-
-K8s manifesty: `k8s/` v tomto repozitáři.
-Helm values pro nasazení: `~/git/sas/k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/values.yaml`

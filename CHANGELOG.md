@@ -178,6 +178,46 @@ r58 a r59 byly testovací builds vytvořené během iterace nad opravou r57 regr
 
 ---
 
+
+## r45 (2026-03-06) — Email Template Redesign
+
+- Kompletní redesign HTML email šablony pro peak alerty
+- Nový formát subjektu: `ERROR_CLASS | Status | Trend`
+- Strukturované sekce: Summary → Error Details → Affected Scope → Root Cause → Behavior → Propagation
+- Opravena is_continues logika: peak "continued" jen pokud viděn v PŘEDCHOZÍM okně
+- Opravena peak_window_start: nyní správně window_start místo first_seen
+- Trend rozdělen na trend_2h a trend_24h
+
+---
+
+## r44 (2026-03-02) — Peak Continuation & Time Window Fixes
+
+- Oprava time window calculation: peak time ranges ukazují aktuální detection window
+- Oprava peak continuation logiky: jen peaky z PŘEDCHOZÍHO okna se značí "continued"
+- Odstraněn UTC čas z email notifikací (jen CET)
+- K8s job manifesty: oprava generateName → name
+
+---
+
+## r43 (2025-11-13) — Known Peaks Export & Root Cause
+
+- Čisté exporty known peaks/errors
+- Root cause a behavior tracking
+- Dual-window trend analýza
+- Known peaks wiki integrace
+
+---
+
+## r42 (2025-10-11) — CET Notifikace & Category Mapping
+
+- CET timezone notifikace
+- Continuation summary v alertech
+- Peak key alignment
+- 3-wave unknown error reduction
+- r42b: Trace quality improvements
+- r42c: Targeted category mapping pro unknown top signatures
+
+---
 ## v6.1.2 (2026-03-02) - r41 Peak Detection Logic Fix + Notification Clarity
 
 ### Opraveno
