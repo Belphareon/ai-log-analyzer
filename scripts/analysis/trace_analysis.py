@@ -52,6 +52,10 @@ _ROOT_CAUSE_POSITIVE_PATTERNS = [
     re.compile(r'sql|database|constraint', re.IGNORECASE),
     re.compile(r'resource not found', re.IGNORECASE),
     re.compile(r'token scopes|operation not allowed', re.IGNORECASE),
+    re.compile(r'is not filled|not all required data|required field', re.IGNORECASE),
+    re.compile(r'validation failed|invalid value|missing field', re.IGNORECASE),
+    re.compile(r'null pointer|npe|nullpointerexception', re.IGNORECASE),
+    re.compile(r'ServiceBusinessException|BusinessException', re.IGNORECASE),
 ]
 
 

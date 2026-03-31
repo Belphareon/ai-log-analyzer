@@ -136,10 +136,19 @@ def _normalize_message_for_dedup(message: str) -> str:
     if not message:
         return ""
     normalized = message
-    normalized = re.sub(r'[0-9a-fA-F]{8,}', '<ID>', normalized)
-    normalized = re.sub(r'\d+', '<ID>', normalized)
+    # Object addresses: @4f97d62f, @cf459, @dd63, @e6279 etc.
+    normalized = re.sub(r'@[0-9a-fA-F]{2,}', '@<ADDR>', normalized)
+    # UUIDs
+    normalized = re.sub(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>', normalized)
+    # Hex IDs (8+ chars)
+    normalized = re.sub(r'\b[0-9a-fA-F]{8,}\b', '<HEX>', normalized)
+    # Numeric values
+    normalized = re.sub(r'\b\d+\b', '<N>', normalized)
+    # Whitespace
     normalized = re.sub(r'\s+', ' ', normalized).strip()
-    return normalized.lower()
+    # Truncate at 200 chars for dedup (tail differences are noise)
+    normalized = normalized.lower()[:200]
+    return normalized
 
 
 def _trace_message_signal_score(message: str) -> int:
@@ -165,6 +174,15 @@ def _trace_message_signal_score(message: str) -> int:
         'timeout',
         'connection',
         'sql',
+        'is not filled',
+        'not all required data',
+        'required field',
+        'validation failed',
+        'invalid value',
+        'missing field',
+        'servicebusinessexception',
+        'businessexception',
+        'nullpointerexception',
     ]
 
     score = 1 if len(text) >= 40 else 0
@@ -177,33 +195,53 @@ def _select_trace_steps(flow, max_steps: int = 7, min_steps: int = 5) -> List[An
     if not flow or not getattr(flow, 'steps', None):
         return []
 
+    # 1. Dedup by normalized (app, message) — track occurrence count
     unique_steps = []
+    occurrence_counts = {}
     seen = set()
     for step in flow.steps:
         app = getattr(step, 'app', '?')
         msg = getattr(step, 'message', '')
         key = (app, _normalize_message_for_dedup(msg))
         if key in seen:
+            occurrence_counts[key] = occurrence_counts.get(key, 1) + 1
             continue
         seen.add(key)
+        occurrence_counts[key] = 1
         unique_steps.append(step)
+
+    # Store counts on steps for display
+    for step in unique_steps:
+        app = getattr(step, 'app', '?')
+        msg = getattr(step, 'message', '')
+        key = (app, _normalize_message_for_dedup(msg))
+        step._occurrence_count = occurrence_counts.get(key, 1)
 
     if len(unique_steps) <= max_steps:
         return unique_steps
 
-    signal_steps = [s for s in unique_steps if _trace_message_signal_score(getattr(s, 'message', '')) > 0]
-    if len(signal_steps) >= min_steps:
-        selected = signal_steps[:max_steps - 1]
-        last = unique_steps[-1]
-        if last not in selected:
-            selected.append(last)
-        return selected
+    # 2. Score each step
+    scored = [(s, _trace_message_signal_score(getattr(s, 'message', ''))) for s in unique_steps]
+    high_signal = [s for s, score in scored if score > 0]
+    low_signal = [s for s, score in scored if score <= 0]
 
-    head_count = max_steps - 1
-    selected = unique_steps[:head_count]
+    # 3. Build selection: prefer high-signal, fill with low-signal if needed
+    if len(high_signal) >= min_steps:
+        selected = high_signal[:max_steps - 1]
+    elif high_signal:
+        selected = list(high_signal)
+        # Fill remaining slots with low-signal (prefer first and last)
+        remaining = max_steps - 1 - len(selected)
+        if remaining > 0:
+            selected.extend(low_signal[:remaining])
+    else:
+        selected = unique_steps[:max_steps - 1]
+
+    # Always include last step (often the conclusion/outcome)
     last = unique_steps[-1]
     if last not in selected:
         selected.append(last)
+
     return selected
 
 
@@ -481,7 +519,8 @@ def _build_peak_alert_payload(
         for step in steps:
             trace_steps.append({
                 'app': getattr(step, 'app', '?'),
-                'message': getattr(step, 'message', '')
+                'message': getattr(step, 'message', ''),
+                'occurrence_count': getattr(step, '_occurrence_count', 1),
             })
     if not trace_id and trigger_incident is not None:
         trace_id = str(getattr(trigger_incident, 'trace_id', '') or '')
@@ -752,16 +791,18 @@ def _build_peak_notification(
     flow = flow_list[0] if flow_list else None
 
     if flow and getattr(flow, 'steps', None):
+        steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
         lines.append("")
-        lines.append(f"Behavior (trace flow): {len(flow.steps)} messages")
+        lines.append(f"Behavior (trace flow): {len(steps)} unique messages")
         lines.append(f"TraceID: {flow.trace_id}")
         lines.append("")
 
-        steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
         for step in steps:
             app = getattr(step, 'app', '?')
             msg = getattr(step, 'message', '')
-            lines.append(f"{app}")
+            count = getattr(step, '_occurrence_count', 1)
+            count_label = f" [x{count}]" if count > 1 else ""
+            lines.append(f"{app}{count_label}")
             lines.append(f"\"{msg}\"")
 
     if not is_continues and getattr(problem, 'trace_root_cause', None):

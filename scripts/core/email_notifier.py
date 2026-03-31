@@ -470,15 +470,20 @@ Results:
             grp_alerts = group['alerts']
             primary = grp_alerts[0]
             trace_id = str(primary.get('trace_id', '') or 'N/A')
-            # Merge trace_steps from all alerts in group, dedup by message
+            # Merge trace_steps from all alerts in group, dedup by normalized message
             all_trace_steps = []
-            seen_msgs = set()
+            seen_normalized = set()
             for a in grp_alerts:
                 for step in (a.get('trace_steps', []) or []):
                     s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
-                    if s_msg not in seen_msgs:
+                    # Normalize: strip object addresses, hex IDs, numbers for dedup
+                    norm = re.sub(r'@[0-9a-fA-F]{2,}', '@<ADDR>', s_msg)
+                    norm = re.sub(r'\b[0-9a-fA-F]{8,}\b', '<HEX>', norm)
+                    norm = re.sub(r'\b\d+\b', '<N>', norm)
+                    norm = re.sub(r'\s+', ' ', norm).strip().lower()[:200]
+                    if norm not in seen_normalized:
                         all_trace_steps.append(step)
-                        seen_msgs.add(s_msg)
+                        seen_normalized.add(norm)
             trace_steps = all_trace_steps
             root_cause_d = primary.get('root_cause') or {}
             propagation_info = primary.get('propagation_info') or {}
@@ -522,18 +527,15 @@ Results:
             ])
             # Trace flow - merged from all correlated alerts
             if trace_steps:
-                lines.append(f"     Behavior (trace flow): {len(trace_steps)} messages")
+                lines.append(f"     Behavior (trace flow): {len(trace_steps)} unique messages")
                 lines.append("")
-                prev_msg = None
                 for si, step in enumerate(trace_steps, start=1):
                     s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
                     s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
-                    if s_msg == prev_msg:
-                        lines.append(f"       {si}) {s_app} (same error)")
-                    else:
-                        lines.append(f"       {si}) {s_app}")
-                        lines.append(f"          \"{s_msg[:200]}\"")
-                    prev_msg = s_msg
+                    s_count = step.get('occurrence_count', 1) if isinstance(step, dict) else getattr(step, 'occurrence_count', 1)
+                    count_label = f" [x{s_count}]" if s_count > 1 else ""
+                    lines.append(f"       {si}) {s_app}{count_label}")
+                    lines.append(f"          \"{s_msg[:200]}\"")
             if root_cause_d and root_cause_d.get('message'):
                 confidence = root_cause_d.get('confidence', '')
                 conf_label = f' [{confidence}]' if confidence else ''
@@ -582,15 +584,20 @@ Results:
             grp_alerts = group['alerts']
             primary = grp_alerts[0]
             trace_id = str(primary.get('trace_id', '') or 'N/A')
-            # Merge trace_steps from all alerts in group, dedup by message
+            # Merge trace_steps from all alerts in group, dedup by normalized message
             all_trace_steps = []
-            seen_msgs = set()
+            seen_normalized = set()
             for a in grp_alerts:
                 for step in (a.get('trace_steps', []) or []):
                     s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
-                    if s_msg not in seen_msgs:
+                    # Normalize: strip object addresses, hex IDs, numbers for dedup
+                    norm = re.sub(r'@[0-9a-fA-F]{2,}', '@<ADDR>', s_msg)
+                    norm = re.sub(r'\b[0-9a-fA-F]{8,}\b', '<HEX>', norm)
+                    norm = re.sub(r'\b\d+\b', '<N>', norm)
+                    norm = re.sub(r'\s+', ' ', norm).strip().lower()[:200]
+                    if norm not in seen_normalized:
                         all_trace_steps.append(step)
-                        seen_msgs.add(s_msg)
+                        seen_normalized.add(norm)
             trace_steps = all_trace_steps
             root_cause_d = primary.get('root_cause') or {}
             root_cause_text = str(primary.get('root_cause_text', '') or 'N/A')
@@ -641,25 +648,19 @@ Results:
             behavior_html_parts = []
             if trace_steps:
                 behavior_html_parts.append(
-                    f'<div style="margin-top:6px;font-weight:700;text-decoration:underline;">Behavior (trace flow): {len(trace_steps)} messages</div>'
+                    f'<div style="margin-top:6px;font-weight:700;text-decoration:underline;">Behavior (trace flow): {len(trace_steps)} unique messages</div>'
                 )
-                prev_msg = None
                 for si, step in enumerate(trace_steps, start=1):
                     s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
                     s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
-                    if s_msg == prev_msg:
-                        behavior_html_parts.append(
-                            f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
-                            f'<strong>{si}) {s_app}</strong> <em>(same error)</em></div>'
-                        )
-                    else:
-                        esc_msg = s_msg.replace('<', '&lt;').replace('>', '&gt;')[:300]
-                        behavior_html_parts.append(
-                            f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
-                            f'<strong>{si}) {s_app}</strong><br>'
-                            f'&nbsp;&nbsp;&nbsp;&quot;{esc_msg}&quot;</div>'
-                        )
-                    prev_msg = s_msg
+                    s_count = step.get('occurrence_count', 1) if isinstance(step, dict) else getattr(step, 'occurrence_count', 1)
+                    count_html = f' <span style="color:#c62828;font-weight:600;">[x{s_count}]</span>' if s_count > 1 else ''
+                    esc_msg = s_msg.replace('<', '&lt;').replace('>', '&gt;')[:300]
+                    behavior_html_parts.append(
+                        f'<div style="margin-top:4px;padding-left:12px;font-size:13px;">'
+                        f'<strong>{si}) {s_app}</strong>{count_html}<br>'
+                        f'&nbsp;&nbsp;&nbsp;&quot;{esc_msg}&quot;</div>'
+                    )
             if root_cause_d and root_cause_d.get('message'):
                 confidence = root_cause_d.get('confidence', '')
                 conf_label = f' [{confidence}]' if confidence else ''

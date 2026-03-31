@@ -4,6 +4,41 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r64 (2026-03-31) — Trace flow dedup, signal filtering, root cause detection
+
+### Opraveno
+
+- **Trace flow deduplikace** (`scripts/regular_phase.py`)
+  - Vylepšená normalizace `_normalize_message_for_dedup()`: nově odstraňuje Java object adresy (`@4f97d62f` → `@<ADDR>`), UUIDs, hex IDs, a zkracuje na 200 znaků
+  - Zprávy lišící se jen hex adresou se korektně deduplikují (např. 5× "Step processing failed" → 1 unikátní)
+
+- **Výběr trace kroků** (`scripts/regular_phase.py`)
+  - `_select_trace_steps()` nově preferuje high-signal kroky a odfiltruje low-signal (score ≤ 0)
+  - Trackuje `_occurrence_count` pro každý deduplikovaný krok
+  - Fallback: pokud není dost signal kroků, doplní low-signal (místo všeho)
+
+- **Repetition count zobrazení** (`scripts/regular_phase.py`, `scripts/core/email_notifier.py`)
+  - Text i HTML výstup zobrazuje `[x5]` u opakujících se kroků
+  - Záhlaví: "N unique messages" místo "N messages"
+  - Email notifier: normalizovaná deduplikace (nejen raw string match)
+
+- **Root cause positive patterns** (`scripts/analysis/trace_analysis.py`, `scripts/regular_phase.py`)
+  - Přidány nové detekční vzory: `is not filled`, `not all required data`, `required field`, `validation failed`, `invalid value`, `missing field`, `ServiceBusinessException`, `BusinessException`, `NullPointerException`
+  - Root cause detekce nyní lépe identifikuje business chyby (např. "Field 'primaryAddress' is not filled")
+
+### Důvod
+
+Alert z 2026-03-31 07:30-07:45 zobrazil 11 trace zpráv místo 5 — duplikáty, low-signal noise.
+Skutečný root cause ("Client has not all required data") se ztrácel pod závalem "Step processing failed".
+
+### Změněné soubory
+
+| Soubor | Změna |
+|--------|-------|
+| `scripts/regular_phase.py` | Normalizace, step selection, signal patterns, occurrence count |
+| `scripts/analysis/trace_analysis.py` | Root cause positive patterns (+4 nové skupiny) |
+| `scripts/core/email_notifier.py` | Normalized dedup, occurrence count display (text+HTML) |
+
 ## r62 (2026-03-26) — Dark mode, ratio rounding, structured behavior v Confluence
 
 ### Opraveno
