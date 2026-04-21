@@ -107,3 +107,10 @@ _backups/
 
 # AI session context dumps
 last context*.txt
+
+# Ad-hoc test/debug scripts (must not be committed)
+test_confluence_connection.py
+verify_baseline_fix.py
+
+# Archived docs (removed from repo)
+docs/archive/
