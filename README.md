@@ -2,7 +2,7 @@
 
 Automatizovaný systém pro detekci, klasifikaci a eskalaci chybových incidentů z aplikačních logů v Kubernetes.
 
-**[Jak to funguje](docs/HOW_IT_WORKS.md)** | **[Architektura](docs/ARCHITECTURE.md)** | **[Instalace](docs/INSTALLATION.md)** | **[Provoz](docs/OPERATIONS.md)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)** | **[Changelog](CHANGELOG.md)**
+**[Jak to funguje](docs/HOW_IT_WORKS.md)** | **[Architektura](docs/ARCHITECTURE.md)** | **[Instalace](docs/INSTALLATION.md)** | **[Provoz](docs/OPERATIONS.md)** | **[Troubleshooting](docs/TROUBLESHOOTING.md)** | **[Telemetrie](docs/TELEMETRY.md)** | **[Testování](docs/TESTING.md)** | **[Changelog](CHANGELOG.md)**
 
 ---
 

@@ -58,6 +58,8 @@ class ProblemAggregate:
     # Per-entity raw error counts (for display: "bl-pcb-v1 (1234)")
     app_counts: Dict[str, int] = field(default_factory=dict)
     ns_counts: Dict[str, int] = field(default_factory=dict)
+    originator_application_counts: Dict[str, int] = field(default_factory=dict)
+    trace_event_counts: Dict[str, int] = field(default_factory=dict)
 
     # Trace IDs (jen unikátní, pro další analýzu)
     trace_ids: Set[str] = field(default_factory=set)
@@ -121,17 +123,43 @@ class ProblemAggregate:
         self.deployment_labels.update(incident.deployment_labels)
         self.environments.update(incident.environments)
 
-        # Per-entity counts
-        for app in incident.apps:
-            self.app_counts[app] = self.app_counts.get(app, 0) + count
-        for ns in incident.namespaces:
-            self.ns_counts[ns] = self.ns_counts.get(ns, 0) + count
+        # Per-entity counts - prefer raw record counts from pipeline, fallback to legacy fan-out
+        app_event_counts = getattr(incident, 'app_event_counts', {}) or {}
+        if app_event_counts:
+            for app, app_count in app_event_counts.items():
+                if app:
+                    self.app_counts[app] = self.app_counts.get(app, 0) + int(app_count or 0)
+        else:
+            for app in incident.apps:
+                self.app_counts[app] = self.app_counts.get(app, 0) + count
+
+        namespace_event_counts = getattr(incident, 'namespace_event_counts', {}) or {}
+        if namespace_event_counts:
+            for ns, ns_count in namespace_event_counts.items():
+                if ns:
+                    self.ns_counts[ns] = self.ns_counts.get(ns, 0) + int(ns_count or 0)
+        else:
+            for ns in incident.namespaces:
+                self.ns_counts[ns] = self.ns_counts.get(ns, 0) + count
+
+        originator_counts = getattr(incident, 'originator_application_counts', {}) or {}
+        for originator, originator_count in originator_counts.items():
+            if originator:
+                self.originator_application_counts[originator] = (
+                    self.originator_application_counts.get(originator, 0) + int(originator_count or 0)
+                )
+
+        trace_event_counts = getattr(incident, 'trace_event_counts', {}) or {}
+        for trace_id, trace_count in trace_event_counts.items():
+            if trace_id:
+                self.trace_event_counts[trace_id] = self.trace_event_counts.get(trace_id, 0) + int(trace_count or 0)
 
         # Trace IDs
         if hasattr(incident, 'trace_ids'):
             self.trace_ids.update(incident.trace_ids)
         if hasattr(incident, 'trace_info') and incident.trace_info:
             self.trace_ids.update(incident.trace_info.trace_ids)
+        self.trace_ids.update(self.trace_event_counts.keys())
         self.trace_count = len(self.trace_ids)
 
         # Flags (OR)
@@ -218,6 +246,10 @@ class ProblemAggregate:
             'app_versions': sorted(self.app_versions),
             'deployment_labels': sorted(self.deployment_labels),
             'environments': sorted(self.environments),
+            'app_counts': dict(sorted(self.app_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+            'ns_counts': dict(sorted(self.ns_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+            'originator_application_counts': dict(sorted(self.originator_application_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
+            'trace_event_counts': dict(sorted(self.trace_event_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             'trace_count': self.trace_count,
             # Behavior / Trace Flow
             'trace': {

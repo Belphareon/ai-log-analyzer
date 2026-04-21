@@ -94,3 +94,16 @@ DB_ACCESS_GUIDE.md
 LOCAL_*.md
 CREDENTIALS_*.md
 registry_legacy_20260127/
+
+# Virtual environments (all variants)
+venv_new/
+
+# Runtime logs and OS artefacts
+nohup.out
+corp-proxy.crt
+
+# Backup archives
+_backups/
+
+# AI session context dumps
+last context*.txt

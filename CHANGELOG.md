@@ -4,6 +4,94 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r66 (2026-04-13) — Peak cluster merge, smart message filter, trend state machine, behavior 3-step
+
+### Nové
+
+- **Peak cluster merge** (`scripts/regular_phase.py`)
+  - Problems sharing same dominant trace (>50% overlap) or same error_class+NS are merged into one alert
+  - Eliminates duplicate rows (e.g. 2× accessdeniedexception + 1× auth_error → 1 cluster)
+  - Counts, apps, NS, originators are properly summed across cluster members
+
+- **Smart message extraction** (`scripts/analysis/trace_analysis.py`)
+  - `_extract_useful_content()`: Parses `Handle fault...message=X` → extracts X
+  - SPEED-101/ITO codes → compact `Service#Method → HTTP_code`
+  - Stack traces → first line only
+  - Wrappers (`... error handled.`, case processing, `Handle fault` with null message) → filtered out
+  - `_smart_trim()`: 250 chars, never cuts mid-word
+
+- **Behavior as 3 numbered steps** (`scripts/regular_phase.py`, `scripts/core/email_notifier.py`)
+  - Behavior is now formatted as numbered list (1. app: message, 2. ..., 3. ...)
+  - Steps are deduplicated by normalized message content
+  - Email digest renders behavior as multi-line with proper numbering
+
+- **Root cause dedup against behavior** (`scripts/analysis/trace_analysis.py`)
+  - `infer_problem_root_cause()` now receives behavior_steps and avoids selecting same message
+  - Root cause is guaranteed different from behavior step content
+
+- **Originator display** in alerts and digest (`scripts/regular_phase.py`, `scripts/core/email_notifier.py`)
+  - Shows top 3 originator applications with counts
+
+### Opraveno
+
+- **Trend state machine** (`scripts/regular_phase.py`)
+  - First window of any peak = always `rising` (previously could show `falling`/`stable`)
+  - Only subsequent continuing windows use historical average for stable/falling
+
+- **Correct counts from per-entity counts** (`scripts/regular_phase.py`)
+  - Cluster merge sums raw error counts across all constituent problems
+  - Apps limited to top 5 with counts in payload
+
+- **Known Peaks table rework** (`scripts/exports/table_exporter.py`)
+  - Removed: `category`, `peak_type`, `peak_ratio` columns
+  - Column order: peak_id | test | first_seen | last_seen | NS(top5+counts) | Apps(top5+counts) | root_cause | behavior | peak_count | occurrence_count | avg_errors_per_peak | activity
+  - Activity based on 7-day window (active/inactive)
+
+- **Peak behavior stored with smart extraction** (`scripts/core/problem_registry.py`)
+  - PeakEntry.behavior and root_cause now use `_extract_useful_content` for cleaner storage
+
+- **Message signal scoring** (`scripts/analysis/trace_analysis.py`)
+  - Wrappers get instant disqualify score (-10/-5) instead of mild penalty
+  - Prevents wrapper messages from appearing in behavior or root cause
+
+---
+
+## r65 (2026-04-10) — Problem history in reports, dominant peak patterns, NEW trend gating
+
+### Opraveno
+
+- **Problem-level behavior a root cause v peak/report outputu** (`scripts/analysis/trace_analysis.py`, `scripts/regular_phase.py`, `scripts/core/email_notifier.py`)
+  - Behavior už nepreferuje syntetický flow z jednoho reprezentativního trace, ale dominantní patterny napříč incidenty problému
+  - Root cause preferuje konkrétní opakující se message patterny a potlačuje wrappery typu `... error handled.`
+  - Detail peak alertů a reportů zobrazuje bohatší behavior metadata (count/share/namespaces)
+
+- **Trend pouze pro pokračující peaky** (`scripts/regular_phase.py`, `scripts/core/email_notifier.py`)
+  - `rising/stable/falling` se nově počítá a renderuje jen pro peak, který pokračuje z předchozího okna
+  - `NEW` peak už nedostává falešný trend
+
+- **Recent Incidents / Problem report ukazuje historický začátek problému** (`scripts/analysis/problem_report.py`, `scripts/backfill.py`, `scripts/regular_phase.py`)
+  - Report nově doplňuje `Known since: ... (registry)`, pokud registry ví o starším `first_seen` než aktuální analyzované okno
+  - JSON report nese i `registry_first_seen` a `registry_last_seen`
+
+### Důvod
+
+Peak alerty a Recent Incidents byly pro operátorské čtení zavádějící ve dvou bodech:
+- root cause/behavior příliš často ukazovaly wrapper nebo jeden náhodný trace místo dominantního patternu
+- reporty pracovaly jen s aktuálním analyzovaným oknem, takže známé problémy vypadaly jako nové nebo krátkodobé
+
+### Změněné soubory
+
+| Soubor | Změna |
+|--------|-------|
+| `scripts/analysis/trace_analysis.py` | Dominant pattern aggregation, root cause inference |
+| `scripts/regular_phase.py` | Behavior selection, trend gating, registry-aware reports |
+| `scripts/core/email_notifier.py` | NEW peak trend suppression, richer behavior rendering |
+| `scripts/analysis/problem_report.py` | `Known since` z registry + registry timestamps v JSON |
+| `scripts/backfill.py` | Předání registry historie do problem reportu |
+| `scripts/exports/table_exporter.py` | Registry-backed operator exports |
+
+---
+
 ## r64 (2026-03-31) — Trace flow dedup, signal filtering, root cause detection
 
 ### Opraveno

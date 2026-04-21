@@ -88,6 +88,7 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                 "service.name",                # Service that produced error
                 "http.status_code",            # HTTP status
                 "stack_trace",                 # For better analysis
+                "context.originatorApplication",
                 ]
             }
 
@@ -159,6 +160,13 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                 if isinstance(msg, str):
                     msg = msg[:500]
                 
+                context_obj = source.get('context', {}) if isinstance(source.get('context'), dict) else {}
+                originator_application = (
+                    source.get('context.originatorApplication')
+                    or context_obj.get('originatorApplication')
+                    or ''
+                )
+
                 all_errors.append({
                     'message': msg,
                     'application': source.get('application.name', 'unknown'),
@@ -166,6 +174,7 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                     'namespace': source.get('kubernetes', {}).get('namespace', 'unknown'),
                     'timestamp': source.get('@timestamp', ''),
                     'trace_id': source.get('traceId', ''),
+                    'originator_application': originator_application,
                     'pcbs_master': source.get('kubernetes', {}).get('labels', {}).get('eamApplication', 'unknown'),
                 })
             

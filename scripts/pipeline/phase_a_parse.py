@@ -57,6 +57,7 @@ class NormalizedRecord:
     span_id: Optional[str] = None           # NEW: span v rámci trace
     parent_span_id: Optional[str] = None    # NEW: parent span
     environment: str = "unknown"            # NEW: prod/uat/sit/dev
+    originator_application: Optional[str] = None
 
     # Normalized
     normalized_message: str = ""
@@ -414,6 +415,14 @@ class PhaseA_Parser:
         # Extract app version (ONLY from explicit field, never from name!)
         app_version = self.extract_app_version(app_name, error)
 
+        originator_application = (
+            error.get('originator_application')
+            or error.get('originatorApplication')
+            or error.get('context.originatorApplication')
+            or (error.get('context', {}).get('originatorApplication') if isinstance(error.get('context'), dict) else None)
+            or None
+        )
+
         # Extract trace info
         if HAS_TELEMETRY:
             trace_id = extract_trace_id(error)
@@ -446,6 +455,7 @@ class PhaseA_Parser:
             span_id=span_id,
             parent_span_id=parent_span_id,
             environment=environment,
+            originator_application=originator_application,
             normalized_message=normalized_message,
             error_type=error_type,
             fingerprint=fingerprint,

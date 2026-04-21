@@ -92,15 +92,35 @@ class ProblemReportGenerator:
         analysis_start: datetime = None,
         analysis_end: datetime = None,
         run_id: str = "",
+        registry_problems: Dict[str, Any] = None,
     ):
         self.problems = problems
         self.trace_flows = trace_flows or {}
         self.analysis_start = analysis_start
         self.analysis_end = analysis_end
         self.run_id = run_id
+        self.registry_problems = registry_problems or {}
 
         # Enrich problems with analysis
         self._enrich_problems()
+
+    def _get_registry_problem(self, problem: ProblemAggregate) -> Optional[Any]:
+        return self.registry_problems.get(problem.problem_key)
+
+    def _format_registry_history(self, problem: ProblemAggregate) -> List[str]:
+        registry_problem = self._get_registry_problem(problem)
+        if not registry_problem or not getattr(registry_problem, 'first_seen', None):
+            return []
+
+        current_first_seen = getattr(problem, 'first_seen', None)
+        registry_first_seen = registry_problem.first_seen
+
+        if current_first_seen and registry_first_seen >= current_first_seen:
+            return []
+
+        return [
+            f"  Known since: {registry_first_seen.strftime('%Y-%m-%d %H:%M')} (registry)"
+        ]
 
     def _enrich_problems(self, output_dir: str = None):
         """Obohatí problémy o všechny analýzy."""
@@ -305,6 +325,7 @@ class ProblemReportGenerator:
         # Time
         if problem.first_seen and problem.last_seen:
             lines.append(f"  Time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - {problem.last_seen.strftime('%H:%M')} ({_format_duration_sec(problem.duration_sec)})")
+        lines.extend(self._format_registry_history(problem))
 
         # Scope
         lines.append(f"  Scope: {len(problem.apps)} apps, {len(problem.namespaces)} namespaces")
@@ -527,6 +548,7 @@ class ProblemReportGenerator:
     def _problem_to_json(self, problem: ProblemAggregate) -> dict:
         """Serializuje jeden problém."""
         data = problem.to_dict()
+        registry_problem = self._get_registry_problem(problem)
 
         # Přidej enriched data
         if hasattr(problem, 'root_cause') and problem.root_cause:
@@ -535,6 +557,9 @@ class ProblemReportGenerator:
             data['propagation'] = problem.propagation_result.to_dict()
         if hasattr(problem, 'version_impact') and problem.version_impact:
             data['version_impact'] = problem.version_impact.to_dict()
+        if registry_problem:
+            data['registry_first_seen'] = registry_problem.first_seen.isoformat() if registry_problem.first_seen else None
+            data['registry_last_seen'] = registry_problem.last_seen.isoformat() if registry_problem.last_seen else None
 
         return data
 

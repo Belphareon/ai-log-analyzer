@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 
 # =============================================================================
@@ -40,6 +40,8 @@ _ROOT_CAUSE_NEGATIVE_PATTERNS = [
     re.compile(r'an unexpected error occurred', re.IGNORECASE),
     re.compile(r'processing of step .* has failed', re.IGNORECASE),
     re.compile(r'handle fault', re.IGNORECASE),
+    re.compile(r'error handled\.?$', re.IGNORECASE),
+    re.compile(r'exception error handled\.?$', re.IGNORECASE),
 ]
 
 _ROOT_CAUSE_POSITIVE_PATTERNS = [
@@ -53,45 +55,135 @@ _ROOT_CAUSE_POSITIVE_PATTERNS = [
     re.compile(r'resource not found', re.IGNORECASE),
     re.compile(r'token scopes|operation not allowed', re.IGNORECASE),
     re.compile(r'is not filled|not all required data|required field', re.IGNORECASE),
-    re.compile(r'validation failed|invalid value|missing field', re.IGNORECASE),
+    re.compile(r'validation error|validation failed|invalid value|missing field|missing required|must not be null|cannot be null|nesmí mít hodnotu Null|nesmí být prázdná', re.IGNORECASE),
     re.compile(r'null pointer|npe|nullpointerexception', re.IGNORECASE),
-    re.compile(r'ServiceBusinessException|BusinessException', re.IGNORECASE),
+    re.compile(r'jsonparseexception', re.IGNORECASE),
+    re.compile(r'invalid user id', re.IGNORECASE),
 ]
 
 
-def _smart_trim(msg: str, max_len: int = 200) -> str:
-    """
-    Smart message trim zachovavajici nejinformativnejsi casti:
-    - Stack trace (obsahuje newline + ' at '): vrati jen prvni radek (exception message)
-    - Dlouhy single-line: head + '...' + tail (dulezity kontext byva na konci)
-    - Kratka zprava: beze zmeny
-    """
-    if len(msg) <= max_len:
-        return msg
+_HANDLE_FAULT_MESSAGE_RE = re.compile(
+    r'Handle fault\. Error:.*?message=([^,\]]+)', re.IGNORECASE
+)
+_SPEED_ITO_RE = re.compile(
+    r'^(SPEED-\d+|ITO-\d+)#([^#]*)#([^#]*)#([^#]*)#([^#]*)#([^#]*)#([^#]*)#([^#]*)#?(.*)$'
+)
+_ERROR_HANDLED_RE = re.compile(r'^\w+(?:Exception|Error)\s+error\s+handled\.?$', re.IGNORECASE)
+_CASE_PROCESSING_RE = re.compile(
+    r'(?:an unexpected error occurred during (?:case )?step processing|'
+    r'asynchronous case processing not started|'
+    r'unexpected exception occurred invoking async method|'
+    r'step processing (?:error|failed),?\s*context\s*stepcontext|'
+    r'processing of step .* has failed)',
+    re.IGNORECASE,
+)
 
-    # Detekce Java stack trace: newline za exception message
-    if '\n' in msg:
-        first_line = msg.split('\n', 1)[0].rstrip()
-        if len(first_line) <= max_len:
-            return first_line
-        msg = first_line  # prvni radek je take prilis dlouhy - fadni do single-line
 
-    # Single-line dlouha zprava: zachovej hlavu i ocas
-    # Dulezity detail (kod chyby, URL, detail=) byva na konci
-    head = msg[:100]
-    tail = msg[-(max_len - 101):]
-    return head + '...' + tail
+def _extract_useful_content(msg: str) -> str:
+    """
+    Extract the most informative part from a raw ES message.
+
+    Rules:
+    - '... error handled.' → empty (useless wrapper)
+    - 'Handle fault. Error: ...message=X...' → extract X
+    - Stack trace → first line only (exception: message)
+    - SPEED-101/ITO codes → compact: Service#Method → HTTP_code (+ trailing detail)
+    - Case processing wrappers → empty (useless)
+    - Everything else → as-is
+    """
+    if not msg:
+        return ''
+    text = msg.strip()
+
+    # 1. "XxxException error handled." → useless
+    if _ERROR_HANDLED_RE.match(text):
+        return ''
+
+    # 2. Case processing wrappers → useless
+    if _CASE_PROCESSING_RE.search(text):
+        return ''
+
+    # 3. Handle fault → extract message= field
+    hf = _HANDLE_FAULT_MESSAGE_RE.search(text)
+    if hf:
+        extracted = hf.group(1).strip().rstrip(']').strip()
+        if extracted and extracted.lower() not in ('null', '<null>', 'service exception'):
+            return extracted
+        # If message= is generic, try detail= field
+        detail_match = re.search(r'detail=([^,\]]+)', text)
+        if detail_match:
+            detail_val = detail_match.group(1).strip().rstrip(']').strip()
+            if detail_val and detail_val.lower() not in ('null', '<null>'):
+                return extracted + ' / ' + detail_val if extracted else detail_val
+        return extracted or ''
+
+    # 4. SPEED-101/ITO structured codes → compact form
+    sm = _SPEED_ITO_RE.match(text)
+    if sm:
+        prefix = sm.group(1)   # e.g. SPEED-101
+        service = sm.group(6)  # e.g. CardServiceImpl
+        method = sm.group(7)   # e.g. getCardDetail
+        http = sm.group(8)     # e.g. 404
+        trailing = sm.group(9).strip().rstrip('#').strip()  # any trailing info
+        parts = []
+        if service and service != 'n/a':
+            parts.append(service)
+        if method and method != 'n/a':
+            parts.append(method)
+        compact = '#'.join(parts) if parts else prefix
+        if http and http != 'n/a':
+            compact += f' → {http}'
+        if trailing:
+            compact += f' ({trailing[:120]})'
+        return compact
+
+    # 5. Stack trace → first line
+    if '\n' in text:
+        first_line = text.split('\n', 1)[0].rstrip()
+        return first_line
+
+    return text
+
+
+def _smart_trim(msg: str, max_len: int = 250) -> str:
+    """
+    Smart message trim:
+    - First runs _extract_useful_content to get the informative part
+    - Then trims if still too long, never cutting mid-word
+    """
+    extracted = _extract_useful_content(msg)
+    if not extracted:
+        return ''
+    if len(extracted) <= max_len:
+        return extracted
+
+    # Trim at last space/period before max_len
+    cut_at = max_len - 3
+    space_pos = extracted.rfind(' ', 0, cut_at)
+    dot_pos = extracted.rfind('.', 0, cut_at)
+    cut = max(space_pos, dot_pos)
+    if cut > max_len // 2:
+        return extracted[:cut] + '...'
+    return extracted[:cut_at] + '...'
 
 
 def _message_signal_score(message: str) -> int:
+    """Score message informativeness. High = specific/useful, low/negative = wrapper/generic."""
     if not message:
         return 0
 
     score = 0
     lowered = message.lower()
 
+    # Length bonus
     if len(lowered) >= 40:
         score += 1
+
+    # Instant disqualify: pure wrappers
+    if _ERROR_HANDLED_RE.match(message.strip()):
+        return -10
+    if _CASE_PROCESSING_RE.search(lowered):
+        return -5
 
     for pattern in _ROOT_CAUSE_POSITIVE_PATTERNS:
         if pattern.search(lowered):
@@ -140,6 +232,256 @@ def normalize_message(message: str) -> str:
     result = re.sub(r'\s+', ' ', result).strip()
 
     return result
+
+
+def _incident_occurrence_count(incident: Any) -> int:
+    if hasattr(incident, 'stats') and getattr(incident, 'stats', None):
+        try:
+            current_count = int(getattr(incident.stats, 'current_count', 0) or 0)
+        except (TypeError, ValueError):
+            current_count = 0
+        if current_count > 0:
+            return current_count
+
+    trace_info = getattr(incident, 'trace_info', None)
+    if trace_info:
+        try:
+            trace_count = int(getattr(trace_info, 'trace_count', 0) or 0)
+        except (TypeError, ValueError):
+            trace_count = 0
+        if trace_count > 0:
+            return trace_count
+
+    raw_samples = getattr(incident, 'raw_samples', None) or []
+    if raw_samples:
+        return len(raw_samples)
+
+    return 1
+
+
+def _best_incident_message(incident: Any) -> str:
+    """Pick the most informative message from an incident's raw_samples + normalized_message."""
+    candidates: List[str] = []
+
+    raw_samples = getattr(incident, 'raw_samples', None) or []
+    for sample in raw_samples:
+        text = str(sample or '').strip()
+        if text:
+            candidates.append(text)
+
+    normalized = str(getattr(incident, 'normalized_message', '') or '').strip()
+    if normalized:
+        candidates.append(normalized)
+
+    if not candidates:
+        return ''
+
+    # Rank by: extracted content signal > length
+    def _candidate_rank(message: str) -> Tuple[int, int]:
+        extracted = _extract_useful_content(message)
+        if not extracted:
+            return (-100, 0)
+        return (_message_signal_score(extracted), len(extracted))
+
+    return max(candidates, key=_candidate_rank)
+
+
+def summarize_problem_patterns(problem: Any, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Summarize dominant message patterns across incidents in a problem.
+
+    Uses _extract_useful_content to clean messages before grouping.
+    Filters out wrappers ('... error handled.', 'Handle fault...', case processing).
+    Deduplicates by normalized extracted content.
+    """
+    incidents = getattr(problem, 'incidents', None) or []
+    if not incidents:
+        return []
+
+    pattern_map: Dict[str, Dict[str, Any]] = {}
+    total_occurrences = max(1, int(getattr(problem, 'total_occurrences', 0) or 0))
+
+    skipped_raw: List[Tuple[Any, str]] = []  # (incident, raw_message) for fallback
+
+    for incident in incidents:
+        best_raw = _best_incident_message(incident)
+        extracted = _extract_useful_content(best_raw)
+        if not extracted:
+            # Try normalized_message directly
+            extracted = _extract_useful_content(
+                str(getattr(incident, 'normalized_message', '') or '')
+            )
+        if not extracted:
+            # Save for fallback if ALL messages are wrappers
+            raw_fallback = best_raw or str(getattr(incident, 'normalized_message', '') or '')
+            if raw_fallback:
+                skipped_raw.append((incident, raw_fallback))
+            continue
+
+        normalized_key = normalize_message(extracted)
+        if not normalized_key:
+            continue
+
+        count = _incident_occurrence_count(incident)
+        entry = pattern_map.setdefault(normalized_key, {
+            'normalized_key': normalized_key,
+            'message': extracted,
+            'signal': _message_signal_score(extracted),
+            'count': 0,
+            'app_counts': Counter(),
+            'namespace_counts': Counter(),
+            'trace_counts': Counter(),
+        })
+
+        entry['count'] += count
+        new_signal = _message_signal_score(extracted)
+        if new_signal > entry['signal']:
+            entry['signal'] = new_signal
+            entry['message'] = extracted
+
+        # Use per-entity counts from incident if available
+        app_event_counts = getattr(incident, 'app_event_counts', {}) or {}
+        if app_event_counts:
+            for app, ac in app_event_counts.items():
+                if app:
+                    entry['app_counts'][app] += int(ac or 0)
+        else:
+            for app in getattr(incident, 'apps', None) or []:
+                if app:
+                    entry['app_counts'][app] += count
+
+        ns_event_counts = getattr(incident, 'namespace_event_counts', {}) or {}
+        if ns_event_counts:
+            for ns, nc in ns_event_counts.items():
+                if ns:
+                    entry['namespace_counts'][ns] += int(nc or 0)
+        else:
+            for namespace in getattr(incident, 'namespaces', None) or []:
+                if namespace:
+                    entry['namespace_counts'][namespace] += count
+
+        for trace_id in getattr(incident, 'trace_ids', None) or []:
+            if trace_id:
+                entry['trace_counts'][trace_id] += 1
+
+    # Fallback: if ALL incidents were wrappers, re-add them with raw messages
+    if not pattern_map and skipped_raw:
+        for incident, raw_msg in skipped_raw:
+            normalized_key = normalize_message(raw_msg)
+            if not normalized_key:
+                continue
+            count = _incident_occurrence_count(incident)
+            entry = pattern_map.setdefault(normalized_key, {
+                'normalized_key': normalized_key,
+                'message': raw_msg[:250],
+                'signal': -1,
+                'count': 0,
+                'app_counts': Counter(),
+                'namespace_counts': Counter(),
+                'trace_counts': Counter(),
+            })
+            entry['count'] += count
+            for app in getattr(incident, 'apps', None) or []:
+                if app:
+                    entry['app_counts'][app] += count
+            for ns in getattr(incident, 'namespaces', None) or []:
+                if ns:
+                    entry['namespace_counts'][ns] += count
+
+    # Filter out any entries that still have low signal (wrappers that slipped through)
+    useful_entries = [e for e in pattern_map.values() if e['signal'] >= -2]
+    if not useful_entries:
+        useful_entries = list(pattern_map.values())
+
+    ordered = sorted(
+        useful_entries,
+        key=lambda item: (
+            -item['signal'],
+            -item['count'],
+            item['normalized_key'],
+        )
+    )
+
+    summary: List[Dict[str, Any]] = []
+    seen_messages: set = set()
+    for item in ordered:
+        if len(summary) >= limit:
+            break
+        # Deduplicate: skip if a very similar message is already in summary
+        trimmed = _smart_trim(item['message'])
+        # Never store empty message - fallback to raw
+        display_msg = trimmed if trimmed else item['message'][:250]
+        dedup_key = normalize_message(display_msg or item['normalized_key'])[:80].lower()
+        if dedup_key in seen_messages:
+            continue
+        seen_messages.add(dedup_key)
+
+        app_counts = sorted(item['app_counts'].items(), key=lambda kv: (-kv[1], kv[0]))
+        namespace_counts = sorted(item['namespace_counts'].items(), key=lambda kv: (-kv[1], kv[0]))
+        trace_counts = sorted(item['trace_counts'].items(), key=lambda kv: (-kv[1], kv[0]))
+        dominant_app = app_counts[0][0] if app_counts else '?'
+        summary.append({
+            'app': dominant_app,
+            'message': display_msg,
+            'count': int(item['count']),
+            'share_pct': round((item['count'] / total_occurrences) * 100, 1),
+            'apps': [name for name, _ in app_counts[:5]],
+            'namespaces': [name for name, _ in namespace_counts[:5]],
+            'trace_ids': [name for name, _ in trace_counts[:3]],
+            'signal': int(item['signal']),
+        })
+
+    return summary
+
+
+def infer_problem_root_cause(
+    problem: Any,
+    behavior_patterns: Optional[List[Dict[str, Any]]] = None,
+    behavior_steps: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Select root cause from dominant patterns.
+
+    Rules:
+    - Never return wrapper ('... error handled.', 'Handle fault...')
+    - Never return same message as a behavior step (avoid duplication)
+    - Prefer: specific business error > SPEED/ITO code > exception message > error_class
+    """
+    patterns = behavior_patterns or summarize_problem_patterns(problem, limit=8)
+    if not patterns:
+        return None
+
+    # Build set of behavior messages for dedup
+    behavior_messages: set = set()
+    for step in (behavior_steps or []):
+        msg = normalize_message(str(step.get('message', '') or ''))[:80].lower()
+        if msg:
+            behavior_messages.add(msg)
+
+    def _rc_rank(item: Dict[str, Any]) -> Tuple[int, int, int]:
+        msg = str(item.get('message', '') or '')
+        signal = int(item.get('signal', 0) or 0)
+        count = int(item.get('count', 0) or 0)
+        # Penalize if same as behavior step
+        dedup_key = normalize_message(msg)[:80].lower()
+        dup_penalty = -50 if dedup_key in behavior_messages else 0
+        return (dup_penalty, signal, count)
+
+    candidates = [p for p in patterns if p.get('signal', 0) >= 0]
+    if not candidates:
+        candidates = patterns
+
+    best = max(candidates, key=_rc_rank)
+    signal = int(best.get('signal', 0) or 0)
+    confidence = 'high' if signal >= 3 else ('medium' if signal > 0 else 'low')
+
+    return {
+        'service': best.get('app', '?'),
+        'message': str(best.get('message', '') or ''),
+        'level': 'ERROR' if signal > 0 else 'WARN',
+        'timestamp': None,
+        'confidence': confidence,
+    }
 
 
 @dataclass
@@ -747,11 +1089,19 @@ def enrich_problem_with_trace(
     if not flow.steps:
         return problem
 
-    # 3. Zkrácený flow (2+1)
-    problem.trace_flow_summary = summarize_trace_flow_to_dict(flow)
+    # 3. Problem-level behavior summary napric incidenty (ne fake per-app trace flow)
+    behavior_patterns = summarize_problem_patterns(problem)
+    problem.trace_flow_summary = behavior_patterns or summarize_trace_flow_to_dict(flow)
 
-    # 4. Root cause z trace
-    problem.trace_root_cause = infer_trace_root_cause(flow)
+    # 4. Root cause preferuj z dominantnich patternu problemu, fallback na trace
+    #    Pass behavior_steps to dedup: root cause != behavior step
+    problem.trace_root_cause = infer_problem_root_cause(
+        problem,
+        behavior_patterns=behavior_patterns,
+        behavior_steps=behavior_patterns,
+    )
+    if not problem.trace_root_cause:
+        problem.trace_root_cause = infer_trace_root_cause(flow)
 
     # 5. Ulož plný trace (volitelně)
     if output_dir:

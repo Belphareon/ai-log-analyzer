@@ -6,6 +6,9 @@
 #
 # Push:
 #   docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
+#
+# Run (local test):
+#   docker run --env-file .env dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
 # ============================================================================
 
 FROM python:3.11-slim

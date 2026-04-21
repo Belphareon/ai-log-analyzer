@@ -202,6 +202,13 @@ class Incident:
     apps: List[str] = field(default_factory=list)           # deployment_labels (mohou obsahovat -v1)
     namespaces: List[str] = field(default_factory=list)
     environments: List[str] = field(default_factory=list)   # prod/uat/sit/dev
+    originator_applications: List[str] = field(default_factory=list)
+
+    # Raw per-entity counts for accurate peak rendering/export
+    app_event_counts: Dict[str, int] = field(default_factory=dict)
+    namespace_event_counts: Dict[str, int] = field(default_factory=dict)
+    originator_application_counts: Dict[str, int] = field(default_factory=dict)
+    trace_event_counts: Dict[str, int] = field(default_factory=dict)
 
     # Oddělené verze a deploymenty
     deployment_labels: List[str] = field(default_factory=list)  # Explicitní deployment labels
@@ -286,6 +293,11 @@ class Incident:
             "apps": self.apps,
             "namespaces": self.namespaces,
             "environments": self.environments,
+            "originator_applications": self.originator_applications,
+            "app_event_counts": self.app_event_counts,
+            "namespace_event_counts": self.namespace_event_counts,
+            "originator_application_counts": self.originator_application_counts,
+            "trace_event_counts": self.trace_event_counts,
             "deployment_labels": self.deployment_labels,
             "app_versions": self.app_versions,
             "versions": self.versions,  # DEPRECATED
@@ -364,6 +376,11 @@ class Incident:
         # Lists
         inc.apps = data.get("apps", [])
         inc.namespaces = data.get("namespaces", [])
+        inc.originator_applications = data.get("originator_applications", [])
+        inc.app_event_counts = data.get("app_event_counts", {})
+        inc.namespace_event_counts = data.get("namespace_event_counts", {})
+        inc.originator_application_counts = data.get("originator_application_counts", {})
+        inc.trace_event_counts = data.get("trace_event_counts", {})
         inc.versions = data.get("versions", [])
         
         # Flags

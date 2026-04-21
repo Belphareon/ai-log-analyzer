@@ -933,6 +933,7 @@ def run_backfill(
             analysis_start=start_date,
             analysis_end=end_date,
             run_id=all_incidents_collection.run_id,
+            registry_problems=_global_registry.problems if _global_registry is not None else None,
         )
 
         # Textový report

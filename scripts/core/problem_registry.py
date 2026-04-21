@@ -53,6 +53,57 @@ MAX_FINGERPRINTS_PER_PROBLEM = 500  # Warning above this
 MAX_SAMPLE_MESSAGES_PER_FP = 5
 MAX_PROBLEMS_WARNING = 5000
 MAX_FINGERPRINTS_WARNING = 100000
+TEST_PEAK_ORIGINATORS = tuple(
+    item.strip().lower()
+    for item in os.getenv('TEST_PEAK_ORIGINATORS', 'MochaXTestApp').split(',')
+    if item.strip()
+)
+TEST_PEAK_MIN_SHARE = float(os.getenv('TEST_PEAK_MIN_SHARE', '0.5'))
+
+
+def _normalize_count_dict(counts: Optional[Dict[str, Any]]) -> Dict[str, int]:
+    normalized: Dict[str, int] = {}
+    for key, value in (counts or {}).items():
+        if not key:
+            continue
+        try:
+            count = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if count <= 0:
+            continue
+        normalized[str(key)] = count
+    return normalized
+
+
+def _merge_count_dict(target: Dict[str, int], source: Optional[Dict[str, Any]]) -> None:
+    for key, count in _normalize_count_dict(source).items():
+        target[key] = target.get(key, 0) + count
+
+
+def _sorted_count_dict(counts: Optional[Dict[str, int]]) -> Dict[str, int]:
+    return {
+        key: value
+        for key, value in sorted((counts or {}).items(), key=lambda kv: (-kv[1], kv[0]))
+    }
+
+
+def dominant_count_entry(counts: Optional[Dict[str, int]]) -> Tuple[str, int]:
+    normalized = _normalize_count_dict(counts)
+    if not normalized:
+        return '', 0
+    key, value = max(normalized.items(), key=lambda kv: (kv[1], kv[0]))
+    return key, value
+
+
+def is_test_peak_counts(originator_counts: Optional[Dict[str, int]], total_count: int) -> bool:
+    top_originator, top_count = dominant_count_entry(originator_counts)
+    if not top_originator:
+        return False
+    if top_originator.strip().lower() not in TEST_PEAK_ORIGINATORS:
+        return False
+    denominator = max(int(total_count or 0), sum(_normalize_count_dict(originator_counts).values()), 1)
+    return (top_count / denominator) >= TEST_PEAK_MIN_SHARE
 
 
 # =============================================================================
@@ -223,6 +274,14 @@ class PeakEntry:
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
+    app_counts: Dict[str, int] = field(default_factory=dict)
+    namespace_counts: Dict[str, int] = field(default_factory=dict)
+    originator_application_counts: Dict[str, int] = field(default_factory=dict)
+    trace_counts: Dict[str, int] = field(default_factory=dict)
+    dominant_trace_id: str = ""
+    test: bool = False
+    occurrence_times: List[datetime] = field(default_factory=list)
+    occurrence_counts: List[int] = field(default_factory=list)
     
     # Peak-specific
     max_value: float = 0.0
@@ -247,6 +306,14 @@ class PeakEntry:
             'fingerprints': self.fingerprints,
             'affected_apps': sorted(self.affected_apps),
             'affected_namespaces': sorted(self.affected_namespaces),
+            'app_counts': _sorted_count_dict(self.app_counts),
+            'namespace_counts': _sorted_count_dict(self.namespace_counts),
+            'originator_application_counts': _sorted_count_dict(self.originator_application_counts),
+            'trace_counts': _sorted_count_dict(self.trace_counts),
+            'dominant_trace_id': self.dominant_trace_id,
+            'test': self.test,
+            'occurrence_times': [ts.isoformat() for ts in self.occurrence_times],
+            'occurrence_counts': self.occurrence_counts,
             'max_value': self.max_value,
             'max_ratio': self.max_ratio,
             'status': self.status,
@@ -274,6 +341,24 @@ class PeakEntry:
         entry.fingerprints = data.get('fingerprints', [])
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
+        entry.app_counts = _normalize_count_dict(data.get('app_counts', {}))
+        entry.namespace_counts = _normalize_count_dict(data.get('namespace_counts', {}))
+        entry.originator_application_counts = _normalize_count_dict(data.get('originator_application_counts', {}))
+        entry.trace_counts = _normalize_count_dict(data.get('trace_counts', {}))
+        entry.dominant_trace_id = str(data.get('dominant_trace_id', '') or '')
+        entry.test = bool(data.get('test', False))
+        raw_times = data.get('occurrence_times', []) or []
+        entry.occurrence_times = []
+        for ts in raw_times:
+            try:
+                entry.occurrence_times.append(datetime.fromisoformat(ts))
+            except Exception:
+                continue
+        raw_counts = data.get('occurrence_counts', []) or []
+        if raw_counts and len(raw_counts) == len(entry.occurrence_times):
+            entry.occurrence_counts = [int(c) for c in raw_counts]
+        else:
+            entry.occurrence_counts = [1] * len(entry.occurrence_times)
         entry.max_value = data.get('max_value', 0.0)
         entry.max_ratio = data.get('max_ratio', 0.0)
         entry.status = data.get('status', 'OPEN')
@@ -1182,10 +1267,19 @@ class ProblemRegistry:
             except (TypeError, ValueError):
                 count = 1
 
+        app_counts = getattr(incident, 'app_event_counts', {}) or {}
+        namespace_counts = getattr(incident, 'namespace_event_counts', {}) or {}
+        originator_counts = getattr(incident, 'originator_application_counts', {}) or {}
+        trace_counts = getattr(incident, 'trace_event_counts', {}) or {}
+        if not trace_counts and getattr(incident, 'trace_ids', None):
+            trace_counts = {trace_id: 1 for trace_id in incident.trace_ids if trace_id}
+
         def _window_bucket(ts: Optional[datetime]) -> Optional[datetime]:
             if ts is None:
                 return None
             return ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
+
+        current_bucket = _window_bucket(last_ts)
         
         if peak_key in self.peaks:
             peak = self.peaks[peak_key]
@@ -1198,19 +1292,43 @@ class ProblemRegistry:
                 peak.last_seen = last_ts
 
             previous_bucket = _window_bucket(previous_last_seen)
-            current_bucket = _window_bucket(last_ts)
             if previous_bucket != current_bucket:
                 peak.occurrences += 1
+            if current_bucket is not None:
+                if peak.occurrence_times and _window_bucket(peak.occurrence_times[-1]) == current_bucket:
+                    if peak.occurrence_counts:
+                        peak.occurrence_counts[-1] += count
+                else:
+                    peak.occurrence_times.append(current_bucket)
+                    peak.occurrence_counts.append(count)
+                    peak.occurrences = len(peak.occurrence_times)
 
             peak.raw_error_count += count
             peak.max_value = max(peak.max_value, value)
             peak.max_ratio = max(peak.max_ratio, ratio)
             peak.affected_apps.update(incident.apps or [])
             peak.affected_namespaces.update(incident.namespaces or [])
-            if not peak.root_cause and getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError':
+            _merge_count_dict(peak.app_counts, app_counts)
+            _merge_count_dict(peak.namespace_counts, namespace_counts)
+            _merge_count_dict(peak.originator_application_counts, originator_counts)
+            _merge_count_dict(peak.trace_counts, trace_counts)
+            dominant_trace_id, _ = dominant_count_entry(peak.trace_counts)
+            if dominant_trace_id:
+                peak.dominant_trace_id = dominant_trace_id
+            peak.test = is_test_peak_counts(peak.originator_application_counts, peak.raw_error_count)
+            # Always update root_cause and behavior from latest incident
+            if getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError':
                 peak.root_cause = str(incident.error_type)
-            if not peak.behavior and getattr(incident, 'normalized_message', None):
-                peak.behavior = str(incident.normalized_message)[:300]
+            try:
+                from analysis.trace_analysis import _extract_useful_content, _smart_trim
+                raw_msg = str(getattr(incident, 'normalized_message', '') or '')
+                if raw_msg:
+                    extracted = _extract_useful_content(raw_msg)
+                    peak.behavior = (_smart_trim(extracted)[:300] if extracted else raw_msg[:300])
+            except ImportError:
+                raw_msg = str(getattr(incident, 'normalized_message', '') or '')
+                if raw_msg:
+                    peak.behavior = raw_msg[:300]
             
             if incident.fingerprint not in peak.fingerprints:
                 peak.fingerprints.append(incident.fingerprint)
@@ -1230,11 +1348,27 @@ class ProblemRegistry:
                 fingerprints=[incident.fingerprint],
                 affected_apps=set(incident.apps or []),
                 affected_namespaces=set(incident.namespaces or []),
+                app_counts=_normalize_count_dict(app_counts),
+                namespace_counts=_normalize_count_dict(namespace_counts),
+                originator_application_counts=_normalize_count_dict(originator_counts),
+                trace_counts=_normalize_count_dict(trace_counts),
+                dominant_trace_id=dominant_count_entry(trace_counts)[0],
+                test=is_test_peak_counts(originator_counts, count),
+                occurrence_times=[current_bucket] if current_bucket else [],
+                occurrence_counts=[count] if current_bucket else [],
                 max_value=value,
                 max_ratio=ratio,
                 root_cause=(str(incident.error_type) if getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError' else ''),
-                behavior=(str(getattr(incident, 'normalized_message', ''))[:300] if getattr(incident, 'normalized_message', None) else ''),
+                behavior='',
             )
+            # Set behavior with smart extraction
+            if getattr(incident, 'normalized_message', None):
+                try:
+                    from analysis.trace_analysis import _extract_useful_content, _smart_trim
+                    extracted = _extract_useful_content(str(incident.normalized_message))
+                    peak.behavior = _smart_trim(extracted)[:300] if extracted else str(incident.normalized_message)[:300]
+                except ImportError:
+                    peak.behavior = str(incident.normalized_message)[:300]
             
             self.peaks[peak_key] = peak
             self.stats['new_peaks_added'] += 1

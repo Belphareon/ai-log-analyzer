@@ -33,7 +33,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 
 from core.fetch_unlimited import fetch_unlimited
 from core.problem_registry import ProblemRegistry
-from core.problem_registry import extract_flow
+from core.problem_registry import dominant_count_entry, extract_flow, is_test_peak_counts
 from core.baseline_loader import BaselineLoader
 from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
@@ -136,19 +136,10 @@ def _normalize_message_for_dedup(message: str) -> str:
     if not message:
         return ""
     normalized = message
-    # Object addresses: @4f97d62f, @cf459, @dd63, @e6279 etc.
-    normalized = re.sub(r'@[0-9a-fA-F]{2,}', '@<ADDR>', normalized)
-    # UUIDs
-    normalized = re.sub(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<UUID>', normalized)
-    # Hex IDs (8+ chars)
-    normalized = re.sub(r'\b[0-9a-fA-F]{8,}\b', '<HEX>', normalized)
-    # Numeric values
-    normalized = re.sub(r'\b\d+\b', '<N>', normalized)
-    # Whitespace
+    normalized = re.sub(r'[0-9a-fA-F]{8,}', '<ID>', normalized)
+    normalized = re.sub(r'\d+', '<ID>', normalized)
     normalized = re.sub(r'\s+', ' ', normalized).strip()
-    # Truncate at 200 chars for dedup (tail differences are noise)
-    normalized = normalized.lower()[:200]
-    return normalized
+    return normalized.lower()
 
 
 def _trace_message_signal_score(message: str) -> int:
@@ -174,15 +165,6 @@ def _trace_message_signal_score(message: str) -> int:
         'timeout',
         'connection',
         'sql',
-        'is not filled',
-        'not all required data',
-        'required field',
-        'validation failed',
-        'invalid value',
-        'missing field',
-        'servicebusinessexception',
-        'businessexception',
-        'nullpointerexception',
     ]
 
     score = 1 if len(text) >= 40 else 0
@@ -195,54 +177,105 @@ def _select_trace_steps(flow, max_steps: int = 7, min_steps: int = 5) -> List[An
     if not flow or not getattr(flow, 'steps', None):
         return []
 
-    # 1. Dedup by normalized (app, message) — track occurrence count
     unique_steps = []
-    occurrence_counts = {}
     seen = set()
     for step in flow.steps:
         app = getattr(step, 'app', '?')
         msg = getattr(step, 'message', '')
         key = (app, _normalize_message_for_dedup(msg))
         if key in seen:
-            occurrence_counts[key] = occurrence_counts.get(key, 1) + 1
             continue
         seen.add(key)
-        occurrence_counts[key] = 1
         unique_steps.append(step)
-
-    # Store counts on steps for display
-    for step in unique_steps:
-        app = getattr(step, 'app', '?')
-        msg = getattr(step, 'message', '')
-        key = (app, _normalize_message_for_dedup(msg))
-        step._occurrence_count = occurrence_counts.get(key, 1)
 
     if len(unique_steps) <= max_steps:
         return unique_steps
 
-    # 2. Score each step
-    scored = [(s, _trace_message_signal_score(getattr(s, 'message', ''))) for s in unique_steps]
-    high_signal = [s for s, score in scored if score > 0]
-    low_signal = [s for s, score in scored if score <= 0]
+    signal_steps = [s for s in unique_steps if _trace_message_signal_score(getattr(s, 'message', '')) > 0]
+    if len(signal_steps) >= min_steps:
+        selected = signal_steps[:max_steps - 1]
+        last = unique_steps[-1]
+        if last not in selected:
+            selected.append(last)
+        return selected
 
-    # 3. Build selection: prefer high-signal, fill with low-signal if needed
-    if len(high_signal) >= min_steps:
-        selected = high_signal[:max_steps - 1]
-    elif high_signal:
-        selected = list(high_signal)
-        # Fill remaining slots with low-signal (prefer first and last)
-        remaining = max_steps - 1 - len(selected)
-        if remaining > 0:
-            selected.extend(low_signal[:remaining])
-    else:
-        selected = unique_steps[:max_steps - 1]
-
-    # Always include last step (often the conclusion/outcome)
+    head_count = max_steps - 1
+    selected = unique_steps[:head_count]
     last = unique_steps[-1]
     if last not in selected:
         selected.append(last)
-
     return selected
+
+
+def _select_behavior_steps(problem: Any, flow: Any = None, max_steps: int = 5) -> List[Dict[str, Any]]:
+    summary_steps = getattr(problem, 'trace_flow_summary', None) or []
+    selected: List[Dict[str, Any]] = []
+
+    for step in summary_steps[:max_steps]:
+        if not isinstance(step, dict):
+            continue
+        selected.append({
+            'app': step.get('app', '?'),
+            'message': step.get('message', ''),
+            'count': int(step.get('count', 1) or 1),
+            'share_pct': step.get('share_pct'),
+            'apps': step.get('apps', []) or [],
+            'namespaces': step.get('namespaces', []) or [],
+            'trace_ids': step.get('trace_ids', []) or [],
+        })
+
+    if selected:
+        return selected
+
+    if not flow or not getattr(flow, 'steps', None):
+        return []
+
+    for step in _select_trace_steps(flow, max_steps=max_steps, min_steps=max_steps):
+        selected.append({
+            'app': getattr(step, 'app', '?'),
+            'message': getattr(step, 'message', ''),
+            'count': 1,
+        })
+    return selected
+
+
+def _format_behavior_step(step: Dict[str, Any], index: int = 0) -> str:
+    """Format a single behavior step. Uses _extract_useful_content for message cleaning."""
+    from analysis.trace_analysis import _extract_useful_content, _smart_trim
+
+    app = str(step.get('app', '?') or '?')
+    raw_message = str(step.get('message', '') or '')
+    message = _smart_trim(raw_message)
+    if not message:
+        message = raw_message[:200]
+
+    count = step.get('count')
+    share_pct = step.get('share_pct')
+    count_text = f" ({count:,}×)" if isinstance(count, int) and count > 1 else ""
+    share_text = f" [{share_pct:.0f}%]" if isinstance(share_pct, (int, float)) and share_pct > 0 else ""
+
+    prefix = f"{index}. " if index > 0 else ""
+    return f"{prefix}{app}{count_text}{share_text}: {message}"
+
+
+def _summarize_behavior_steps(steps: List[Dict[str, Any]], limit: int = 3) -> str:
+    """Build numbered behavior summary, deduplicating against already-seen messages."""
+    from analysis.trace_analysis import _extract_useful_content, normalize_message
+    parts = []
+    seen = set()
+    idx = 0
+    for step in (steps or []):
+        if idx >= limit:
+            break
+        raw_msg = str(step.get('message', '') or '')
+        extracted = _extract_useful_content(raw_msg)
+        dedup_key = normalize_message(extracted or raw_msg)[:80].lower()
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        idx += 1
+        parts.append(_format_behavior_step(step, index=idx))
+    return "\n".join(parts)[:600]
 
 
 def _severity_icon_for_peak(score: float, ratio: Optional[float]) -> str:
@@ -276,6 +309,106 @@ def _select_peak_problems(problems: Dict[str, Any], limit: int = 3) -> List[Any]
     if limit <= 0:
         return peak_problems
     return peak_problems[:limit]
+
+
+def _merge_peak_clusters(
+    peak_problems: List[Any],
+    trace_overlap_threshold: float = 0.50,
+) -> List[List[Any]]:
+    """
+    Merge peak problems that describe the same underlying issue into clusters.
+
+    Merge criteria (any one is sufficient):
+    1. Shared dominant trace: >50% trace ID overlap (same causal chain)
+    2. Same error_class AND same dominant namespace
+
+    Returns list of clusters. Each cluster is a list of problems, first = highest score.
+    """
+    if not peak_problems:
+        return []
+    if len(peak_problems) == 1:
+        return [peak_problems]
+
+    def _problem_traces(p: Any) -> set:
+        """Get set of trace IDs from a problem's incidents."""
+        traces = set()
+        for inc in (getattr(p, 'incidents', []) or []):
+            tc = getattr(inc, 'trace_event_counts', {}) or {}
+            traces.update(tc.keys())
+            for tid in (getattr(inc, 'trace_ids', []) or []):
+                if tid:
+                    traces.add(tid)
+        return traces
+
+    def _problem_dominant_ns(p: Any) -> str:
+        """Get the dominant namespace for a problem."""
+        ns_counts: Dict[str, int] = {}
+        for inc in (getattr(p, 'incidents', []) or []):
+            inc_ns = getattr(inc, 'namespace_event_counts', {}) or {}
+            for ns, cnt in inc_ns.items():
+                if ns:
+                    ns_counts[ns] = ns_counts.get(ns, 0) + int(cnt or 0)
+        if not ns_counts:
+            namespaces = getattr(p, 'namespaces', set()) or set()
+            return next(iter(namespaces), '')
+        return max(ns_counts, key=ns_counts.get)
+
+    # Phase 1: Build data for each problem
+    problem_data = []
+    for p in peak_problems:
+        traces = _problem_traces(p)
+        ec = str(getattr(p, 'error_class', '') or '').lower()
+        dom_ns = _problem_dominant_ns(p)
+        problem_data.append({
+            'problem': p,
+            'traces': traces,
+            'error_class': ec,
+            'dominant_ns': dom_ns,
+        })
+
+    # Phase 2: Greedy clustering
+    n = len(problem_data)
+    cluster_of = list(range(n))  # union-find parent
+
+    def _find(i: int) -> int:
+        while cluster_of[i] != i:
+            cluster_of[i] = cluster_of[cluster_of[i]]
+            i = cluster_of[i]
+        return i
+
+    def _union(a: int, b: int) -> None:
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            # Always root at the lower index (higher score, since list is pre-sorted)
+            if ra > rb:
+                ra, rb = rb, ra
+            cluster_of[rb] = ra
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Criterion 1: trace overlap
+            ti, tj = problem_data[i]['traces'], problem_data[j]['traces']
+            if ti and tj:
+                overlap = len(ti & tj)
+                smaller = min(len(ti), len(tj))
+                if smaller > 0 and (overlap / smaller) >= trace_overlap_threshold:
+                    _union(i, j)
+                    continue
+
+            # Criterion 2: same error_class + same dominant namespace
+            if (problem_data[i]['error_class'] and
+                problem_data[i]['error_class'] == problem_data[j]['error_class'] and
+                problem_data[i]['dominant_ns'] and
+                problem_data[i]['dominant_ns'] == problem_data[j]['dominant_ns']):
+                _union(i, j)
+
+    # Build clusters
+    clusters_map: Dict[int, List[Any]] = {}
+    for i in range(n):
+        root = _find(i)
+        clusters_map.setdefault(root, []).append(problem_data[i]['problem'])
+    
+    return list(clusters_map.values())
 
 
 def _alert_state_path(registry: ProblemRegistry) -> Path:
@@ -317,6 +450,26 @@ def _parse_dt(value: Any) -> Optional[datetime]:
         return None
 
 
+def _merge_count_map(target: Dict[str, int], source: Optional[Dict[str, Any]]) -> None:
+    for key, value in (source or {}).items():
+        if not key:
+            continue
+        try:
+            count = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if count <= 0:
+            continue
+        target[str(key)] = target.get(str(key), 0) + count
+
+
+def _sorted_count_map(counts: Optional[Dict[str, int]]) -> Dict[str, int]:
+    return {
+        key: value
+        for key, value in sorted((counts or {}).items(), key=lambda kv: (-kv[1], kv[0]))
+    }
+
+
 def _should_send_peak_alert(
     payload: Dict[str, Any],
     state_entry: Dict[str, Any],
@@ -325,6 +478,11 @@ def _should_send_peak_alert(
     cooldown_min = int(os.getenv('ALERT_COOLDOWN_MIN', '45'))
     heartbeat_min = int(os.getenv('ALERT_HEARTBEAT_MIN', '120'))
     min_delta_pct = float(os.getenv('ALERT_MIN_DELTA_PCT', '30'))
+
+    if payload.get('is_test_peak'):
+        originator = str(payload.get('test_originator_application', '') or '')
+        suffix = f":{originator}" if originator else ''
+        return False, f'test_peak_suppressed{suffix}'
 
     if not state_entry:
         return True, 'first_seen_in_state'
@@ -373,7 +531,6 @@ def _build_peak_alert_payload(
     window_start: datetime,
     window_end: datetime,
     window_minutes: int,
-    alert_peaks: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     if not problem:
         return None
@@ -465,14 +622,12 @@ def _build_peak_alert_payload(
     trace_steps = []
     namespace_counts: Dict[str, int] = {}
     app_counts: Dict[str, int] = {}
+    originator_application_counts: Dict[str, int] = {}
+    trace_counts: Dict[str, int] = {}
     error_type_counts: Dict[str, int] = {}
-    affected_apps = set()
-    affected_namespaces = set()
     raw_error_count = 0
 
     for inc in signal_incidents:
-        ns_list = [ns for ns in (getattr(inc, 'namespaces', []) or []) if ns]
-        apps_list = [app for app in (getattr(inc, 'apps', []) or []) if app]
         count = 1
         if hasattr(inc, 'stats') and hasattr(inc.stats, 'current_count'):
             try:
@@ -481,23 +636,52 @@ def _build_peak_alert_payload(
                 count = 1
         raw_error_count += count
 
-        # Count only primary app/NS (apps[0], namespaces[0]) to avoid double-counting across trace chain
-        primary_app = apps_list[0] if apps_list else None
-        if primary_app:
-            affected_apps.add(primary_app)
-            app_counts[primary_app] = app_counts.get(primary_app, 0) + count
-        for app in apps_list[1:]:
-            affected_apps.add(app)
+        incident_app_counts = getattr(inc, 'app_event_counts', {}) or {}
+        if incident_app_counts:
+            _merge_count_map(app_counts, incident_app_counts)
+        else:
+            for app in (getattr(inc, 'apps', []) or []):
+                if app:
+                    app_counts[app] = app_counts.get(app, 0) + count
+
+        incident_ns_counts = getattr(inc, 'namespace_event_counts', {}) or {}
+        if incident_ns_counts:
+            _merge_count_map(namespace_counts, incident_ns_counts)
+        else:
+            for ns in (getattr(inc, 'namespaces', []) or []):
+                if ns:
+                    namespace_counts[ns] = namespace_counts.get(ns, 0) + count
+
+        _merge_count_map(originator_application_counts, getattr(inc, 'originator_application_counts', {}) or {})
+        incident_trace_counts = getattr(inc, 'trace_event_counts', {}) or {}
+        if incident_trace_counts:
+            _merge_count_map(trace_counts, incident_trace_counts)
+        else:
+            for trace_id in (getattr(inc, 'trace_ids', []) or []):
+                if trace_id:
+                    trace_counts[trace_id] = trace_counts.get(trace_id, 0) + 1
 
         err_type = getattr(inc, 'error_type', None) or 'UnknownError'
         error_type_counts[err_type] = error_type_counts.get(err_type, 0) + count
 
-        primary_ns = ns_list[0] if ns_list else None
-        if primary_ns:
-            affected_namespaces.add(primary_ns)
-            namespace_counts[primary_ns] = namespace_counts.get(primary_ns, 0) + count
-        for ns in ns_list[1:]:
-            affected_namespaces.add(ns)
+    namespace_counts = _sorted_count_map(namespace_counts)
+    app_counts = _sorted_count_map(app_counts)
+    originator_application_counts = _sorted_count_map(originator_application_counts)
+    trace_counts = _sorted_count_map(trace_counts)
+
+    # Filter out insignificant NS from display (below 1% of total or < 100 errors)
+    total_ns_errors = sum(namespace_counts.values())
+    if total_ns_errors > 0:
+        ns_threshold = max(100, total_ns_errors * 0.01)
+        namespace_counts_display = {ns: cnt for ns, cnt in namespace_counts.items() if cnt >= ns_threshold}
+        if not namespace_counts_display:
+            # Keep at least the top one
+            namespace_counts_display = dict(list(namespace_counts.items())[:1])
+    else:
+        namespace_counts_display = namespace_counts
+
+    affected_apps = list(app_counts.keys()) if app_counts else sorted(problem.apps)
+    affected_namespaces = list(namespace_counts_display.keys()) if namespace_counts_display else sorted(problem.namespaces)
 
     top_error_types = sorted(error_type_counts.items(), key=lambda kv: kv[1], reverse=True)[:3]
     top_error_types_text = ', '.join(f"{name} ({cnt})" for name, cnt in top_error_types) if top_error_types else 'N/A'
@@ -511,21 +695,20 @@ def _build_peak_alert_payload(
         peak_error_details = f"top error types: {top_error_types_text}"
 
     trace_id = ''
+    if trace_counts:
+        trace_id = next(iter(trace_counts.keys()))
     if flow and getattr(flow, 'trace_id', None):
-        trace_id = str(getattr(flow, 'trace_id', '') or '')
+        trace_id = trace_id or str(getattr(flow, 'trace_id', '') or '')
 
-    if flow and getattr(flow, 'steps', None):
-        steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
-        for step in steps:
-            trace_steps.append({
-                'app': getattr(step, 'app', '?'),
-                'message': getattr(step, 'message', ''),
-                'occurrence_count': getattr(step, '_occurrence_count', 1),
-            })
+    trace_steps = _select_behavior_steps(problem, flow, max_steps=5)
     if not trace_id and trigger_incident is not None:
         trace_id = str(getattr(trigger_incident, 'trace_id', '') or '')
+    if not trace_id:
+        trace_id = str(getattr(problem, 'representative_trace_id', '') or '')
 
     current_window_errors = raw_error_count or problem.total_occurrences
+    test_originator_application, _ = dominant_count_entry(originator_application_counts)
+    is_test_peak = is_test_peak_counts(originator_application_counts, current_window_errors)
     previous_average_errors = None
     if known_peak and getattr(known_peak, 'occurrences', 0):
         peak_occurrences = max(1, int(getattr(known_peak, 'occurrences', 0) or 0))
@@ -533,59 +716,81 @@ def _build_peak_alert_payload(
         if historical_raw > 0:
             previous_average_errors = historical_raw / peak_occurrences
 
-    # Trend logic: digest shows historical trend; real-time trends use previous_window (see table_exporter.py)
-    trend = 'stable'
-    if alert_peaks is not None:
-        _state = alert_peaks.get(peak_key, {})
-        _last_count = int(_state.get('last_error_count', 0) or 0)
-        if _last_count > 0:
-            _ratio = current_window_errors / _last_count
-            if _ratio >= 1.2:
-                trend = 'rising'
-            elif _ratio <= 0.8:
-                trend = 'falling'
+    # Trend state machine:
+    # - First window (new peak or not continuing): always 'rising'
+    # - Subsequent continuing windows: compare to historical average
+    trend = None
+    if not is_known or not is_continues:
+        # First window of this peak → rising by definition
+        trend = 'rising'
+    elif previous_average_errors and previous_average_errors > 0:
+        ratio_to_avg = current_window_errors / previous_average_errors
+        if ratio_to_avg >= 1.2:
+            trend = 'rising'
+        elif ratio_to_avg <= 0.8:
+            trend = 'falling'
+        else:
+            trend = 'stable'
+    else:
+        trend = 'rising'
 
-    known_apps = set(getattr(known_peak, 'affected_apps', []) or []) if known_peak else set()
-    known_namespaces = set(getattr(known_peak, 'affected_namespaces', []) or []) if known_peak else set()
-    new_apps = sorted(affected_apps - known_apps)
-    new_namespaces = sorted(affected_namespaces - known_namespaces)
-    continuation_summary = {
-        'trend': trend,
-        'current_window_errors': int(current_window_errors),
-        'previous_average_errors': int(previous_average_errors) if previous_average_errors else None,
-        'new_apps': new_apps,
-        'new_namespaces': new_namespaces,
-        'top_error_types': top_error_types_text,
-    }
+    if known_peak and getattr(known_peak, 'app_counts', None):
+        known_apps = set((getattr(known_peak, 'app_counts', {}) or {}).keys())
+    else:
+        known_apps = set(getattr(known_peak, 'affected_apps', []) or []) if known_peak else set()
+    if known_peak and getattr(known_peak, 'namespace_counts', None):
+        known_namespaces = set((getattr(known_peak, 'namespace_counts', {}) or {}).keys())
+    else:
+        known_namespaces = set(getattr(known_peak, 'affected_namespaces', []) or []) if known_peak else set()
+    new_apps = sorted(set(affected_apps) - known_apps)
+    new_namespaces = sorted(set(affected_namespaces) - known_namespaces)
+    continuation_summary = None
+    if is_known and is_continues:
+        continuation_summary = {
+            'trend': trend,
+            'current_window_errors': int(current_window_errors),
+            'previous_average_errors': int(previous_average_errors) if previous_average_errors else None,
+            'new_apps': new_apps,
+            'new_namespaces': new_namespaces,
+            'top_error_types': top_error_types_text,
+        }
 
-    trace_steps_for_email = trace_steps  # always pass steps (formattin handles is_continues display)
+    trace_steps_for_email = trace_steps
 
+    # Root cause: use infer_problem_root_cause with behavior dedup
+    from analysis.trace_analysis import infer_problem_root_cause as _infer_rc
+    rc_result = _infer_rc(problem, behavior_steps=trace_steps)
     root_cause = None
-    rc = getattr(problem, 'trace_root_cause', None)
-    if rc:
+    if rc_result and rc_result.get('message'):
         root_cause = {
-            'service': rc.get('service', '?'),
-            'message': rc.get('message', ''),
-            'confidence': rc.get('confidence', 'unknown'),
+            'service': rc_result.get('service', '?'),
+            'message': rc_result.get('message', ''),
         }
-    elif getattr(problem, 'root_cause', None):
-        rc_obj = problem.root_cause
-        root_cause = {
-            'service': getattr(rc_obj, 'service', '?'),
-            'message': getattr(rc_obj, 'message', '')
-        }
+    else:
+        # Fallback to trace_root_cause
+        rc = getattr(problem, 'trace_root_cause', None)
+        if rc:
+            root_cause = {
+                'service': rc.get('service', '?'),
+                'message': rc.get('message', '')
+            }
+        elif getattr(problem, 'root_cause', None):
+            rc_obj = problem.root_cause
+            root_cause = {
+                'service': getattr(rc_obj, 'service', '?'),
+                'message': getattr(rc_obj, 'message', '')
+            }
 
     propagation_info = None
     propagation = getattr(problem, 'propagation_result', None)
     if propagation and propagation.service_count > 1:
-        prop_short = propagation.to_short_string() if hasattr(propagation, 'to_short_string') else ''
         propagation_info = {
             'type': propagation.propagation_type,
             'service_count': propagation.service_count,
-            'duration_ms': propagation.propagation_time_ms,
-            'short_string': prop_short,
+            'duration_ms': propagation.propagation_time_ms
         }
 
+    # Digest root cause text: deduplicated against behavior
     digest_root_cause = ''
     if root_cause:
         digest_root_cause = str(root_cause.get('message', '') or root_cause.get('service', '') or '')
@@ -594,20 +799,17 @@ def _build_peak_alert_payload(
     if not digest_root_cause and getattr(problem, 'root_cause', None):
         digest_root_cause = str(getattr(problem, 'root_cause', '') or '')
 
-    digest_message = ''
-    _trace_flow_sum = getattr(problem, 'trace_flow_summary', None) or []
-    if _trace_flow_sum:
-        _parts = []
-        for _step in _trace_flow_sum[:3]:
-            _app = _step.get('app', '?')
-            _msg = _step.get('message', '')
-            if _msg:
-                _parts.append(f"{_app}: {_msg}")
-        digest_message = '\n'.join(_parts)
-    if not digest_message and trace_steps:
-        digest_message = str(trace_steps[0].get('message', '') or '')
-    if not digest_message:
-        digest_message = str(peak_error_details or '')
+    behavior_text = ''
+    if trace_steps:
+        behavior_text = _summarize_behavior_steps(trace_steps, limit=3)
+    if not behavior_text:
+        behavior_text = str(peak_error_details or '')
+
+    # Originator line
+    originator_display = ''
+    if originator_application_counts:
+        top_orig = sorted(originator_application_counts.items(), key=lambda kv: -kv[1])[:3]
+        originator_display = ', '.join(f"{name}({count})" for name, count in top_orig)
 
     return {
         'peak_key': peak_key,
@@ -621,10 +823,12 @@ def _build_peak_alert_payload(
         'error_count': int(current_window_errors),
         'window_start': peak_window_start,
         'window_end': window_end,
-        'affected_apps': sorted(affected_apps) if affected_apps else (sorted(problem.apps) if problem.apps else []),
-        'affected_namespaces': sorted(affected_namespaces) if affected_namespaces else (sorted(problem.namespaces) if problem.namespaces else []),
-        'namespace_counts': namespace_counts,
-        'app_counts': dict(sorted(app_counts.items(), key=lambda x: -x[1])),
+        'affected_apps': affected_apps[:5],
+        'affected_namespaces': affected_namespaces[:5],
+        'app_counts': dict(list(app_counts.items())[:5]),
+        'namespace_counts': namespace_counts_display,
+        'originator_application_counts': originator_application_counts,
+        'originator_display': originator_display,
         'trace_steps': trace_steps_for_email,
         'root_cause': root_cause,
         'propagation_info': propagation_info,
@@ -636,8 +840,88 @@ def _build_peak_alert_payload(
         'window_key': window_start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'trace_id': trace_id,
         'root_cause_text': digest_root_cause,
-        'detail_message': digest_message,
+        'behavior_text': behavior_text,
+        'detail_message': behavior_text,
+        'is_test_peak': is_test_peak,
+        'test_originator_application': test_originator_application,
     }
+
+
+def _build_cluster_payload(
+    cluster: List[Any],
+    trace_flows: Dict[str, List[Any]],
+    known_peaks: Dict[str, Any],
+    window_start: datetime,
+    window_end: datetime,
+    window_minutes: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Build a merged payload for a cluster of related peak problems.
+
+    Uses the highest-scoring problem as the primary (error_class, behavior, root_cause)
+    and sums counts, merges apps/NS across all problems in the cluster.
+    """
+    if not cluster:
+        return None
+    
+    # Primary = first (highest score)
+    primary = cluster[0]
+    payload = _build_peak_alert_payload(
+        primary, trace_flows, known_peaks,
+        window_start, window_end, window_minutes,
+    )
+    if not payload:
+        return None
+
+    if len(cluster) == 1:
+        return payload
+
+    # Merge counts from other problems in cluster
+    for secondary in cluster[1:]:
+        sec_payload = _build_peak_alert_payload(
+            secondary, trace_flows, known_peaks,
+            window_start, window_end, window_minutes,
+        )
+        if not sec_payload:
+            continue
+        
+        # Sum error count
+        payload['error_count'] = int(payload.get('error_count', 0)) + int(sec_payload.get('error_count', 0))
+        
+        # Merge app_counts
+        for app, cnt in (sec_payload.get('app_counts', {}) or {}).items():
+            payload['app_counts'][app] = payload['app_counts'].get(app, 0) + int(cnt or 0)
+        
+        # Merge namespace_counts
+        for ns, cnt in (sec_payload.get('namespace_counts', {}) or {}).items():
+            payload['namespace_counts'][ns] = payload['namespace_counts'].get(ns, 0) + int(cnt or 0)
+        
+        # Merge originator_application_counts
+        for orig, cnt in (sec_payload.get('originator_application_counts', {}) or {}).items():
+            payload['originator_application_counts'][orig] = payload['originator_application_counts'].get(orig, 0) + int(cnt or 0)
+
+    # Re-sort and limit app_counts to top 5
+    sorted_apps = dict(sorted(payload['app_counts'].items(), key=lambda kv: -kv[1])[:5])
+    payload['app_counts'] = sorted_apps
+    payload['affected_apps'] = list(sorted_apps.keys())
+    
+    # Re-sort namespace_counts
+    payload['namespace_counts'] = dict(sorted(payload['namespace_counts'].items(), key=lambda kv: -kv[1]))
+    payload['affected_namespaces'] = list(payload['namespace_counts'].keys())[:5]
+
+    # Re-evaluate test peak with merged originator counts
+    merged_errors = int(payload.get('error_count', 0))
+    payload['is_test_peak'] = is_test_peak_counts(payload['originator_application_counts'], merged_errors)
+    test_orig, _ = dominant_count_entry(payload['originator_application_counts'])
+    payload['test_originator_application'] = test_orig
+
+    # Re-build originator display
+    top_orig = sorted(payload['originator_application_counts'].items(), key=lambda kv: -kv[1])[:3]
+    payload['originator_display'] = ', '.join(f"{name}({count})" for name, count in top_orig)
+
+    payload['cluster_size'] = len(cluster)
+
+    return payload
 
 
 def _send_peak_alert_email(payload: Dict[str, Any]) -> bool:
@@ -664,9 +948,11 @@ def _send_peak_alert_email(payload: Dict[str, Any]) -> bool:
             window_start=payload.get('window_start'),
             window_end=payload.get('window_end'),
             affected_apps=payload.get('affected_apps', []),
+            app_counts=payload.get('app_counts', {}),
             affected_namespaces=payload.get('affected_namespaces', []),
             namespace_counts=payload.get('namespace_counts', {}),
             trace_steps=payload.get('trace_steps', []),
+            behavior_text=payload.get('behavior_text', ''),
             root_cause=payload.get('root_cause'),
             propagation_info=payload.get('propagation_info'),
             continuation_summary=payload.get('continuation_summary'),
@@ -789,23 +1075,20 @@ def _build_peak_notification(
 
     flow_list = trace_flows.get(problem.problem_key, []) if trace_flows else []
     flow = flow_list[0] if flow_list else None
+    behavior_steps = _select_behavior_steps(problem, flow)
 
-    if flow and getattr(flow, 'steps', None):
-        steps = _select_trace_steps(flow, max_steps=7, min_steps=5)
+    if behavior_steps:
         lines.append("")
-        lines.append(f"Behavior (trace flow): {len(steps)} unique messages")
-        lines.append(f"TraceID: {flow.trace_id}")
+        lines.append(f"Behavior (dominant patterns): {len(behavior_steps)} items")
+        trace_id = getattr(problem, 'representative_trace_id', None) or getattr(flow, 'trace_id', None)
+        if trace_id:
+            lines.append(f"TraceID: {trace_id}")
         lines.append("")
 
-        for step in steps:
-            app = getattr(step, 'app', '?')
-            msg = getattr(step, 'message', '')
-            count = getattr(step, '_occurrence_count', 1)
-            count_label = f" [x{count}]" if count > 1 else ""
-            lines.append(f"{app}{count_label}")
-            lines.append(f"\"{msg}\"")
+        for step in behavior_steps:
+            lines.append(_format_behavior_step(step))
 
-    if not is_continues and getattr(problem, 'trace_root_cause', None):
+    if getattr(problem, 'trace_root_cause', None):
         rc = problem.trace_root_cause
         confidence = rc.get('confidence', 'unknown')
         lines.append("")
@@ -901,6 +1184,10 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
         data = []
         for incident in collection.incidents:
             ts = incident.time.first_seen or datetime.now(timezone.utc)
+            namespace_event_counts = getattr(incident, 'namespace_event_counts', {}) or {}
+            top_namespace = ''
+            if namespace_event_counts:
+                top_namespace = max(namespace_event_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
             # reference_value: store actual count (for BaselineLoader to use as historical data)
             # For regular phase: current_count = total_count = per-window count (correct granularity)
             ref_value = incident.stats.current_count if incident.stats.current_count > 0 else None
@@ -911,7 +1198,7 @@ def save_incidents_to_db(collection: IncidentCollection) -> int:
                 ts.weekday(),
                 ts.hour,
                 ts.minute // 15,
-                incident.namespaces[0] if incident.namespaces else 'unknown',
+                top_namespace or (incident.namespaces[0] if incident.namespaces else 'unknown'),
                 incident.stats.current_count,                         # original_value
                 ref_value,                                            # reference_value
                 baseline_mean,                                        # baseline_mean
@@ -974,8 +1261,14 @@ def save_namespace_totals_to_raw_data(collection: IncidentCollection) -> int:
             inc_ts = incident.time.first_seen or datetime.now(timezone.utc)
             if ts is None:
                 ts = inc_ts
-            ns = incident.namespaces[0] if incident.namespaces else 'unknown'
-            ns_totals[ns] = ns_totals.get(ns, 0) + incident.stats.current_count
+            namespace_event_counts = getattr(incident, 'namespace_event_counts', {}) or {}
+            if namespace_event_counts:
+                for ns, count in namespace_event_counts.items():
+                    if ns:
+                        ns_totals[ns] = ns_totals.get(ns, 0) + int(count or 0)
+            else:
+                ns = incident.namespaces[0] if incident.namespaces else 'unknown'
+                ns_totals[ns] = ns_totals.get(ns, 0) + incident.stats.current_count
 
         if not ns_totals or ts is None:
             if conn:
@@ -1322,6 +1615,7 @@ def run_regular_phase(
             analysis_start=window_start,
             analysis_end=window_end,
             run_id=run_id,
+            registry_problems=_registry.problems if _registry is not None else None,
         )
         enriched_problems = generator.problems
 
@@ -1381,38 +1675,12 @@ def run_regular_phase(
                     entry.root_cause = new_rc[:500]
                     write_back_count += 1
 
-            # Write-back behavior from trace flow summary as structured text
-            if aggregate.trace_flow_summary and not entry.behavior:
-                steps = aggregate.trace_flow_summary
-                if steps:
-                    blines = [f"Behavior (trace flow): {len(steps)} messages"]
-                    prev_msg = None
-                    for si, step in enumerate(steps, start=1):
-                        s_app = step.get('app', '?') if isinstance(step, dict) else getattr(step, 'app', '?')
-                        s_msg = step.get('message', '') if isinstance(step, dict) else getattr(step, 'message', '')
-                        if s_msg == prev_msg:
-                            blines.append(f"  {si}) {s_app} (same error)")
-                        else:
-                            blines.append(f"  {si}) {s_app}")
-                            if s_msg:
-                                blines.append(f'     "{s_msg[:200]}"')
-                        prev_msg = s_msg
-                    trc = getattr(aggregate, 'trace_root_cause', None)
-                    if trc and isinstance(trc, dict) and trc.get('message'):
-                        confidence = trc.get('confidence', '')
-                        conf_label = f' [{confidence}]' if confidence else ''
-                        blines.append(f"Inferred root cause{conf_label}:")
-                        blines.append(f"  - {trc.get('service', '?')}: {trc.get('message', '')[:200]}")
-                    prop = getattr(aggregate, 'propagation_result', None)
-                    if prop and getattr(prop, 'service_count', 0) > 1:
-                        prop_short = prop.to_short_string() if hasattr(prop, 'to_short_string') else ''
-                        blines.append(f"Propagation [{prop.propagation_type}]: {prop.service_count} services")
-                        if prop_short:
-                            blines.append(f"  {prop_short}")
-                        if prop.propagation_time_ms > 0:
-                            total_sec = prop.propagation_time_ms // 1000
-                            blines.append(f"  Duration: {total_sec // 60}m {total_sec % 60}s" if total_sec >= 60 else f"  Duration: {total_sec}s")
-                    entry.behavior = '\n'.join(blines)[:1000]
+            # Write-back behavior from problem-level behavior summary
+            if aggregate.trace_flow_summary:
+                behavior_msg = _summarize_behavior_steps(aggregate.trace_flow_summary, limit=3)
+                if behavior_msg and behavior_msg != entry.behavior:
+                    entry.behavior = behavior_msg[:500]
+                    write_back_count += 1
 
             # Write-back severity and score
             if aggregate.max_severity and aggregate.max_severity != 'info':
@@ -1423,7 +1691,7 @@ def run_regular_phase(
                 entry._enriched_score = aggregate.max_score
 
         if write_back_count > 0:
-            print(f"\n📝 Write-back: updated root_cause for {write_back_count} problems")
+            print(f"\n📝 Write-back: updated enriched fields for {write_back_count} problems")
             try:
                 _registry.save()
                 print(f"   ✅ Registry saved with enriched data")
@@ -1465,7 +1733,12 @@ def run_regular_phase(
                 max_alerts = int(os.getenv('MAX_PEAK_ALERTS_PER_WINDOW', '3'))
                 digest_raw = os.getenv('ALERT_DIGEST_ENABLED', 'true').strip().lower()
                 digest_enabled = digest_raw not in {'0', 'false', 'no', 'off'}
-                peak_problems = _select_peak_problems(enriched_problems, limit=max_alerts)
+                
+                # Select ALL peak problems (no limit), then cluster
+                peak_problems = _select_peak_problems(enriched_problems, limit=0)
+                clusters = _merge_peak_clusters(peak_problems)
+                print(f"ℹ️ Peak problems: {len(peak_problems)} → {len(clusters)} cluster(s)")
+                
                 sent_alerts = 0
                 suppressed_alerts = 0
                 alert_state = _load_alert_state(registry)
@@ -1474,15 +1747,14 @@ def run_regular_phase(
                 cooldown_min = int(os.getenv('ALERT_COOLDOWN_MIN', '45'))
                 dispatch_payloads: List[Dict[str, Any]] = []
 
-                for peak_problem in peak_problems:
-                    payload = _build_peak_alert_payload(
-                        peak_problem,
+                for cluster in clusters[:max_alerts]:
+                    payload = _build_cluster_payload(
+                        cluster,
                         peak_trace_flows or {},
                         known_peaks_snapshot,
                         window_start,
                         window_end,
                         window_minutes,
-                        alert_peaks=alert_peaks,
                     )
                     if not payload:
                         continue
@@ -1496,6 +1768,14 @@ def run_regular_phase(
                         if peak_key:
                             print(f"ℹ️ Peak alert suppressed for {peak_key}: {reason}")
                         continue
+
+                    # Trend override: if no alert was sent to user recently,
+                    # this is effectively the "first alert" → always "rising"
+                    last_sent = _parse_dt(state_entry.get('last_sent_at'))
+                    if not last_sent or (now_utc - last_sent) > timedelta(minutes=window_minutes * 2):
+                        if payload.get('trend') and payload['trend'] != 'rising':
+                            print(f"ℹ️ Trend override for {peak_key}: {payload['trend']} → rising (first alert)")
+                            payload['trend'] = 'rising'
 
                     payload['send_reason'] = reason
                     dispatch_payloads.append(payload)

@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import asdict
+from collections import Counter
 
 # Add scripts/pipeline to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -299,12 +300,39 @@ class Pipeline:
             inc.normalized_message = group_records[0].normalized_message
             inc.error_type = group_records[0].error_type
             inc.raw_samples = [r.raw_message[:500] for r in group_records[:3]]
-            
-            # Collect unique values
-            inc.apps = list(set(r.app_name for r in group_records))
-            inc.namespaces = list(set(r.namespace for r in group_records))
-            inc.versions = list(set(r.app_version for r in group_records if r.app_version != 'unknown'))
-            inc.trace_ids = list(set(r.trace_id for r in group_records if r.trace_id))[:10]
+
+            app_counts = Counter(
+                r.app_name for r in group_records
+                if getattr(r, 'app_name', None)
+            )
+            namespace_counts = Counter(
+                r.namespace for r in group_records
+                if getattr(r, 'namespace', None)
+            )
+            trace_counts = Counter(
+                r.trace_id for r in group_records
+                if getattr(r, 'trace_id', None)
+            )
+            originator_counts = Counter(
+                r.originator_application for r in group_records
+                if getattr(r, 'originator_application', None)
+            )
+
+            # Collect unique values with deterministic ordering by contribution
+            inc.apps = [name for name, _ in app_counts.most_common()]
+            inc.namespaces = [name for name, _ in namespace_counts.most_common()]
+            inc.versions = sorted({
+                r.app_version for r in group_records
+                if getattr(r, 'app_version', None) and r.app_version != 'unknown'
+            })
+            inc.trace_ids = [trace_id for trace_id, _ in trace_counts.most_common(10)]
+            inc.originator_applications = [name for name, _ in originator_counts.most_common()]
+            inc.app_event_counts = dict(app_counts)
+            inc.namespace_event_counts = dict(namespace_counts)
+            inc.trace_event_counts = dict(trace_counts)
+            inc.originator_application_counts = dict(originator_counts)
+            if hasattr(inc.trace_info, 'trace_ids'):
+                inc.trace_info.trace_ids = inc.trace_ids.copy()
             
             # From Phase B
             inc.time.first_seen = measurement.first_seen

@@ -1,0 +1,13 @@
+.git
+.venv/
+venv_new/
+__pycache__/
+*.pyc
+.env
+.vscode/
+ai-data/
+tmp/
+registry/
+registry_legacy_20260127/
+_backups/
+nohup.out
