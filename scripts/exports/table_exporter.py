@@ -61,60 +61,67 @@ from core.problem_registry import ProblemRegistry, ProblemEntry, PeakEntry, is_t
 class ErrorTableRow:
     """Řádek v errors_table - operátorský view
     
-    Nové pořadí (priority):
-    1. First Seen / Last Seen - WHEN se to stalo
-    2. Occurrence - HOW MUCH (total + last 24h)
-    3. Trend - zda se to zhoršuje/zlepšuje
-    4. Root Cause - CO se děje (z enrichment)
-    5. Category - WHERE (jakého typu je to error)
-    6. Detail - KEY info (jméno metody, service, endpoint)
-    7. Informativní - Score, Ratio, Scope (na konci)
+    Pořadí (priority):
+    1. Timing: first/last seen - WHEN se to stalo
+    2. Frequency + Severity: occurrence + trend - HOW MUCH + HOW BAD
+    3. Root Cause + Behavior - CO se děje (z enrichment)
+    4. Scope: namespace + app - WHERE
+    5. Meta: category, status, jira, notes (na konci)
     """
     first_seen: str                 # ISO format (ZAČÁTEK)
     last_seen: str                  # ISO format
     occurrence_total: int           # Celkový počet
     occurrence_24h: int             # Poslední 24 hodin
+    severity: str                   # critical, high, medium, low
     trend_2h: str                   # 2 hours: ↑ increasing | → stable | ↓ decreasing + % změna
     trend_24h: str                  # 24 hours: ↑ increasing | → stable | ↓ decreasing + % změna
     root_cause: str                 # Výsledek analysis (CO se stalo) - z enrichment script
-    category: str                   # Type (DB, Code, Auth, Infra, ...) 
-    detail: str                     # Klíčová info (metoda, service, endpoint, message snippet)
-    
-    # Originální pole (historické, ale zachované)
-    problem_id: str
-    problem_key: str
-    flow: str
-    error_class: str
-    affected_apps: str              # comma-separated (deployment labels)
+    behavior: str                   # Detailed behavior description
     affected_namespaces: str        # comma-separated
+    affected_apps: str              # comma-separated (deployment labels)
     scope: str                      # LOCAL, CROSS_NS, SYSTEMIC
+    category: str                   # Type (DB, Code, Auth, Infra, ...) 
     status: str                     # OPEN, MONITORING, RESOLVED
     jira: str                       # Jira ticket link
     notes: str                      # Human notes
     
-    # Informativní (na konci pro zájemce)
-    severity: str                   # critical, high, medium, low
+    # Hidden technical fields (not in main CSV export)
+    problem_id: str
+    problem_key: str
+    flow: str
+    error_class: str
+    detail: str                     # Klíčová info (metoda, service, endpoint, message snippet)
     score: float                    # Skóre detekce (0-100)
     ratio: float                    # Peak ratio vs. baseline
-    behavior: str
 
 
 
 @dataclass
 class PeakTableRow:
-    """Řádek v peaks_table - operátorský view"""
-    peak_id: str
-    test: str
+    """Řádek v peaks_table - operátorský view
+
+    Pořadí sloupců (priority):
+    1. Timing: first/last seen
+    2. Frequency: total_errors, occurrence_count, avg_errors_per_peak
+    3. Trend: trend_7d, periodicity
+    4. Root Cause + Behavior (from enrichment / related problem / teams notif)
+    5. Scope: affected_namespaces, affected_apps
+    6. Meta: test, activity, peak_id
+    """
     first_seen: str
     last_seen: str
-    affected_namespaces: str    # top 5 with counts
-    affected_apps: str          # top 5 with counts
-    root_cause: str
-    behavior: str
     total_errors: int           # raw error count across all peak windows
     occurrence_count: int       # number of peak windows
     avg_errors_per_peak: float
+    trend_7d: str               # 7-day trend: ↑ rising / → stable / ↓ falling + %
+    periodicity: str            # periodic-daily / periodic-weekly / sporadic / one-time / unknown
+    root_cause: str
+    behavior: str
+    affected_namespaces: str    # top 5 with counts
+    affected_apps: str          # top 5 with counts
+    test: str
     activity: str               # active/inactive based on 7-day window
+    peak_id: str
 
 
 # =============================================================================
@@ -194,6 +201,31 @@ class TableExporter:
         if '|' not in cleaned and ';' not in cleaned and '->' not in cleaned and lowered.endswith('exception'):
             return True
         return False
+
+    @staticmethod
+    def _is_test_peak_heuristic(peak: PeakEntry) -> bool:
+        """Secondary test detection when originator_application_counts is empty.
+        
+        Checks if the peak's dominant trace ID or affected apps suggest test traffic.
+        """
+        # Check originator_application_counts first (primary method)
+        oac = getattr(peak, 'originator_application_counts', {}) or {}
+        if oac:
+            return is_test_peak_counts(oac, getattr(peak, 'raw_error_count', 0) or 0)
+        
+        # Heuristic: check trace_counts for test-originator patterns
+        trace_counts = getattr(peak, 'trace_counts', {}) or {}
+        for trace_id in trace_counts:
+            if trace_id and 'test' in str(trace_id).lower():
+                return True
+        
+        # Heuristic: check if dominant_trace_id is from test
+        dom_trace = getattr(peak, 'dominant_trace_id', '') or ''
+        if dom_trace and 'test' in dom_trace.lower():
+            return True
+        
+        # Stored flag
+        return bool(getattr(peak, 'test', False))
 
     def _format_window_trend(self, current: int, baseline: float, label: str) -> str:
         """Format trend as percentage only — no word labels like 'returned' or 'new'."""
@@ -407,6 +439,126 @@ class TableExporter:
             return 'active / falling'
         return 'active / stable'
 
+    def _compute_peak_trend_7d(self, peak: PeakEntry, now: datetime) -> str:
+        """Compute 7-day trend for peaks: current week vs previous week.
+        
+        Falls back to activity-based text when occurrence_times is empty.
+        """
+        occurrence_times = getattr(peak, 'occurrence_times', None) or []
+        occurrence_counts = getattr(peak, 'occurrence_counts', None) or []
+        aware_times = []
+        counts = []
+        for i, ts in enumerate(occurrence_times):
+            aware_ts = self._ensure_aware(ts)
+            if aware_ts:
+                aware_times.append(aware_ts)
+                counts.append(occurrence_counts[i] if i < len(occurrence_counts) else 1)
+
+        if not aware_times:
+            # Fallback: use last_seen to determine if peak is recent
+            last_seen = self._ensure_aware(peak.last_seen)
+            if not last_seen:
+                return '→ no data'
+            days_ago = (now - last_seen).total_seconds() / 86400.0
+            if days_ago <= 7:
+                return '→ active'
+            return '→ inactive'
+
+        H = 3600
+        current_7d = self._volume_in_window(aware_times, counts, now, 0, 7 * 24 * H)
+        previous_7d = self._volume_in_window(aware_times, counts, now, 7 * 24 * H, 14 * 24 * H)
+
+        return self._format_window_trend(current_7d, float(previous_7d), "7d")
+
+    def _compute_peak_periodicity(self, peak: PeakEntry, now: datetime) -> str:
+        """Detect periodicity pattern for peaks.
+
+        Analyzes occurrence_times to classify:
+        - periodic-daily: occurs almost every day
+        - periodic-weekly: occurs on specific weekdays
+        - sporadic: occurs irregularly but repeatedly
+        - one-time: occurred only once or twice
+        - unknown: not enough data
+        
+        Falls back to first_seen/last_seen/occurrences when occurrence_times is empty.
+        """
+        occurrence_times = getattr(peak, 'occurrence_times', None) or []
+        aware_times = []
+        for ts in occurrence_times:
+            aware_ts = self._ensure_aware(ts)
+            if aware_ts:
+                aware_times.append(aware_ts)
+
+        # Fallback when occurrence_times is empty: use first/last seen + count
+        if not aware_times:
+            occurrences = max(1, int(getattr(peak, 'occurrences', 0) or 0))
+            first_seen = self._ensure_aware(peak.first_seen)
+            last_seen = self._ensure_aware(peak.last_seen)
+            if occurrences <= 2:
+                return 'one-time'
+            if first_seen and last_seen:
+                span_days = (last_seen - first_seen).total_seconds() / 86400.0
+                if span_days < 1:
+                    return 'sporadic'
+                avg_gap_days = span_days / max(occurrences - 1, 1)
+                if avg_gap_days <= 1.5:
+                    return 'periodic-daily'
+                if avg_gap_days <= 8:
+                    return 'periodic-weekly'
+                return 'sporadic'
+            return 'unknown'
+
+        if len(aware_times) <= 1:
+            return 'one-time'
+        if len(aware_times) == 2:
+            gap = abs((aware_times[-1] - aware_times[0]).total_seconds())
+            if gap < 3600:
+                return 'one-time'
+            return 'sporadic'
+
+        aware_times.sort()
+
+        # Compute inter-occurrence gaps in hours
+        gaps_hours = []
+        for i in range(1, len(aware_times)):
+            gap = (aware_times[i] - aware_times[i - 1]).total_seconds() / 3600.0
+            if gap > 0.25:  # ignore sub-15min duplicates
+                gaps_hours.append(gap)
+
+        if not gaps_hours:
+            return 'one-time'
+
+        # Compute span in days
+        span_days = (aware_times[-1] - aware_times[0]).total_seconds() / 86400.0
+        if span_days < 1:
+            return 'sporadic' if len(aware_times) >= 3 else 'one-time'
+
+        # Average gap
+        avg_gap_h = sum(gaps_hours) / len(gaps_hours)
+
+        # Unique days with occurrences
+        unique_days = len(set(t.date() for t in aware_times))
+
+        # Daily pattern: occurs on >60% of days in the span
+        if span_days >= 3 and unique_days / max(span_days, 1) >= 0.6:
+            return 'periodic-daily'
+
+        # Weekly pattern: check if occurrences cluster on specific weekdays
+        if span_days >= 14:
+            weekday_counts = {}
+            for t in aware_times:
+                wd = t.weekday()
+                weekday_counts[wd] = weekday_counts.get(wd, 0) + 1
+            active_weekdays = sum(1 for c in weekday_counts.values() if c >= 2)
+            if active_weekdays <= 2 and len(aware_times) >= 4:
+                return 'periodic-weekly'
+
+        # Sporadic: multiple occurrences but no clear pattern
+        if len(aware_times) >= 3:
+            return 'sporadic'
+
+        return 'unknown'
+
     # =========================================================================
     # ERRORS TABLE
     # =========================================================================
@@ -433,34 +585,35 @@ class TableExporter:
                 detail = f"{detail} / {problem.flow[:30]}"
             
             row = ErrorTableRow(
-                # NOVÉ POŘADÍ
+                # 1. TIMING
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "Unknown",
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "Unknown",
+                # 2. FREQUENCY + SEVERITY
                 occurrence_total=problem.occurrences,
                 occurrence_24h=occurrence_24h,
+                severity=self._derive_severity(problem),
                 trend_2h=trend_2h,
                 trend_24h=trend_24h,
+                # 3. ROOT CAUSE + BEHAVIOR
                 root_cause=root_cause,
+                behavior=behavior,
+                # 4. SCOPE
+                affected_namespaces=", ".join(sorted(problem.affected_namespaces)),
+                affected_apps=", ".join(sorted(problem.affected_apps)[:10]),
+                scope=problem.scope,
+                # 5. META
                 category=problem.category,
-                detail=detail,
-                
-                # ORIGINÁLNÍ POLE (zachované pro kompatibilitu)
+                status=problem.status,
+                jira=problem.jira or "",
+                notes=problem.notes or "",
+                # TECHNICAL (hidden from main view)
                 problem_id=problem.id,
                 problem_key=problem_key,
                 flow=problem.flow,
                 error_class=problem.error_class,
-                affected_apps=", ".join(sorted(problem.affected_apps)[:10]),
-                affected_namespaces=", ".join(sorted(problem.affected_namespaces)),
-                scope=problem.scope,
-                status=problem.status,
-                jira=problem.jira or "",
-                notes=problem.notes or "",
-                
-                # INFORMATIVNÍ (na konci)
-                severity=self._derive_severity(problem),
+                detail=detail,
                 score=self._derive_score(problem, occurrence_24h),
                 ratio=self._derive_ratio(problem, occurrence_24h, now),
-                behavior=behavior,
             )
             rows.append(row)
 
@@ -476,15 +629,14 @@ class TableExporter:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # NOVÉ pořadí sloupců - dle designu
+        # Column order: timing → frequency/severity → root cause → scope → meta
         fieldnames = [
-            'first_seen', 'last_seen', 'occurrence_total', 'occurrence_24h', 'trend_2h', 'trend_24h',
-            'root_cause', 'category', 'detail',
-            # Historické
-            'problem_id', 'problem_key', 'flow', 'error_class', 
-            'affected_apps', 'affected_namespaces', 'scope', 'status', 'jira', 'notes',
-            # Informativní
-            'severity', 'score', 'ratio', 'behavior'
+            'first_seen', 'last_seen',
+            'occurrence_total', 'occurrence_24h', 'severity', 'trend_2h', 'trend_24h',
+            'root_cause', 'behavior',
+            'affected_namespaces', 'affected_apps', 'scope',
+            'category', 'status', 'jira', 'notes',
+            'problem_id', 'problem_key', 'flow', 'error_class', 'detail', 'score', 'ratio'
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -545,18 +697,22 @@ class TableExporter:
                 lines.append(f"| {scope} | {count} |")
             lines.append("")
 
-            # Main table (compact version)
+            # Main table (compact version) — time → frequency → root cause → scope
             lines.append("## All Problems")
             lines.append("")
-            lines.append("| ID | Category | Flow | Apps | Occurrences | Last Seen | Status |")
-            lines.append("|-------|----------|------|------|-------------|-----------|--------|")
+            lines.append("| First Seen | Last Seen | Total | 24h | Severity | Trend | Root Cause | Namespaces | Apps | Category | Status |")
+            lines.append("|------------|-----------|-------|-----|----------|-------|------------|------------|------|----------|--------|")
 
             for row in rows:
                 apps_short = row.affected_apps[:30] + "..." if len(row.affected_apps) > 30 else row.affected_apps
-                last_seen_short = row.last_seen[:10] if row.last_seen else "-"
+                ns_short = row.affected_namespaces[:25] + "..." if len(row.affected_namespaces) > 25 else row.affected_namespaces
+                rc_short = row.root_cause[:40] + "..." if len(row.root_cause) > 40 else row.root_cause
+                first_short = row.first_seen[:10] if row.first_seen else "-"
+                last_short = row.last_seen[:10] if row.last_seen else "-"
                 lines.append(
-                    f"| {row.problem_id} | {row.category} | {row.flow} | "
-                    f"{apps_short} | {row.occurrence_total:,} | {last_seen_short} | {row.status} |"
+                    f"| {first_short} | {last_short} | {row.occurrence_total:,} | "
+                    f"{row.occurrence_24h:,} | {row.severity} | {row.trend_24h} | "
+                    f"{rc_short} | {ns_short} | {apps_short} | {row.category} | {row.status} |"
                 )
 
             # Detailed section for recent problems
@@ -623,13 +779,31 @@ class TableExporter:
     # =========================================================================
 
     def get_peaks_rows(self) -> List[PeakTableRow]:
-        """Převede Peak Registry na řádky tabulky."""
+        """Převede Peak Registry na řádky tabulky.
+        
+        Retention: Peaks not seen for > 30 days relative to the newest peak
+        are excluded from export. All other peaks are included (full history).
+        """
         rows = []
         now = datetime.now(timezone.utc)
+
+        # Retention cutoff: relative to the newest peak (not wall-clock)
+        # This prevents data loss when the pipeline hasn't run recently
+        newest_last_seen = None
+        for peak in self.registry.peaks.values():
+            ls = self._ensure_aware(peak.last_seen)
+            if ls and (newest_last_seen is None or ls > newest_last_seen):
+                newest_last_seen = ls
+        retention_anchor = newest_last_seen or now
+        retention_cutoff = retention_anchor - timedelta(days=30)
 
         for problem_key, peak in self.registry.peaks.items():
             first_seen = self._ensure_aware(peak.first_seen)
             last_seen = self._ensure_aware(peak.last_seen)
+
+            # Retention: skip peaks not seen in 30 days
+            if last_seen and last_seen < retention_cutoff:
+                continue
 
             related_problem = None
             parts = problem_key.split(':') if problem_key else []
@@ -641,6 +815,7 @@ class TableExporter:
                 flow = ''
             related_problem = self._find_related_problem_for_peak(peak, flow)
 
+            # Root cause: peak own → related problem → behavior fallback
             peak_root_cause = self._clean_unknown(getattr(peak, 'root_cause', ''))
             related_root_cause = self._problem_root_cause(related_problem) if related_problem is not None else ""
             if related_root_cause and self._is_low_signal_peak_text(peak_root_cause):
@@ -648,6 +823,7 @@ class TableExporter:
             elif not peak_root_cause and related_problem is not None:
                 peak_root_cause = related_root_cause
 
+            # Behavior: peak own → related problem → fallback
             peak_behavior = self._clean_unknown(getattr(peak, 'behavior', ''))
             related_behavior = self._problem_behavior(related_problem) if related_problem is not None else ""
             if related_behavior and self._is_low_signal_peak_text(peak_behavior):
@@ -655,30 +831,41 @@ class TableExporter:
             elif not peak_behavior and related_problem is not None:
                 peak_behavior = related_behavior
 
+            # Last-resort fallback: use behavior as root_cause when both are empty
+            if not peak_root_cause and peak_behavior:
+                peak_root_cause = peak_behavior
+
             raw_peak_count = int(getattr(peak, 'raw_error_count', 0) or 0)
             if raw_peak_count <= 0:
                 raw_peak_count = max(1, int(peak.max_value or 0))
             occurrence_count = max(1, int(getattr(peak, 'occurrences', 0) or 0))
             avg_errors_per_peak = round(raw_peak_count / occurrence_count, 1)
-            is_test_peak = bool(getattr(peak, 'test', False)) or is_test_peak_counts(
-                getattr(peak, 'originator_application_counts', {}),
-                raw_peak_count,
-            )
+            is_test_peak = self._is_test_peak_heuristic(peak)
             activity = self._compute_peak_activity(peak, now)
+            trend_7d = self._compute_peak_trend_7d(peak, now)
+            periodicity = self._compute_peak_periodicity(peak, now)
             
             row = PeakTableRow(
-                peak_id=peak.id,
-                test='yes' if is_test_peak else 'no',
+                # 1. TIMING
                 first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
                 last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
-                affected_namespaces=self._format_top_counts(getattr(peak, 'namespace_counts', {}), sorted(peak.affected_namespaces), limit=5),
-                affected_apps=self._format_top_counts(getattr(peak, 'app_counts', {}), sorted(peak.affected_apps), limit=5),
-                root_cause=self._shorten(peak_root_cause, 300),
-                behavior=self._shorten(peak_behavior, 300),
+                # 2. FREQUENCY
                 total_errors=raw_peak_count,
                 occurrence_count=occurrence_count,
                 avg_errors_per_peak=avg_errors_per_peak,
+                # 3. TREND
+                trend_7d=trend_7d,
+                periodicity=periodicity,
+                # 4. ROOT CAUSE + BEHAVIOR
+                root_cause=self._shorten(peak_root_cause, 300),
+                behavior=self._shorten(peak_behavior, 300),
+                # 5. SCOPE
+                affected_namespaces=self._format_top_counts(getattr(peak, 'namespace_counts', {}), sorted(peak.affected_namespaces), limit=5),
+                affected_apps=self._format_top_counts(getattr(peak, 'app_counts', {}), sorted(peak.affected_apps), limit=5),
+                # 6. META
+                test='yes' if is_test_peak else 'no',
                 activity=activity,
+                peak_id=peak.id,
             )
             rows.append(row)
 
@@ -694,10 +881,14 @@ class TableExporter:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Column order: timing → frequency → trend → root cause → scope → meta
         fieldnames = [
-            'peak_id', 'test', 'first_seen', 'last_seen',
-            'affected_namespaces', 'affected_apps', 'root_cause', 'behavior',
-            'total_errors', 'occurrence_count', 'avg_errors_per_peak', 'activity'
+            'first_seen', 'last_seen',
+            'total_errors', 'occurrence_count', 'avg_errors_per_peak',
+            'trend_7d', 'periodicity',
+            'root_cause', 'behavior',
+            'affected_namespaces', 'affected_apps',
+            'test', 'activity', 'peak_id'
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -725,10 +916,10 @@ class TableExporter:
         ]
 
         if rows:
-            lines.append("_Field semantics: `peak_count` = raw error logs in peak windows, `occurrence_count` = number of peak windows._")
+            lines.append("_Field semantics: `total_errors` = raw error logs in peak windows, `occurrence_count` = number of peak windows, `periodicity` = pattern frequency._")
             lines.append("")
-            lines.append("| ID | Test | First Seen | Last Seen | Namespaces | Applications (top 5 with counts)       | Root Cause | Behavior | Total Errors | Occurrences | Avg/Peak | Activity |")
-            lines.append("|-------|------|------------|-----------|------------|----------------------------------------|------------|----------|--------------|-------------|----------|----------|")
+            lines.append("| First Seen | Last Seen | Errors | Occ | Avg | Trend 7d | Periodicity | Root Cause | Behavior | Namespaces | Applications | Test | Activity | ID |")
+            lines.append("|------------|-----------|--------|-----|-----|----------|-------------|------------|----------|------------|--------------|------|----------|------|")
 
             for row in rows:
                 apps_short = row.affected_apps[:60] + "..." if len(row.affected_apps) > 60 else row.affected_apps
@@ -736,10 +927,12 @@ class TableExporter:
                 rc_short = row.root_cause[:50] + "..." if len(row.root_cause) > 50 else row.root_cause
                 beh_short = row.behavior[:50] + "..." if len(row.behavior) > 50 else row.behavior
                 lines.append(
-                    f"| {row.peak_id} | {row.test} | {row.first_seen[:10] if row.first_seen else '-'} | "
-                    f"{row.last_seen[:10] if row.last_seen else '-'} | {ns_short} | "
-                    f"{apps_short} | {rc_short} | {beh_short} | {row.total_errors:,} | {row.occurrence_count:,} | {row.avg_errors_per_peak:.1f} | "
-                    f"{row.activity} |"
+                    f"| {row.first_seen[:10] if row.first_seen else '-'} | "
+                    f"{row.last_seen[:10] if row.last_seen else '-'} | "
+                    f"{row.total_errors:,} | {row.occurrence_count:,} | {row.avg_errors_per_peak:.1f} | "
+                    f"{row.trend_7d} | {row.periodicity} | "
+                    f"{rc_short} | {beh_short} | {ns_short} | "
+                    f"{apps_short} | {row.test} | {row.activity} | {row.peak_id} |"
                 )
         else:
             lines.append("*No peaks in registry.*")

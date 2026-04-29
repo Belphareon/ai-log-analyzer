@@ -29,7 +29,14 @@ EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
 
 
 def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
-    """Convert CSV file to HTML table (Confluence storage format)."""
+    """Convert CSV file to HTML table (Confluence storage format).
+    
+    Generates explicit column widths. Text-heavy columns (affected_apps,
+    root_cause, behavior) get wider allocations.
+    """
+    WIDE_COLUMNS = {'affected_apps', 'affected_namespaces', 'root_cause', 'behavior', 'detail'}
+    NARROW_COLUMNS = {'test', 'severity', 'scope', 'status', 'score', 'ratio', 'jira', 'notes'}
+
     html_parts = []
     
     html_parts.append('<table>')
@@ -39,9 +46,16 @@ def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
         reader = csv.reader(f)
         headers = next(reader)
         
-        # Column widths
-        for _ in headers:
-            html_parts.append('<col/>')
+        # Compute column widths proportionally
+        total_cols = len(headers)
+        for header in headers:
+            h_lower = header.strip().lower()
+            if h_lower in WIDE_COLUMNS:
+                html_parts.append(f'<col style="width: {max(180, 900 // total_cols)}px"/>')
+            elif h_lower in NARROW_COLUMNS:
+                html_parts.append(f'<col style="width: {max(60, 400 // total_cols)}px"/>')
+            else:
+                html_parts.append(f'<col style="width: {max(90, 600 // total_cols)}px"/>')
         html_parts.append('</colgroup>')
         
         # Header row
@@ -169,7 +183,7 @@ def main():
             html = csv_to_html_table(errors_csv, max_rows=50)
             if upload_to_confluence(
                 CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
-                'Known Errors - Daily Update',
+                'Known Errors',
                 html
             ):
                 success_count += 1
@@ -190,7 +204,7 @@ def main():
             html = csv_to_html_table(peaks_csv, max_rows=50)
             if upload_to_confluence(
                 CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
-                'Known Peaks - Daily Update',
+                'Known Peaks',
                 html
             ):
                 success_count += 1

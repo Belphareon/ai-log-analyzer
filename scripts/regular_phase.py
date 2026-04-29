@@ -1810,6 +1810,24 @@ def run_regular_phase(
                 alert_state['peaks'] = alert_peaks
                 _save_alert_state(registry, alert_state)
 
+                # Write-back enriched root_cause and behavior to PeakEntry
+                peak_wb_count = 0
+                for payload in dispatch_payloads:
+                    pk = payload.get('peak_key', '')
+                    if not pk or pk not in registry.peaks:
+                        continue
+                    peak_entry = registry.peaks[pk]
+                    rc_text = str(payload.get('root_cause_text', '') or '')
+                    bh_text = str(payload.get('behavior_text', '') or '')
+                    if rc_text and rc_text != peak_entry.root_cause:
+                        peak_entry.root_cause = rc_text[:500]
+                        peak_wb_count += 1
+                    if bh_text and bh_text != peak_entry.behavior:
+                        peak_entry.behavior = bh_text[:500]
+                        peak_wb_count += 1
+                if peak_wb_count > 0:
+                    print(f"   📝 Peak write-back: enriched {peak_wb_count} fields")
+
                 print(f"✅ Peak alerts dispatched: {sent_alerts}/{len(peak_problems)} (suppressed: {suppressed_alerts})")
                     
         except Exception as e:
