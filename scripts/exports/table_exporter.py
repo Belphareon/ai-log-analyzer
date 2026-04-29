@@ -203,6 +203,60 @@ class TableExporter:
         return False
 
     @staticmethod
+    def _clean_stack_trace(text: str) -> str:
+        """Strip Java/Python stack trace frames, keep only the meaningful first part.
+
+        Input:  "org.springframework...AccessDeniedException: Access is denied at org.spring..."
+        Output: "org.springframework...AccessDeniedException: Access is denied"
+        
+        Also handles single-line traces where frames are separated by ' at '.
+        """
+        if not text:
+            return text
+        cleaned = " ".join(text.split())
+
+        # Split on ' at ' (Java inline stack trace) — keep only the part before first frame
+        import re
+        # Pattern: " at SomeClass.method(" or "\n\tat "
+        match = re.search(r'\s+at\s+[a-z][\w$.]+\.\w+\(', cleaned)
+        if match:
+            cleaned = cleaned[:match.start()].strip()
+
+        # Also strip trailing "..." from shorten()
+        if cleaned.endswith('...'):
+            cleaned = cleaned[:-3].strip()
+
+        return cleaned.strip()
+
+    @staticmethod
+    def _extract_exception_message(root_cause: str, behavior: str) -> str:
+        """When root_cause is just a bare exception class name, extract the human message.
+
+        Given:
+          root_cause = "AccessDeniedException"
+          behavior   = "...AccessDeniedException: Access is denied at org..."
+        Returns:
+          "Access is denied"
+        """
+        import re
+        if not root_cause or ' ' in root_cause.strip():
+            # Already has spaces = already a sentence, not a bare class name
+            return root_cause
+
+        # Try "SomeException: actual message" pattern in behavior
+        pattern = re.compile(
+            r'[A-Z][A-Za-z]+(?:Exception|Error|Denied|Fault|Failure)[^:]*:\s*(.+?)(?:\s+at\s+[a-z]|\s*$)',
+            re.DOTALL
+        )
+        m = pattern.search(behavior or '')
+        if m:
+            msg = " ".join(m.group(1).split())[:200].strip()
+            if msg and len(msg) > 5:
+                return msg
+
+        return root_cause
+
+    @staticmethod
     def _is_test_peak_heuristic(peak: PeakEntry) -> bool:
         """Secondary test detection when originator_application_counts is empty.
         
@@ -833,6 +887,19 @@ class TableExporter:
 
             # Last-resort fallback: use behavior as root_cause when both are empty
             if not peak_root_cause and peak_behavior:
+                peak_root_cause = peak_behavior
+
+            # Clean stack traces from behavior (keep only first meaningful line)
+            peak_behavior = self._clean_stack_trace(peak_behavior)
+
+            # Enrich root_cause: if it's just a bare exception class name,
+            # extract the actual human-readable message from behavior.
+            # If enrichment succeeds (returned something different), keep it directly.
+            # Otherwise fall back to the cleaned behavior if root_cause is low-signal.
+            enriched_rc = self._extract_exception_message(peak_root_cause, peak_behavior)
+            if enriched_rc and enriched_rc != peak_root_cause:
+                peak_root_cause = enriched_rc
+            elif self._is_low_signal_peak_text(peak_root_cause) and peak_behavior:
                 peak_root_cause = peak_behavior
 
             raw_peak_count = int(getattr(peak, 'raw_error_count', 0) or 0)
