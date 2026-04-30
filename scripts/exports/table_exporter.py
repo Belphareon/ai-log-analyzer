@@ -163,13 +163,144 @@ class TableExporter:
             return cleaned
         return cleaned[: limit - 3] + "..."
 
+    @staticmethod
+    def _collapse_id_noise(text: str) -> str:
+        """Collapse repeated `<ID>` / `<UUID>` / `<TS>` placeholders.
+
+        Input:  "data=[<ID>, <ID>, <ID>, <ID>, <ID>, <ID>, <ID>, <ID>]"
+        Output: "data=[<ID>×8]"
+
+        Operator-friendly: signal not noise.
+        """
+        if not text:
+            return text
+        import re
+        # Match runs of placeholders separated by commas/spaces (3+ to avoid false positives)
+        pattern = re.compile(
+            r'(<(?:ID|UUID|TS|N)>)(?:\s*[,;]\s*<(?:ID|UUID|TS|N)>){2,}'
+        )
+
+        def _replace(m: 're.Match[str]') -> str:
+            run = m.group(0)
+            placeholder = m.group(1)
+            count = run.count('<')
+            return f'{placeholder}×{count}'
+
+        return pattern.sub(_replace, text)
+
+    def _dedup_sample_patterns(
+        self,
+        problem: ProblemEntry,
+        limit: int = 3,
+        max_msg_len: int = 220,
+    ) -> List[str]:
+        """Return top distinct cleaned sample patterns from problem.sample_messages.
+
+        Deduplication strategy:
+          1. Strip stack trace + collapse `<ID>` runs.
+          2. Build dedup key from `normalize_message` (UUIDs → <UUID>, numeric
+             IDs → id=<N>, etc.) lowercased + first 80 chars.
+          3. Demote pure wrappers (`X error handled.`) below substantive
+             patterns — only included if no better alternative exists.
+          4. Order = order of first appearance in sample_messages, but
+             wrappers always last.
+        """
+        samples = getattr(problem, 'sample_messages', None) or []
+        if not samples:
+            return []
+
+        try:
+            from analysis.trace_analysis import normalize_message
+        except Exception:
+            normalize_message = lambda x: x  # type: ignore[assignment]
+
+        def _is_pure_wrapper(text: str) -> bool:
+            t = text.lower().strip()
+            # 'X error handled.' / 'X exception handled.'
+            if t.endswith('error handled.') or t.endswith('exception handled.'):
+                return len(t) < 60
+            return False
+
+        seen_keys: set = set()
+        substantive: List[str] = []
+        wrappers: List[str] = []
+
+        for raw in samples:
+            if not raw:
+                continue
+            cleaned = self._clean_stack_trace(str(raw))
+            cleaned = self._collapse_id_noise(cleaned)
+            cleaned = " ".join(cleaned.split())
+            if not cleaned:
+                continue
+
+            # Robust dedup key: normalize variable parts (numeric IDs, UUIDs)
+            # so 'Queued event 10666186' and 'Queued event 10570898' collapse.
+            try:
+                norm = normalize_message(cleaned)
+            except Exception:
+                norm = cleaned
+            # Extra: collapse standalone long-digit runs (5+ digits) which the
+            # standard normalizer keeps because they lack an `id=` prefix.
+            import re as _re
+            norm = _re.sub(r'\b\d{5,}\b', '<N>', norm)
+            key = norm[:80].lower()
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+
+            display = cleaned
+            if len(display) > max_msg_len:
+                display = display[: max_msg_len - 3] + "..."
+
+            if _is_pure_wrapper(display):
+                wrappers.append(display)
+            else:
+                substantive.append(display)
+            if len(substantive) >= limit:
+                break
+
+        # Wrappers only fill remaining slots after substantive patterns
+        results = substantive[:limit]
+        if len(results) < limit:
+            results.extend(wrappers[: limit - len(results)])
+        return results
+
     def _problem_behavior(self, problem: ProblemEntry) -> str:
+        """Render problem behavior as multi-pattern view.
+
+        Strategy:
+          1. Take top distinct cleaned sample patterns (stack traces stripped,
+             `<ID>` noise collapsed). When 2+ patterns → multi-line numbered list.
+          2. Otherwise fall back to single cleaned `problem.behavior` line.
+          3. Last resort: error_class / flow.
+        """
+        patterns = self._dedup_sample_patterns(problem, limit=3)
+
+        if len(patterns) >= 2:
+            # Multi-pattern view
+            lines = [f"Top patterns ({len(patterns)}):", ""]
+            for i, msg in enumerate(patterns, 1):
+                escaped = msg.replace('"', '\\"')
+                lines.append(f'  {i}) "{escaped}"')
+            return "\n".join(lines)
+
+        # Single-pattern fallback: prefer the deduped pattern (already cleaned)
+        if patterns:
+            return patterns[0]
+
+        # No samples — clean stored behavior
         behavior = self._clean_unknown(getattr(problem, 'behavior', ''))
+        behavior = self._clean_stack_trace(behavior)
+        behavior = self._collapse_id_noise(behavior)
         if behavior:
-            return behavior
-        if getattr(problem, 'sample_messages', None):
-            return self._shorten(problem.sample_messages[0], 300)
-        detail_parts = [self._clean_unknown(problem.error_class), self._clean_unknown(problem.flow)]
+            return self._shorten(behavior, 300)
+
+        # Last resort
+        detail_parts = [
+            self._clean_unknown(problem.error_class),
+            self._clean_unknown(problem.flow),
+        ]
         detail_parts = [part for part in detail_parts if part]
         return " / ".join(detail_parts)
 
@@ -177,10 +308,24 @@ class TableExporter:
         # Priority 1: root_cause field (populated by write-back from trace enrichment)
         explicit_root = self._clean_unknown(getattr(problem, 'root_cause', ''))
         if explicit_root:
-            return self._shorten(explicit_root, 180)
+            # Strip useless wrapper prefixes like "UnknownError: " / "UnknownException: "
+            # which carry no signal — the actual exception class lives elsewhere.
+            import re
+            stripped = re.sub(
+                r'^(?:Unknown(?:Error|Exception)|Throwable|Exception)\s*:\s*',
+                '',
+                explicit_root,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            stripped = self._clean_stack_trace(stripped)
+            stripped = self._collapse_id_noise(stripped)
+            return self._shorten(stripped, 180)
         # Priority 2: description
         desc_root = self._clean_unknown(getattr(problem, 'description', ''))
         if desc_root:
+            desc_root = self._clean_stack_trace(desc_root)
+            desc_root = self._collapse_id_noise(desc_root)
             return self._shorten(desc_root, 180)
         # Priority 3: error_class as last resort
         err_class = self._clean_unknown(getattr(problem, 'error_class', ''))

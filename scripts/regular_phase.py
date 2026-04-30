@@ -1682,7 +1682,9 @@ def run_regular_phase(
             if aggregate.trace_flow_summary:
                 behavior_msg = _summarize_behavior_steps(aggregate.trace_flow_summary, limit=3)
                 if behavior_msg and behavior_msg != entry.behavior:
-                    entry.behavior = behavior_msg[:500]
+                    # Strip stack frames before storing (operator-friendly).
+                    from core.problem_registry import _strip_stack_trace_for_storage
+                    entry.behavior = _strip_stack_trace_for_storage(behavior_msg)[:500]
                     write_back_count += 1
 
             # Write-back severity and score

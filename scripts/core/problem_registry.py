@@ -113,6 +113,27 @@ def _parse_http_status(message: str) -> str:
     return m.group(1)
 
 
+# Stack trace stripper — applied at storage time so behavior field never holds
+# Java/Kotlin stack frames. Pattern matches first ' at packageOrClass.method('.
+_STACK_FRAME_RE = re.compile(r'\s+at\s+[a-z][\w$.]+\.\w+\(')
+
+
+def _strip_stack_trace_for_storage(text: str) -> str:
+    """Remove inline Java/Kotlin/Python stack frames from a message string.
+
+    Keeps only the meaningful prefix (the actual exception message) and
+    discards everything from the first ' at <pkg>.<class>.<method>(' onward.
+    Whitespace-collapsed so multiline stacks turn into a clean one-liner.
+    """
+    if not text:
+        return text
+    cleaned = " ".join(str(text).split())
+    m = _STACK_FRAME_RE.search(cleaned)
+    if m:
+        cleaned = cleaned[: m.start()].strip()
+    return cleaned
+
+
 def dominant_count_entry(counts: Optional[Dict[str, int]]) -> Tuple[str, int]:
     normalized = _normalize_count_dict(counts)
     if not normalized:
@@ -1214,7 +1235,8 @@ class ProblemRegistry:
             if msg not in problem.sample_messages and len(problem.sample_messages) < MAX_SAMPLE_MESSAGES_PER_FP:
                 problem.sample_messages.append(msg)
             if not problem.behavior:
-                problem.behavior = msg
+                # Strip stack trace before storing — keep behavior signal-only.
+                problem.behavior = _strip_stack_trace_for_storage(msg)[:500]
 
         if not problem.root_cause:
             if error_type and error_type != 'UnknownError':
@@ -1309,7 +1331,7 @@ class ProblemRegistry:
             sample_messages=sample_messages,
             description=f"{error_type}: {normalized_message[:200] if normalized_message else 'N/A'}",
             root_cause=(error_type if error_type and error_type != 'UnknownError' else ''),
-            behavior=(sample_messages[0] if sample_messages else ''),
+            behavior=_strip_stack_trace_for_storage(sample_messages[0]) if sample_messages else '',
             affected_apps=set(safe_apps),
             affected_namespaces=set(safe_ns),
             deployments_seen={extract_deployment_label(app) for app in safe_apps},
