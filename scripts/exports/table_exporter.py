@@ -42,7 +42,7 @@ import argparse
 import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 
 # Add paths
@@ -281,51 +281,66 @@ class TableExporter:
         # Stored flag
         return bool(getattr(peak, 'test', False))
 
+    def _resolve_contributing_problems(
+        self,
+        peak: PeakEntry,
+        limit: int = 3,
+    ) -> List[Tuple[Any, int]]:
+        """Resolve PeakEntry.contributing_problems → [(ProblemEntry, count), ...].
+
+        Sorted by count descending, missing problem keys silently skipped
+        (registry may have been pruned). Returns at most ``limit`` entries.
+        """
+        contrib = getattr(peak, 'contributing_problems', None) or {}
+        if not contrib:
+            return []
+        ranked: List[Tuple[Any, int]] = []
+        problems_index = self.registry.problems if self.registry is not None else {}
+        for pkey, count in sorted(contrib.items(), key=lambda kv: -int(kv[1] or 0)):
+            problem = problems_index.get(pkey) if problems_index else None
+            if problem is None:
+                continue
+            try:
+                cnt = int(count or 0)
+            except (TypeError, ValueError):
+                cnt = 0
+            ranked.append((problem, cnt))
+            if len(ranked) >= limit:
+                break
+        return ranked
+
     def _format_peak_behavior(
         self,
         peak: PeakEntry,
         fallback_message: str = '',
         fallback_service: str = '',
     ) -> str:
-        """Format peak behavior as multi-line trace flow.
+        """Format peak behavior as multi-line list of contributing problem patterns.
+
+        Resolves PeakEntry.contributing_problems against the ProblemEntry registry
+        and renders top 3 patterns with their dominant app and event count.
 
         Output:
-            Behavior (trace flow): N messages
+            Behavior (top patterns): N events / K problems
 
-              1) app-name
+              1) app-name (12,345 events, 78%)
                  "message"
-              2) app-name
+              2) app-name (2,100 events, 13%)
                  "message"
-              ...
 
-        ``fallback_message`` and ``fallback_service`` provide last-resort defaults
-        when the peak has no own behavior data (sourced from related ProblemEntry).
+        ``fallback_message`` and ``fallback_service`` are used only when no
+        contributing problems can be resolved (legacy peak before r70).
         """
-        steps = getattr(peak, 'behavior_steps', None) or []
-        # Normalize and clean
-        clean_steps: List[Dict[str, Any]] = []
-        for s in steps:
-            if not isinstance(s, dict):
-                continue
-            app = str(s.get('app', '') or '').strip()
-            msg = str(s.get('message', '') or '').strip()
-            count = int(s.get('count', 0) or 0)
-            msg = self._clean_stack_trace(msg)
-            if app or msg:
-                clean_steps.append({'app': app or '?', 'message': msg, 'count': count})
+        ranked = self._resolve_contributing_problems(peak, limit=3)
 
-        if not clean_steps:
-            # Legacy fallback: build a single synthetic step from peak.behavior
-            # or from caller-provided fallback (related ProblemEntry).
+        if not ranked:
+            # Legacy fallback: render single synthetic line from peak.behavior
             legacy = self._clean_unknown(getattr(peak, 'behavior', ''))
             legacy = self._clean_stack_trace(legacy)
             if not legacy and fallback_message:
                 legacy = self._clean_stack_trace(fallback_message)
             if not legacy:
                 return ''
-
-            # Pick the dominant app from app_counts; if missing, use caller fallback,
-            # then any affected app
             dom_app = ''
             app_counts = getattr(peak, 'app_counts', {}) or {}
             if app_counts:
@@ -336,27 +351,45 @@ class TableExporter:
                     dom_app = affected[0]
             if not dom_app and fallback_service:
                 dom_app = fallback_service
-
             total = int(getattr(peak, 'raw_error_count', 0) or 0) or int(
                 getattr(peak, 'occurrences', 0) or 1
             )
-            lines = [f"Behavior (trace flow): {total:,} messages", ""]
+            lines = [f"Behavior (legacy): {total:,} events", ""]
             lines.append(f"  1) {dom_app or '?'}")
             escaped = legacy.replace('"', '\\"')
             lines.append(f'     "{escaped}"')
             return "\n".join(lines)
 
-        total = getattr(peak, 'total_messages', 0) or sum(s['count'] for s in clean_steps)
-        if not total:
-            total = sum(s['count'] for s in clean_steps) or len(clean_steps)
+        total_events = sum(c for _, c in ranked) or 1
+        problem_count = len(getattr(peak, 'contributing_problems', {}) or {})
+        lines = [
+            f"Behavior (top patterns): {total_events:,} events / {problem_count} problems",
+            "",
+        ]
+        for i, (problem, count) in enumerate(ranked, 1):
+            # Dominant app from ProblemEntry.app_counts (real per-app contribution)
+            app_counts = getattr(problem, 'app_counts', {}) or {}
+            if app_counts:
+                dom_app = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
+            else:
+                aff = sorted(getattr(problem, 'affected_apps', set()) or [])
+                dom_app = aff[0] if aff else '?'
 
-        lines = [f"Behavior (trace flow): {total:,} messages", ""]
-        for i, s in enumerate(clean_steps, 1):
-            lines.append(f"  {i}) {s['app']}")
-            if s['message']:
-                # Wrap message in quotes; escape internal quotes
-                escaped = s['message'].replace('"', '\\"')
-                lines.append(f'     "{escaped}"')
+            # Pattern text: prefer behavior (already cleaned), fallback to first sample
+            msg = self._clean_stack_trace(
+                self._clean_unknown(getattr(problem, 'behavior', '') or '')
+            )
+            if not msg:
+                samples = getattr(problem, 'sample_messages', None) or []
+                if samples:
+                    msg = self._clean_stack_trace(self._clean_unknown(str(samples[0])))
+            if not msg:
+                msg = '(no message)'
+
+            share_pct = (count / total_events) * 100 if total_events else 0
+            lines.append(f"  {i}) {dom_app} ({count:,} events, {share_pct:.0f}%)")
+            escaped = msg.replace('"', '\\"')
+            lines.append(f'     "{escaped}"')
         return "\n".join(lines)
 
     def _format_peak_root_cause(
@@ -365,79 +398,86 @@ class TableExporter:
         fallback_message: str = '',
         fallback_service: str = '',
     ) -> str:
-        """Format peak root cause as 'Inferred root cause [confidence]:\n  - app: msg'.
+        """Format peak root cause from top contributing ProblemEntry.
 
-        Uses structured fields when available (root_cause_service, root_cause_confidence),
-        otherwise infers from first behavior_step or legacy peak.root_cause.
-        ``fallback_message`` and ``fallback_service`` are last-resort defaults
-        sourced from the related ProblemEntry by the caller.
+        Strategy:
+          1. Resolve top-1 contributing problem.
+          2. Use its trace_root_cause / root_cause / behavior message.
+          3. Confidence = high (top contributor >70% share), medium (>40%), low otherwise.
+
+        Falls back to legacy peak.root_cause / fallback_* args when no
+        contributing problems are resolvable.
         """
-        # Get the message
-        msg = self._clean_unknown(getattr(peak, 'root_cause', ''))
-        msg = self._clean_stack_trace(msg)
+        ranked = self._resolve_contributing_problems(peak, limit=1)
 
-        # Get the service (write-back) or first behavior step's app
-        service = str(getattr(peak, 'root_cause_service', '') or '').strip()
-        confidence = str(getattr(peak, 'root_cause_confidence', '') or '').strip()
+        if ranked:
+            top_problem, top_count = ranked[0]
+            total_events = sum(int(c or 0) for c in (
+                getattr(peak, 'contributing_problems', {}) or {}
+            ).values()) or 1
+            share = top_count / total_events
+            if share >= 0.70:
+                confidence = 'high'
+            elif share >= 0.40:
+                confidence = 'medium'
+            else:
+                confidence = 'low'
 
-        steps = getattr(peak, 'behavior_steps', None) or []
-        first_step = next(
-            (s for s in steps if isinstance(s, dict) and (s.get('app') or s.get('message'))),
-            None,
+            # Service: prefer explicit trace_root_cause.service, else dominant app
+            service = ''
+            trc = getattr(top_problem, 'trace_root_cause', None)
+            if isinstance(trc, dict):
+                service = str(trc.get('service', '') or '').strip()
+            if not service:
+                app_counts = getattr(top_problem, 'app_counts', {}) or {}
+                if app_counts:
+                    service = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
+                else:
+                    aff = sorted(getattr(top_problem, 'affected_apps', set()) or [])
+                    service = aff[0] if aff else ''
+
+            # Message: prefer trace_root_cause.message, else root_cause, else behavior
+            msg = ''
+            if isinstance(trc, dict):
+                msg = str(trc.get('message', '') or '').strip()
+            if not msg:
+                msg = str(getattr(top_problem, 'root_cause', '') or '').strip()
+            if not msg:
+                msg = str(getattr(top_problem, 'behavior', '') or '').strip()
+            msg = self._clean_stack_trace(self._clean_unknown(msg))
+
+            if service or msg:
+                msg = msg or '(unknown)'
+                if service:
+                    return (
+                        f"Inferred root cause [{confidence}, {share:.0%} of events]:\n"
+                        f"  - {service}: {msg}"
+                    )
+                return f"Inferred root cause [{confidence}, {share:.0%} of events]: {msg}"
+
+        # Legacy fallback
+        msg = self._clean_stack_trace(
+            self._clean_unknown(getattr(peak, 'root_cause', '') or '')
         )
-
-        if not service and first_step:
-            service = str(first_step.get('app', '') or '').strip()
-
-        if not msg and first_step:
-            cand = self._clean_stack_trace(str(first_step.get('message', '') or '').strip())
-            if cand:
-                msg = cand
-
-        # Legacy fallback for both message and service
-        legacy_behavior = self._clean_unknown(getattr(peak, 'behavior', ''))
-        legacy_behavior = self._clean_stack_trace(legacy_behavior)
-
-        # Enrich: if msg is bare exception class, try to extract from behavior
-        enriched = self._extract_exception_message(msg, legacy_behavior)
-        if enriched and enriched != msg:
-            msg = enriched
-
-        # Last-resort: use legacy peak.behavior, then caller-provided fallback
-        if not msg and legacy_behavior:
-            msg = legacy_behavior
         if not msg and fallback_message:
             msg = self._clean_stack_trace(fallback_message)
-
-        # Last-resort service: dominant app, affected apps, then caller fallback
-        if not service:
-            app_counts = getattr(peak, 'app_counts', {}) or {}
-            if app_counts:
-                top_app = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
-                if top_app:
-                    service = str(top_app)
-            elif getattr(peak, 'affected_apps', None):
-                affected = sorted(peak.affected_apps)
-                if affected:
-                    service = affected[0]
+        service = ''
+        app_counts = getattr(peak, 'app_counts', {}) or {}
+        if app_counts:
+            service = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
+        elif getattr(peak, 'affected_apps', None):
+            affected = sorted(peak.affected_apps)
+            if affected:
+                service = affected[0]
         if not service and fallback_service:
             service = fallback_service
-
         if not service and not msg:
             return ''
-
         if not msg:
             msg = '(unknown)'
-
-        # Default confidence when not set
-        if not confidence:
-            # higher confidence when we have explicit structured data
-            confidence = 'medium' if getattr(peak, 'root_cause_service', '') else 'low'
-
         if service:
-            return f"Inferred root cause [{confidence}]:\n  - {service}: {msg}"
-        # No service available — show flat
-        return f"Inferred root cause [{confidence}]: {msg}"
+            return f"Inferred root cause [low]:\n  - {service}: {msg}"
+        return f"Inferred root cause [low]: {msg}"
 
     @staticmethod
     def _format_apps_multiline(counts: Optional[Dict[str, int]],
@@ -581,16 +621,34 @@ class TableExporter:
     _CATEGORY_BOOST = {'database', 'auth', 'security', 'infrastructure'}
 
     def _derive_severity(self, problem: ProblemEntry) -> str:
-        """Derive severity from scope + category + enriched data."""
+        """Derive severity from scope + category + enriched data.
+
+        Applies NS dampening: when ALL affected namespaces are non-prod
+        (dev/fat substring), severity is downgraded one notch to avoid
+        flooding operators with non-prod noise.
+        """
         # Priority 1: write-back from enrichment
         enriched = getattr(problem, '_enriched_severity', None)
         if enriched and enriched not in ('info', 'unknown'):
-            return enriched
-        # Priority 2: scope-based
-        sev = self._SEVERITY_MAP.get(problem.scope, 'low')
-        # Boost for critical categories
-        if problem.category in self._CATEGORY_BOOST and sev == 'low':
-            sev = 'medium'
+            sev = enriched
+        else:
+            # Priority 2: scope-based
+            sev = self._SEVERITY_MAP.get(problem.scope, 'low')
+            # Boost for critical categories
+            if problem.category in self._CATEGORY_BOOST and sev == 'low':
+                sev = 'medium'
+
+        # NS dampening: only non-prod namespaces → downgrade
+        ns_set = getattr(problem, 'affected_namespaces', set()) or set()
+        if ns_set:
+            non_prod_markers = ('-dev-', '-fat-', '-dev', '-fat')
+            all_non_prod = all(
+                any(marker in str(ns) for marker in non_prod_markers)
+                for ns in ns_set
+            )
+            if all_non_prod:
+                downgrade = {'critical': 'high', 'high': 'medium', 'medium': 'low', 'low': 'low'}
+                sev = downgrade.get(sev, sev)
         return sev
 
     def _derive_score(self, problem: ProblemEntry, occurrence_24h: int) -> float:

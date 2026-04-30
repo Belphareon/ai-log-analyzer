@@ -1828,40 +1828,12 @@ def run_regular_phase(
                     if bh_text and bh_text != peak_entry.behavior:
                         peak_entry.behavior = bh_text[:500]
                         peak_wb_count += 1
-
-                    # Structured behavior steps (preferred for table_exporter)
-                    trace_steps = payload.get('trace_steps') or []
-                    if trace_steps:
-                        # Normalize and limit to top 5 with all fields needed by exporter
-                        new_steps = []
-                        total_msgs = 0
-                        for step in trace_steps[:5]:
-                            if not isinstance(step, dict):
-                                continue
-                            count = int(step.get('count', 1) or 1)
-                            new_steps.append({
-                                'app': str(step.get('app', '?') or '?'),
-                                'message': str(step.get('message', '') or '')[:500],
-                                'count': count,
-                                'share_pct': float(step.get('share_pct') or 0.0),
-                            })
-                            total_msgs += count
-                        if new_steps and new_steps != peak_entry.behavior_steps:
-                            peak_entry.behavior_steps = new_steps
-                            peak_entry.total_messages = total_msgs
-                            peak_wb_count += 1
-
-                    # Structured root cause: service + confidence
-                    rc_obj = payload.get('root_cause') or {}
-                    if isinstance(rc_obj, dict):
-                        rc_service = str(rc_obj.get('service', '') or '')
-                        rc_conf = str(rc_obj.get('confidence', '') or '')
-                        if rc_service and rc_service != peak_entry.root_cause_service:
-                            peak_entry.root_cause_service = rc_service
-                            peak_wb_count += 1
-                        if rc_conf and rc_conf != peak_entry.root_cause_confidence:
-                            peak_entry.root_cause_confidence = rc_conf
-                            peak_wb_count += 1
+                    # NOTE: r69 fields (behavior_steps, root_cause_service,
+                    # root_cause_confidence, total_messages) replaced by
+                    # PeakEntry.contributing_problems which is populated
+                    # organically during _update_peak. Render-time formatters
+                    # in TableExporter resolve the contributing problem keys
+                    # against ProblemEntry to produce per-pattern peak detail.
                 if peak_wb_count > 0:
                     print(f"   📝 Peak write-back: enriched {peak_wb_count} fields")
 

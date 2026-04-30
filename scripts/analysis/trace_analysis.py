@@ -184,6 +184,10 @@ def _message_signal_score(message: str) -> int:
         return -10
     if _CASE_PROCESSING_RE.search(lowered):
         return -5
+    # Anonymized wrappers carry no usable detail (the real message
+    # is masked); demote so a sibling pattern with content wins.
+    if 'anonymize original error detail' in lowered:
+        return -8
 
     for pattern in _ROOT_CAUSE_POSITIVE_PATTERNS:
         if pattern.search(lowered):

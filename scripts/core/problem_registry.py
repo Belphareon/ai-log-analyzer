@@ -88,6 +88,31 @@ def _sorted_count_dict(counts: Optional[Dict[str, int]]) -> Dict[str, int]:
     }
 
 
+# HTTP status parser for SPEED-101 / ITO-XXX structured error codes.
+# Format: PREFIX#SYSTEM#SVC#APP#METHOD#CLASS#OP#STATUS#TRAIL
+# Status field is index 7 (0-based 7th '#' segment). Accept 3-digit HTTP codes only.
+_STRUCTURED_CODE_PREFIX_RE = re.compile(
+    r'^(?:SPEED-\d+|ITO-\d+)#'
+    r'[^#]*#[^#]*#[^#]*#[^#]*#[^#]*#[^#]*#'
+    r'(\d{3})(?:#|$)'
+)
+
+
+def _parse_http_status(message: str) -> str:
+    """Extract HTTP status code from structured SPEED/ITO error message.
+
+    Returns empty string when not a structured code or when status field is
+    missing/non-numeric (e.g. 'n/a').
+    """
+    if not message:
+        return ''
+    text = message.strip()
+    m = _STRUCTURED_CODE_PREFIX_RE.match(text)
+    if not m:
+        return ''
+    return m.group(1)
+
+
 def dominant_count_entry(counts: Optional[Dict[str, int]]) -> Tuple[str, int]:
     normalized = _normalize_count_dict(counts)
     if not normalized:
@@ -160,6 +185,15 @@ class ProblemEntry:
     deployments_seen: Set[str] = field(default_factory=set)  # app-v1, app-v2
     app_versions_seen: Set[str] = field(default_factory=set)  # 4.65.2, 4.65.3
 
+    # Per-entity raw event counts (cumulative, sourced from incident.app_event_counts
+    # and incident.namespace_event_counts). Drives the multi-line apps/NS columns
+    # in the operator export with real volume per app/NS.
+    app_counts: Dict[str, int] = field(default_factory=dict)
+    namespace_counts: Dict[str, int] = field(default_factory=dict)
+    # HTTP status code distribution parsed from structured SPEED-101/ITO-XXX
+    # messages (e.g. {'404': 12, '403': 5, '500': 1}). Empty when no parseable codes.
+    http_status_counts: Dict[str, int] = field(default_factory=dict)
+
     # Scope classification
     scope: str = "LOCAL"  # LOCAL, CROSS_NS, SYSTEMIC
 
@@ -188,6 +222,9 @@ class ProblemEntry:
             'affected_namespaces': sorted(self.affected_namespaces),
             'deployments_seen': sorted(self.deployments_seen),
             'app_versions_seen': sorted(self.app_versions_seen),
+            'app_counts': _sorted_count_dict(self.app_counts),
+            'namespace_counts': _sorted_count_dict(self.namespace_counts),
+            'http_status_counts': _sorted_count_dict(self.http_status_counts),
             'scope': self.scope,
             'status': self.status,
             'jira': self.jira,
@@ -245,6 +282,10 @@ class ProblemEntry:
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
         entry.deployments_seen = set(data.get('deployments_seen', []))
         entry.app_versions_seen = set(data.get('app_versions_seen', []))
+        # Per-entity counts (safe defaults for legacy YAML — empty dicts).
+        entry.app_counts = _normalize_count_dict(data.get('app_counts', {}))
+        entry.namespace_counts = _normalize_count_dict(data.get('namespace_counts', {}))
+        entry.http_status_counts = _normalize_count_dict(data.get('http_status_counts', {}))
         entry.scope = data.get('scope', 'LOCAL')
         entry.status = data.get('status', 'OPEN')
         entry.jira = data.get('jira')
@@ -294,12 +335,11 @@ class PeakEntry:
     root_cause: str = ""
     behavior: str = ""
 
-    # Structured trace flow (preferred over flat behavior string)
-    # Each step: {app: str, message: str, count: int, share_pct: float}
-    behavior_steps: List[Dict[str, Any]] = field(default_factory=list)
-    root_cause_service: str = ""
-    root_cause_confidence: str = ""
-    total_messages: int = 0
+    # Map ProblemEntry keys → raw event count contributed to this peak.
+    # Replaces r69 behavior_steps/root_cause_service/root_cause_confidence/total_messages.
+    # Render-time helpers in TableExporter resolve each key to ProblemEntry to
+    # produce per-pattern peak descriptions (no fake per-app duplication).
+    contributing_problems: Dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -328,10 +368,7 @@ class PeakEntry:
             'notes': self.notes,
             'root_cause': self.root_cause,
             'behavior': self.behavior,
-            'behavior_steps': self.behavior_steps,
-            'root_cause_service': self.root_cause_service,
-            'root_cause_confidence': self.root_cause_confidence,
-            'total_messages': self.total_messages,
+            'contributing_problems': _sorted_count_dict(self.contributing_problems),
         }
     
     @classmethod
@@ -377,15 +414,10 @@ class PeakEntry:
         entry.notes = data.get('notes')
         entry.root_cause = data.get('root_cause', '')
         entry.behavior = data.get('behavior', '')
-        # Structured trace flow data (with safe defaults for legacy registries)
-        raw_steps = data.get('behavior_steps', []) or []
-        entry.behavior_steps = [s for s in raw_steps if isinstance(s, dict)]
-        entry.root_cause_service = str(data.get('root_cause_service', '') or '')
-        entry.root_cause_confidence = str(data.get('root_cause_confidence', '') or '')
-        try:
-            entry.total_messages = int(data.get('total_messages', 0) or 0)
-        except (TypeError, ValueError):
-            entry.total_messages = 0
+        # Contributing ProblemEntry keys with counts (safe default for legacy YAML).
+        entry.contributing_problems = _normalize_count_dict(
+            data.get('contributing_problems', {})
+        )
 
         return entry
     
@@ -1102,12 +1134,14 @@ class ProblemRegistry:
             if problem_key in self.problems:
                 self._update_problem(
                     problem_key, fingerprint, apps, namespaces,
-                    error_type, normalized_message, first_ts, last_ts, count
+                    error_type, normalized_message, first_ts, last_ts, count,
+                    incident=incident,
                 )
             else:
                 self._create_problem(
                     problem_key, fingerprint, category, apps, namespaces,
-                    error_type, normalized_message, first_ts, last_ts, count
+                    error_type, normalized_message, first_ts, last_ts, count,
+                    incident=incident,
                 )
             
             # Update fingerprint index
@@ -1118,11 +1152,13 @@ class ProblemRegistry:
             if hasattr(incident, 'flags'):
                 if incident.flags.is_spike:
                     self._update_peak(
-                        incident, 'SPIKE', first_ts, last_ts
+                        incident, 'SPIKE', first_ts, last_ts,
+                        problem_key=problem_key, problem_count=count,
                     )
                 if incident.flags.is_burst:
                     self._update_peak(
-                        incident, 'BURST', first_ts, last_ts
+                        incident, 'BURST', first_ts, last_ts,
+                        problem_key=problem_key, problem_count=count,
                     )
     
     def _update_problem(
@@ -1135,7 +1171,8 @@ class ProblemRegistry:
         normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
-        count: int
+        count: int,
+        incident: Any = None,
     ):
         """Aktualizuje existující problem."""
         problem = self.problems[problem_key]
@@ -1191,7 +1228,31 @@ class ProblemRegistry:
         
         problem.affected_apps.update(safe_apps)
         problem.affected_namespaces.update(safe_ns)
-        
+
+        # Per-entity counts: prefer incident.app_event_counts (real per-app
+        # contributions for this fingerprint), fallback to spreading `count`
+        # uniformly across affected apps when not available.
+        app_evt = getattr(incident, 'app_event_counts', None) if incident is not None else None
+        if app_evt:
+            _merge_count_dict(problem.app_counts, app_evt)
+        elif safe_apps and count:
+            share = max(1, count // len(safe_apps))
+            _merge_count_dict(problem.app_counts, {a: share for a in safe_apps})
+
+        ns_evt = getattr(incident, 'namespace_event_counts', None) if incident is not None else None
+        if ns_evt:
+            _merge_count_dict(problem.namespace_counts, ns_evt)
+        elif safe_ns and count:
+            share = max(1, count // len(safe_ns))
+            _merge_count_dict(problem.namespace_counts, {n: share for n in safe_ns})
+
+        # HTTP status parsing from normalized_message (SPEED-101 / ITO-XXX format)
+        http_status = _parse_http_status(normalized_message)
+        if http_status:
+            problem.http_status_counts[http_status] = (
+                problem.http_status_counts.get(http_status, 0) + count
+            )
+
         # Extract deployment labels vs app versions
         for app in safe_apps:
             problem.deployments_seen.add(extract_deployment_label(app))
@@ -1212,7 +1273,8 @@ class ProblemRegistry:
         normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
-        count: int
+        count: int,
+        incident: Any = None,
     ):
         """Vytvoří nový problem."""
         self._problem_counter += 1
@@ -1252,7 +1314,26 @@ class ProblemRegistry:
             affected_namespaces=set(safe_ns),
             deployments_seen={extract_deployment_label(app) for app in safe_apps},
         )
-        
+
+        # Per-entity counts: prefer incident.app_event_counts when available.
+        app_evt = getattr(incident, 'app_event_counts', None) if incident is not None else None
+        if app_evt:
+            problem.app_counts = _normalize_count_dict(app_evt)
+        elif safe_apps and count:
+            share = max(1, count // len(safe_apps))
+            problem.app_counts = {a: share for a in safe_apps}
+
+        ns_evt = getattr(incident, 'namespace_event_counts', None) if incident is not None else None
+        if ns_evt:
+            problem.namespace_counts = _normalize_count_dict(ns_evt)
+        elif safe_ns and count:
+            share = max(1, count // len(safe_ns))
+            problem.namespace_counts = {n: share for n in safe_ns}
+
+        http_status = _parse_http_status(normalized_message)
+        if http_status:
+            problem.http_status_counts[http_status] = count
+
         problem.scope = self._compute_scope(problem)
         
         self.problems[problem_key] = problem
@@ -1263,68 +1344,11 @@ class ProblemRegistry:
         incident: Any,
         peak_type: str,
         first_ts: datetime,
-        last_ts: datetime
+        last_ts: datetime,
+        problem_key: Optional[str] = None,
+        problem_count: int = 0,
     ):
         """Aktualizuje nebo vytvoří peak."""
-
-        def _accumulate_behavior_steps(peak: 'PeakEntry') -> None:
-            """Maintain a per-app message breakdown on the peak.
-
-            Builds a list of {app, message, count, share_pct} entries derived
-            from the incident's app_event_counts and normalized_message. This
-            ensures every peak has structured behavior data even when no alert
-            write-back fires.
-            """
-            try:
-                from analysis.trace_analysis import _extract_useful_content, _smart_trim
-            except Exception:
-                _extract_useful_content = lambda x: x  # type: ignore[assignment]
-                _smart_trim = lambda x: x  # type: ignore[assignment]
-
-            raw_msg = str(getattr(incident, 'normalized_message', '') or '').strip()
-            if not raw_msg:
-                return
-            try:
-                extracted = _extract_useful_content(raw_msg) or raw_msg
-                cleaned = _smart_trim(extracted) if extracted else raw_msg
-            except Exception:
-                cleaned = raw_msg
-            cleaned = (cleaned or raw_msg)[:300]
-
-            app_evt_counts = getattr(incident, 'app_event_counts', {}) or {}
-            if app_evt_counts:
-                app_iter = sorted(app_evt_counts.items(), key=lambda kv: -int(kv[1] or 0))
-            else:
-                app_iter = [(a, count) for a in (incident.apps or []) if a]
-
-            existing: Dict[str, Dict[str, Any]] = {}
-            for s in (peak.behavior_steps or []):
-                if isinstance(s, dict) and s.get('app'):
-                    existing[str(s['app'])] = s
-
-            for app, ac in app_iter:
-                if not app:
-                    continue
-                ac_int = max(1, int(ac or 0))
-                step = existing.get(app)
-                if step is None:
-                    step = {'app': app, 'message': cleaned, 'count': 0, 'share_pct': 0.0}
-                    existing[app] = step
-                step['count'] = int(step.get('count', 0) or 0) + ac_int
-                # Prefer longer/cleaner message if we get a better sample
-                if cleaned and (not step.get('message') or len(cleaned) > len(step.get('message', ''))):
-                    step['message'] = cleaned
-
-            if not existing:
-                return
-
-            ordered = sorted(existing.values(), key=lambda s: -int(s.get('count', 0) or 0))[:5]
-            total = sum(int(s.get('count', 0) or 0) for s in ordered) or 1
-            for s in ordered:
-                s['share_pct'] = round((int(s.get('count', 0) or 0) / total) * 100, 1)
-
-            peak.behavior_steps = ordered
-            peak.total_messages = sum(int(s.get('count', 0) or 0) for s in ordered)
 
         # Compute peak problem_key (defensive: apps may contain None)
         category = incident.category.value if hasattr(incident.category, 'value') else 'unknown'
@@ -1410,8 +1434,12 @@ class ProblemRegistry:
                 if raw_msg:
                     peak.behavior = raw_msg[:300]
 
-            # Update structured per-app behavior_steps
-            _accumulate_behavior_steps(peak)
+            # Update structured per-pattern contribution (replaces r69 behavior_steps).
+            if problem_key:
+                inc = max(1, int(problem_count or count))
+                peak.contributing_problems[problem_key] = (
+                    peak.contributing_problems.get(problem_key, 0) + inc
+                )
 
             if incident.fingerprint not in peak.fingerprints:
                 peak.fingerprints.append(incident.fingerprint)
@@ -1453,8 +1481,9 @@ class ProblemRegistry:
                 except ImportError:
                     peak.behavior = str(incident.normalized_message)[:300]
 
-            # Initialize structured per-app behavior_steps from this first incident
-            _accumulate_behavior_steps(peak)
+            # Initialize structured per-pattern contribution.
+            if problem_key:
+                peak.contributing_problems[problem_key] = max(1, int(problem_count or count))
 
             self.peaks[peak_key] = peak
             self.stats['new_peaks_added'] += 1
