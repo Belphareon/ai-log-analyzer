@@ -765,6 +765,7 @@ def _build_peak_alert_payload(
         root_cause = {
             'service': rc_result.get('service', '?'),
             'message': rc_result.get('message', ''),
+            'confidence': rc_result.get('confidence', 'medium'),
         }
     else:
         # Fallback to trace_root_cause
@@ -772,13 +773,15 @@ def _build_peak_alert_payload(
         if rc:
             root_cause = {
                 'service': rc.get('service', '?'),
-                'message': rc.get('message', '')
+                'message': rc.get('message', ''),
+                'confidence': rc.get('confidence', 'medium'),
             }
         elif getattr(problem, 'root_cause', None):
             rc_obj = problem.root_cause
             root_cause = {
                 'service': getattr(rc_obj, 'service', '?'),
-                'message': getattr(rc_obj, 'message', '')
+                'message': getattr(rc_obj, 'message', ''),
+                'confidence': getattr(rc_obj, 'confidence', 'medium'),
             }
 
     propagation_info = None
@@ -1825,6 +1828,40 @@ def run_regular_phase(
                     if bh_text and bh_text != peak_entry.behavior:
                         peak_entry.behavior = bh_text[:500]
                         peak_wb_count += 1
+
+                    # Structured behavior steps (preferred for table_exporter)
+                    trace_steps = payload.get('trace_steps') or []
+                    if trace_steps:
+                        # Normalize and limit to top 5 with all fields needed by exporter
+                        new_steps = []
+                        total_msgs = 0
+                        for step in trace_steps[:5]:
+                            if not isinstance(step, dict):
+                                continue
+                            count = int(step.get('count', 1) or 1)
+                            new_steps.append({
+                                'app': str(step.get('app', '?') or '?'),
+                                'message': str(step.get('message', '') or '')[:500],
+                                'count': count,
+                                'share_pct': float(step.get('share_pct') or 0.0),
+                            })
+                            total_msgs += count
+                        if new_steps and new_steps != peak_entry.behavior_steps:
+                            peak_entry.behavior_steps = new_steps
+                            peak_entry.total_messages = total_msgs
+                            peak_wb_count += 1
+
+                    # Structured root cause: service + confidence
+                    rc_obj = payload.get('root_cause') or {}
+                    if isinstance(rc_obj, dict):
+                        rc_service = str(rc_obj.get('service', '') or '')
+                        rc_conf = str(rc_obj.get('confidence', '') or '')
+                        if rc_service and rc_service != peak_entry.root_cause_service:
+                            peak_entry.root_cause_service = rc_service
+                            peak_wb_count += 1
+                        if rc_conf and rc_conf != peak_entry.root_cause_confidence:
+                            peak_entry.root_cause_confidence = rc_conf
+                            peak_wb_count += 1
                 if peak_wb_count > 0:
                     print(f"   📝 Peak write-back: enriched {peak_wb_count} fields")
 

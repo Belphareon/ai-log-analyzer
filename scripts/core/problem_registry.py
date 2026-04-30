@@ -293,7 +293,14 @@ class PeakEntry:
     notes: Optional[str] = None
     root_cause: str = ""
     behavior: str = ""
-    
+
+    # Structured trace flow (preferred over flat behavior string)
+    # Each step: {app: str, message: str, count: int, share_pct: float}
+    behavior_steps: List[Dict[str, Any]] = field(default_factory=list)
+    root_cause_service: str = ""
+    root_cause_confidence: str = ""
+    total_messages: int = 0
+
     def to_dict(self) -> dict:
         return {
             'id': self.id,
@@ -321,6 +328,10 @@ class PeakEntry:
             'notes': self.notes,
             'root_cause': self.root_cause,
             'behavior': self.behavior,
+            'behavior_steps': self.behavior_steps,
+            'root_cause_service': self.root_cause_service,
+            'root_cause_confidence': self.root_cause_confidence,
+            'total_messages': self.total_messages,
         }
     
     @classmethod
@@ -366,7 +377,16 @@ class PeakEntry:
         entry.notes = data.get('notes')
         entry.root_cause = data.get('root_cause', '')
         entry.behavior = data.get('behavior', '')
-        
+        # Structured trace flow data (with safe defaults for legacy registries)
+        raw_steps = data.get('behavior_steps', []) or []
+        entry.behavior_steps = [s for s in raw_steps if isinstance(s, dict)]
+        entry.root_cause_service = str(data.get('root_cause_service', '') or '')
+        entry.root_cause_confidence = str(data.get('root_cause_confidence', '') or '')
+        try:
+            entry.total_messages = int(data.get('total_messages', 0) or 0)
+        except (TypeError, ValueError):
+            entry.total_messages = 0
+
         return entry
     
     @property
@@ -1246,6 +1266,66 @@ class ProblemRegistry:
         last_ts: datetime
     ):
         """Aktualizuje nebo vytvoří peak."""
+
+        def _accumulate_behavior_steps(peak: 'PeakEntry') -> None:
+            """Maintain a per-app message breakdown on the peak.
+
+            Builds a list of {app, message, count, share_pct} entries derived
+            from the incident's app_event_counts and normalized_message. This
+            ensures every peak has structured behavior data even when no alert
+            write-back fires.
+            """
+            try:
+                from analysis.trace_analysis import _extract_useful_content, _smart_trim
+            except Exception:
+                _extract_useful_content = lambda x: x  # type: ignore[assignment]
+                _smart_trim = lambda x: x  # type: ignore[assignment]
+
+            raw_msg = str(getattr(incident, 'normalized_message', '') or '').strip()
+            if not raw_msg:
+                return
+            try:
+                extracted = _extract_useful_content(raw_msg) or raw_msg
+                cleaned = _smart_trim(extracted) if extracted else raw_msg
+            except Exception:
+                cleaned = raw_msg
+            cleaned = (cleaned or raw_msg)[:300]
+
+            app_evt_counts = getattr(incident, 'app_event_counts', {}) or {}
+            if app_evt_counts:
+                app_iter = sorted(app_evt_counts.items(), key=lambda kv: -int(kv[1] or 0))
+            else:
+                app_iter = [(a, count) for a in (incident.apps or []) if a]
+
+            existing: Dict[str, Dict[str, Any]] = {}
+            for s in (peak.behavior_steps or []):
+                if isinstance(s, dict) and s.get('app'):
+                    existing[str(s['app'])] = s
+
+            for app, ac in app_iter:
+                if not app:
+                    continue
+                ac_int = max(1, int(ac or 0))
+                step = existing.get(app)
+                if step is None:
+                    step = {'app': app, 'message': cleaned, 'count': 0, 'share_pct': 0.0}
+                    existing[app] = step
+                step['count'] = int(step.get('count', 0) or 0) + ac_int
+                # Prefer longer/cleaner message if we get a better sample
+                if cleaned and (not step.get('message') or len(cleaned) > len(step.get('message', ''))):
+                    step['message'] = cleaned
+
+            if not existing:
+                return
+
+            ordered = sorted(existing.values(), key=lambda s: -int(s.get('count', 0) or 0))[:5]
+            total = sum(int(s.get('count', 0) or 0) for s in ordered) or 1
+            for s in ordered:
+                s['share_pct'] = round((int(s.get('count', 0) or 0) / total) * 100, 1)
+
+            peak.behavior_steps = ordered
+            peak.total_messages = sum(int(s.get('count', 0) or 0) for s in ordered)
+
         # Compute peak problem_key (defensive: apps may contain None)
         category = incident.category.value if hasattr(incident.category, 'value') else 'unknown'
         safe_apps = [a for a in (incident.apps or []) if a]
@@ -1329,7 +1409,10 @@ class ProblemRegistry:
                 raw_msg = str(getattr(incident, 'normalized_message', '') or '')
                 if raw_msg:
                     peak.behavior = raw_msg[:300]
-            
+
+            # Update structured per-app behavior_steps
+            _accumulate_behavior_steps(peak)
+
             if incident.fingerprint not in peak.fingerprints:
                 peak.fingerprints.append(incident.fingerprint)
             
@@ -1369,7 +1452,10 @@ class ProblemRegistry:
                     peak.behavior = _smart_trim(extracted)[:300] if extracted else str(incident.normalized_message)[:300]
                 except ImportError:
                     peak.behavior = str(incident.normalized_message)[:300]
-            
+
+            # Initialize structured per-app behavior_steps from this first incident
+            _accumulate_behavior_steps(peak)
+
             self.peaks[peak_key] = peak
             self.stats['new_peaks_added'] += 1
     

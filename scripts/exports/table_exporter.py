@@ -281,6 +281,193 @@ class TableExporter:
         # Stored flag
         return bool(getattr(peak, 'test', False))
 
+    def _format_peak_behavior(
+        self,
+        peak: PeakEntry,
+        fallback_message: str = '',
+        fallback_service: str = '',
+    ) -> str:
+        """Format peak behavior as multi-line trace flow.
+
+        Output:
+            Behavior (trace flow): N messages
+
+              1) app-name
+                 "message"
+              2) app-name
+                 "message"
+              ...
+
+        ``fallback_message`` and ``fallback_service`` provide last-resort defaults
+        when the peak has no own behavior data (sourced from related ProblemEntry).
+        """
+        steps = getattr(peak, 'behavior_steps', None) or []
+        # Normalize and clean
+        clean_steps: List[Dict[str, Any]] = []
+        for s in steps:
+            if not isinstance(s, dict):
+                continue
+            app = str(s.get('app', '') or '').strip()
+            msg = str(s.get('message', '') or '').strip()
+            count = int(s.get('count', 0) or 0)
+            msg = self._clean_stack_trace(msg)
+            if app or msg:
+                clean_steps.append({'app': app or '?', 'message': msg, 'count': count})
+
+        if not clean_steps:
+            # Legacy fallback: build a single synthetic step from peak.behavior
+            # or from caller-provided fallback (related ProblemEntry).
+            legacy = self._clean_unknown(getattr(peak, 'behavior', ''))
+            legacy = self._clean_stack_trace(legacy)
+            if not legacy and fallback_message:
+                legacy = self._clean_stack_trace(fallback_message)
+            if not legacy:
+                return ''
+
+            # Pick the dominant app from app_counts; if missing, use caller fallback,
+            # then any affected app
+            dom_app = ''
+            app_counts = getattr(peak, 'app_counts', {}) or {}
+            if app_counts:
+                dom_app = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
+            elif getattr(peak, 'affected_apps', None):
+                affected = sorted(peak.affected_apps)
+                if affected:
+                    dom_app = affected[0]
+            if not dom_app and fallback_service:
+                dom_app = fallback_service
+
+            total = int(getattr(peak, 'raw_error_count', 0) or 0) or int(
+                getattr(peak, 'occurrences', 0) or 1
+            )
+            lines = [f"Behavior (trace flow): {total:,} messages", ""]
+            lines.append(f"  1) {dom_app or '?'}")
+            escaped = legacy.replace('"', '\\"')
+            lines.append(f'     "{escaped}"')
+            return "\n".join(lines)
+
+        total = getattr(peak, 'total_messages', 0) or sum(s['count'] for s in clean_steps)
+        if not total:
+            total = sum(s['count'] for s in clean_steps) or len(clean_steps)
+
+        lines = [f"Behavior (trace flow): {total:,} messages", ""]
+        for i, s in enumerate(clean_steps, 1):
+            lines.append(f"  {i}) {s['app']}")
+            if s['message']:
+                # Wrap message in quotes; escape internal quotes
+                escaped = s['message'].replace('"', '\\"')
+                lines.append(f'     "{escaped}"')
+        return "\n".join(lines)
+
+    def _format_peak_root_cause(
+        self,
+        peak: PeakEntry,
+        fallback_message: str = '',
+        fallback_service: str = '',
+    ) -> str:
+        """Format peak root cause as 'Inferred root cause [confidence]:\n  - app: msg'.
+
+        Uses structured fields when available (root_cause_service, root_cause_confidence),
+        otherwise infers from first behavior_step or legacy peak.root_cause.
+        ``fallback_message`` and ``fallback_service`` are last-resort defaults
+        sourced from the related ProblemEntry by the caller.
+        """
+        # Get the message
+        msg = self._clean_unknown(getattr(peak, 'root_cause', ''))
+        msg = self._clean_stack_trace(msg)
+
+        # Get the service (write-back) or first behavior step's app
+        service = str(getattr(peak, 'root_cause_service', '') or '').strip()
+        confidence = str(getattr(peak, 'root_cause_confidence', '') or '').strip()
+
+        steps = getattr(peak, 'behavior_steps', None) or []
+        first_step = next(
+            (s for s in steps if isinstance(s, dict) and (s.get('app') or s.get('message'))),
+            None,
+        )
+
+        if not service and first_step:
+            service = str(first_step.get('app', '') or '').strip()
+
+        if not msg and first_step:
+            cand = self._clean_stack_trace(str(first_step.get('message', '') or '').strip())
+            if cand:
+                msg = cand
+
+        # Legacy fallback for both message and service
+        legacy_behavior = self._clean_unknown(getattr(peak, 'behavior', ''))
+        legacy_behavior = self._clean_stack_trace(legacy_behavior)
+
+        # Enrich: if msg is bare exception class, try to extract from behavior
+        enriched = self._extract_exception_message(msg, legacy_behavior)
+        if enriched and enriched != msg:
+            msg = enriched
+
+        # Last-resort: use legacy peak.behavior, then caller-provided fallback
+        if not msg and legacy_behavior:
+            msg = legacy_behavior
+        if not msg and fallback_message:
+            msg = self._clean_stack_trace(fallback_message)
+
+        # Last-resort service: dominant app, affected apps, then caller fallback
+        if not service:
+            app_counts = getattr(peak, 'app_counts', {}) or {}
+            if app_counts:
+                top_app = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
+                if top_app:
+                    service = str(top_app)
+            elif getattr(peak, 'affected_apps', None):
+                affected = sorted(peak.affected_apps)
+                if affected:
+                    service = affected[0]
+        if not service and fallback_service:
+            service = fallback_service
+
+        if not service and not msg:
+            return ''
+
+        if not msg:
+            msg = '(unknown)'
+
+        # Default confidence when not set
+        if not confidence:
+            # higher confidence when we have explicit structured data
+            confidence = 'medium' if getattr(peak, 'root_cause_service', '') else 'low'
+
+        if service:
+            return f"Inferred root cause [{confidence}]:\n  - {service}: {msg}"
+        # No service available — show flat
+        return f"Inferred root cause [{confidence}]: {msg}"
+
+    @staticmethod
+    def _format_apps_multiline(counts: Optional[Dict[str, int]],
+                               fallback: Optional[List[str]] = None,
+                               limit: int = 5) -> str:
+        """Format app/NS counts as multi-line list, one entry per line.
+
+        Sized so that wide columns can render properly without truncation.
+        Format: 'app-name (count)' per line.
+        """
+        items: List[tuple] = []
+        if counts:
+            items = sorted(
+                ((str(k), int(v or 0)) for k, v in counts.items() if k),
+                key=lambda kv: -kv[1],
+            )[:limit]
+        elif fallback:
+            items = [(str(x), 0) for x in fallback[:limit] if x]
+
+        if not items:
+            return ''
+
+        lines = []
+        for name, c in items:
+            if c > 0:
+                lines.append(f"{name} ({c:,})")
+            else:
+                lines.append(name)
+        return "\n".join(lines)
+
     def _format_window_trend(self, current: int, baseline: float, label: str) -> str:
         """Format trend as percentage only — no word labels like 'returned' or 'new'."""
         if current == 0 and baseline <= 0:
@@ -652,8 +839,19 @@ class TableExporter:
                 root_cause=root_cause,
                 behavior=behavior,
                 # 4. SCOPE
-                affected_namespaces=", ".join(sorted(problem.affected_namespaces)),
-                affected_apps=", ".join(sorted(problem.affected_apps)[:10]),
+                affected_namespaces=self._format_apps_multiline(
+                    getattr(problem, 'ns_counts', None)
+                    or getattr(problem, 'namespace_counts', None)
+                    or {n: 0 for n in problem.affected_namespaces},
+                    sorted(problem.affected_namespaces),
+                    limit=5,
+                ),
+                affected_apps=self._format_apps_multiline(
+                    getattr(problem, 'app_counts', None)
+                    or {a: 0 for a in problem.affected_apps},
+                    sorted(problem.affected_apps),
+                    limit=5,
+                ),
                 scope=problem.scope,
                 # 5. META
                 category=problem.category,
@@ -869,38 +1067,42 @@ class TableExporter:
                 flow = ''
             related_problem = self._find_related_problem_for_peak(peak, flow)
 
-            # Root cause: peak own → related problem → behavior fallback
-            peak_root_cause = self._clean_unknown(getattr(peak, 'root_cause', ''))
-            related_root_cause = self._problem_root_cause(related_problem) if related_problem is not None else ""
-            if related_root_cause and self._is_low_signal_peak_text(peak_root_cause):
-                peak_root_cause = related_root_cause
-            elif not peak_root_cause and related_problem is not None:
-                peak_root_cause = related_root_cause
+            # Resolve fallback values from related ProblemEntry once.
+            related_root_cause = (
+                self._problem_root_cause(related_problem)
+                if related_problem is not None else ""
+            )
+            related_behavior = (
+                self._problem_behavior(related_problem)
+                if related_problem is not None else ""
+            )
 
-            # Behavior: peak own → related problem → fallback
-            peak_behavior = self._clean_unknown(getattr(peak, 'behavior', ''))
-            related_behavior = self._problem_behavior(related_problem) if related_problem is not None else ""
-            if related_behavior and self._is_low_signal_peak_text(peak_behavior):
-                peak_behavior = related_behavior
-            elif not peak_behavior and related_problem is not None:
-                peak_behavior = related_behavior
+            # Pick a fallback service: dominant app (by count) or first affected app
+            fallback_service = ''
+            app_counts_map = getattr(peak, 'app_counts', {}) or {}
+            if app_counts_map:
+                fallback_service = max(
+                    app_counts_map.items(), key=lambda kv: int(kv[1] or 0)
+                )[0]
+            elif getattr(peak, 'affected_apps', None):
+                affected_sorted = sorted(peak.affected_apps)
+                if affected_sorted:
+                    fallback_service = affected_sorted[0]
 
-            # Last-resort fallback: use behavior as root_cause when both are empty
-            if not peak_root_cause and peak_behavior:
-                peak_root_cause = peak_behavior
-
-            # Clean stack traces from behavior (keep only first meaningful line)
-            peak_behavior = self._clean_stack_trace(peak_behavior)
-
-            # Enrich root_cause: if it's just a bare exception class name,
-            # extract the actual human-readable message from behavior.
-            # If enrichment succeeds (returned something different), keep it directly.
-            # Otherwise fall back to the cleaned behavior if root_cause is low-signal.
-            enriched_rc = self._extract_exception_message(peak_root_cause, peak_behavior)
-            if enriched_rc and enriched_rc != peak_root_cause:
-                peak_root_cause = enriched_rc
-            elif self._is_low_signal_peak_text(peak_root_cause) and peak_behavior:
-                peak_root_cause = peak_behavior
+            # Build NEW structured behavior + root_cause via dedicated formatters.
+            # Output is multi-line:
+            #   behavior:   "Behavior (trace flow): N messages\n  1) app\n     \"msg\""
+            #   root_cause: "Inferred root cause [conf]:\n  - app: msg"
+            peak_behavior = self._format_peak_behavior(
+                peak,
+                fallback_message=related_behavior,
+                fallback_service=fallback_service,
+            )
+            peak_root_cause = self._format_peak_root_cause(
+                peak,
+                fallback_message=related_root_cause or related_behavior,
+                fallback_service=fallback_service,
+            )
 
             raw_peak_count = int(getattr(peak, 'raw_error_count', 0) or 0)
             if raw_peak_count <= 0:
@@ -923,12 +1125,20 @@ class TableExporter:
                 # 3. TREND
                 trend_7d=trend_7d,
                 periodicity=periodicity,
-                # 4. ROOT CAUSE + BEHAVIOR
-                root_cause=self._shorten(peak_root_cause, 300),
-                behavior=self._shorten(peak_behavior, 300),
-                # 5. SCOPE
-                affected_namespaces=self._format_top_counts(getattr(peak, 'namespace_counts', {}), sorted(peak.affected_namespaces), limit=5),
-                affected_apps=self._format_top_counts(getattr(peak, 'app_counts', {}), sorted(peak.affected_apps), limit=5),
+                # 4. ROOT CAUSE + BEHAVIOR (multi-line, no truncation here)
+                root_cause=peak_root_cause,
+                behavior=peak_behavior,
+                # 5. SCOPE - multi-line per app/NS for readability
+                affected_namespaces=self._format_apps_multiline(
+                    getattr(peak, 'namespace_counts', {}),
+                    sorted(peak.affected_namespaces),
+                    limit=5,
+                ),
+                affected_apps=self._format_apps_multiline(
+                    getattr(peak, 'app_counts', {}),
+                    sorted(peak.affected_apps),
+                    limit=5,
+                ),
                 # 6. META
                 test='yes' if is_test_peak else 'no',
                 activity=activity,

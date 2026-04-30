@@ -30,40 +30,83 @@ EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
 
 def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
     """Convert CSV file to HTML table (Confluence storage format).
-    
-    Generates explicit column widths. Text-heavy columns (affected_apps,
-    root_cause, behavior) get wider allocations.
+
+    Column widths are derived from observed name lengths in real registries:
+      - affected_apps: max ~35 chars + count → 330px
+      - affected_namespaces: max ~17 chars + count → 200px
+      - behavior / root_cause: multi-line free text → 400/350px
+      - timing: '2026-04-30 10:30' → 130px
+      - numeric/scalar: 70-90px
+    Multi-line cells use <br/> with vertical-align:top so wide columns
+    (affected_apps, behavior) stay aligned.
     """
-    WIDE_COLUMNS = {'affected_apps', 'affected_namespaces', 'root_cause', 'behavior', 'detail'}
-    NARROW_COLUMNS = {'test', 'severity', 'scope', 'status', 'score', 'ratio', 'jira', 'notes'}
+    # Per-column explicit widths (in pixels). Values not listed get DEFAULT_WIDTH.
+    COLUMN_WIDTHS: Dict[str, int] = {
+        # peaks
+        'first_seen': 130,
+        'last_seen': 130,
+        'total_errors': 80,
+        'occurrence_count': 70,
+        'avg_errors_per_peak': 70,
+        'trend_7d': 110,
+        'periodicity': 130,
+        'root_cause': 350,
+        'behavior': 400,
+        'affected_namespaces': 200,
+        'affected_apps': 330,
+        'test': 60,
+        'activity': 100,
+        'peak_id': 90,
+        # errors
+        'occurrence_total': 90,
+        'occurrence_24h': 90,
+        'severity': 80,
+        'trend_2h': 100,
+        'trend_24h': 100,
+        'scope': 100,
+        'category': 110,
+        'status': 80,
+        'jira': 100,
+        'notes': 140,
+        'problem_id': 100,
+        'problem_key': 220,
+        'flow': 130,
+        'error_class': 200,
+        'detail': 320,
+        'score': 70,
+        'ratio': 70,
+    }
+    DEFAULT_WIDTH = 110
+
+    # Cells that should preserve newlines (multi-line content)
+    MULTILINE_COLUMNS = {
+        'affected_apps', 'affected_namespaces',
+        'root_cause', 'behavior',
+        'detail',
+    }
 
     html_parts = []
-    
+
     html_parts.append('<table>')
     html_parts.append('<colgroup>')
-    
+
     with open(csv_file, 'r', encoding='utf-8') as f:
         reader = csv.reader(f)
         headers = next(reader)
-        
-        # Compute column widths proportionally
-        total_cols = len(headers)
-        for header in headers:
-            h_lower = header.strip().lower()
-            if h_lower in WIDE_COLUMNS:
-                html_parts.append(f'<col style="width: {max(180, 900 // total_cols)}px"/>')
-            elif h_lower in NARROW_COLUMNS:
-                html_parts.append(f'<col style="width: {max(60, 400 // total_cols)}px"/>')
-            else:
-                html_parts.append(f'<col style="width: {max(90, 600 // total_cols)}px"/>')
+        header_keys = [h.strip().lower() for h in headers]
+
+        # Column widths
+        for h_lower in header_keys:
+            width = COLUMN_WIDTHS.get(h_lower, DEFAULT_WIDTH)
+            html_parts.append(f'<col style="width: {width}px"/>')
         html_parts.append('</colgroup>')
-        
+
         # Header row
         html_parts.append('<thead><tr>')
         for header in headers:
             html_parts.append(f'<th><p><strong>{header}</strong></p></th>')
         html_parts.append('</tr></thead>')
-        
+
         # Data rows
         html_parts.append('<tbody>')
         row_count = 0
@@ -71,18 +114,28 @@ def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
             if row_count >= max_rows:
                 break
             html_parts.append('<tr>')
-            for cell in row:
+            for col_idx, cell in enumerate(row):
+                col_key = header_keys[col_idx] if col_idx < len(header_keys) else ''
                 # Escape HTML special chars
                 escaped = cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                # Convert newlines to <br/> for structured multi-line fields (behavior)
-                escaped = escaped.replace('\n', '<br/>')
-                html_parts.append(f'<td><p>{escaped}</p></td>')
+                # Multi-line columns: convert newlines to <br/>; align to top
+                if col_key in MULTILINE_COLUMNS:
+                    escaped = escaped.replace('\n', '<br/>')
+                    html_parts.append(
+                        f'<td style="vertical-align: top;"><p>{escaped}</p></td>'
+                    )
+                else:
+                    # Single-line columns: collapse newlines to spaces (defensive)
+                    escaped = escaped.replace('\n', ' ')
+                    html_parts.append(
+                        f'<td style="vertical-align: top;"><p>{escaped}</p></td>'
+                    )
             html_parts.append('</tr>')
             row_count += 1
         html_parts.append('</tbody>')
-    
+
     html_parts.append('</table>')
-    
+
     return '\n'.join(html_parts)
 
 
