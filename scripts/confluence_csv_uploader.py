@@ -28,7 +28,7 @@ SCRIPT_DIR = Path(__file__).parent
 EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
 
 
-def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
+def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
     """Convert CSV file to HTML table (Confluence storage format).
 
         Column widths are derived from observed name lengths in real registries:
@@ -87,54 +87,72 @@ def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
 
     html_parts = []
 
-    html_parts.append('<table>')
-    html_parts.append('<colgroup>')
-
     with open(csv_file, 'r', encoding='utf-8') as f:
         reader = csv.reader(f)
         headers = next(reader)
         header_keys = [h.strip().lower() for h in headers]
+        widths = [COLUMN_WIDTHS.get(h_lower, DEFAULT_WIDTH) for h_lower in header_keys]
+        total_width = sum(widths)
+
+        html_parts.append('<div style="overflow-x: auto; max-width: 100%;">')
+        html_parts.append(
+            f'<table style="table-layout: fixed; width: {total_width}px; border-collapse: collapse;">'
+        )
+        html_parts.append('<colgroup>')
 
         # Column widths
-        for h_lower in header_keys:
-            width = COLUMN_WIDTHS.get(h_lower, DEFAULT_WIDTH)
+        for width in widths:
             html_parts.append(f'<col style="width: {width}px"/>')
         html_parts.append('</colgroup>')
 
         # Header row
         html_parts.append('<thead><tr>')
-        for header in headers:
-            html_parts.append(f'<th><p><strong>{header}</strong></p></th>')
+        for col_idx, header in enumerate(headers):
+            width = widths[col_idx] if col_idx < len(widths) else DEFAULT_WIDTH
+            html_parts.append(
+                '<th style="'
+                f'width: {width}px; min-width: {width}px; max-width: {width}px; '
+                'vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word;'
+                '"><p><strong>'
+                f'{header}'
+                '</strong></p></th>'
+            )
         html_parts.append('</tr></thead>')
 
         # Data rows
         html_parts.append('<tbody>')
         row_count = 0
         for row in reader:
-            if row_count >= max_rows:
+            if max_rows is not None and row_count >= max_rows:
                 break
             html_parts.append('<tr>')
             for col_idx, cell in enumerate(row):
                 col_key = header_keys[col_idx] if col_idx < len(header_keys) else ''
+                width = widths[col_idx] if col_idx < len(widths) else DEFAULT_WIDTH
                 # Escape HTML special chars
                 escaped = cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                cell_style = (
+                    f'width: {width}px; min-width: {width}px; max-width: {width}px; '
+                    'vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word;'
+                )
                 # Multi-line columns: convert newlines to <br/>; align to top
                 if col_key in MULTILINE_COLUMNS:
                     escaped = escaped.replace('\n', '<br/>')
                     html_parts.append(
-                        f'<td style="vertical-align: top;"><p>{escaped}</p></td>'
+                        f'<td style="{cell_style}"><p>{escaped}</p></td>'
                     )
                 else:
                     # Single-line columns: collapse newlines to spaces (defensive)
                     escaped = escaped.replace('\n', ' ')
                     html_parts.append(
-                        f'<td style="vertical-align: top;"><p>{escaped}</p></td>'
+                        f'<td style="{cell_style}"><p>{escaped}</p></td>'
                     )
             html_parts.append('</tr>')
             row_count += 1
         html_parts.append('</tbody>')
 
     html_parts.append('</table>')
+    html_parts.append('</div>')
 
     return '\n'.join(html_parts)
 
@@ -233,7 +251,7 @@ def main():
         print(f"   Page ID: {CONFLUENCE_KNOWN_ERRORS_PAGE_ID}")
         
         try:
-            html = csv_to_html_table(errors_csv, max_rows=50)
+            html = csv_to_html_table(errors_csv)
             if upload_to_confluence(
                 CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
                 'Known Errors',
@@ -254,7 +272,7 @@ def main():
         print(f"   Page ID: {CONFLUENCE_KNOWN_PEAKS_PAGE_ID}")
         
         try:
-            html = csv_to_html_table(peaks_csv, max_rows=50)
+            html = csv_to_html_table(peaks_csv)
             if upload_to_confluence(
                 CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
                 'Known Peaks',

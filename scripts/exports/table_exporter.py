@@ -1058,7 +1058,7 @@ class TableExporter:
 
     def get_errors_rows(self) -> List[ErrorTableRow]:
         """Převede Problem Registry na řádky tabulky."""
-        rows = []
+        rows_with_sort_key = []
         now = datetime.now(timezone.utc)
 
         for problem_key, problem in self.registry.problems.items():
@@ -1121,12 +1121,13 @@ class TableExporter:
                 score=self._derive_score(problem, occurrence_24h),
                 ratio=self._derive_ratio(problem, occurrence_24h, now),
             )
-            rows.append(row)
+            rows_with_sort_key.append((last_seen or datetime.min.replace(tzinfo=timezone.utc), row))
 
-        # Sort by last_seen DESC (most recent first)
-        rows.sort(key=lambda r: r.last_seen or "", reverse=True)
+        # Sort by actual datetime DESC (most recent first).
+        # Do not sort by formatted dd-mm-yyyy strings — that breaks chronology.
+        rows_with_sort_key.sort(key=lambda item: item[0], reverse=True)
 
-        return rows
+        return [row for _, row in rows_with_sort_key]
 
     def export_errors_csv(self, output_path: str) -> str:
         """Export errors jako CSV ."""
@@ -1290,7 +1291,7 @@ class TableExporter:
         Retention: Peaks not seen for > 30 days relative to the newest peak
         are excluded from export. All other peaks are included (full history).
         """
-        rows = []
+        rows_with_sort_key = []
         now = datetime.now(timezone.utc)
 
         # Retention cutoff: relative to the newest peak (not wall-clock)
@@ -1398,12 +1399,12 @@ class TableExporter:
                 activity=activity,
                 peak_id=peak.id,
             )
-            rows.append(row)
+            rows_with_sort_key.append((last_seen or datetime.min.replace(tzinfo=timezone.utc), row))
 
-        # Sort by last_seen DESC
-        rows.sort(key=lambda r: r.last_seen or "", reverse=True)
+        # Sort by actual datetime DESC.
+        rows_with_sort_key.sort(key=lambda item: item[0], reverse=True)
 
-        return rows
+        return [row for _, row in rows_with_sort_key]
 
     def export_peaks_csv(self, output_path: str) -> str:
         """Export peaks jako CSV."""
