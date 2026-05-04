@@ -188,6 +188,69 @@ class TableExporter:
 
         return pattern.sub(_replace, text)
 
+    @staticmethod
+    def _extract_errormodel_message(text: str) -> str:
+        """Extract the `message=` payload from Handle fault ErrorModel dumps."""
+        if not text:
+            return ""
+        import re
+        match = re.search(r'message=([^,\]]+)', text)
+        if not match:
+            return ""
+        return " ".join(match.group(1).split()).strip()
+
+    @staticmethod
+    def _strip_exception_packages(text: str) -> str:
+        """Shorten fully-qualified exception names to operator-friendly class names."""
+        if not text:
+            return text
+        import re
+        cleaned = re.sub(
+            r'\b(?:[a-z_][\w$]*\.)+([A-Z][\w$]+(?:Exception|Error|Fault|Failure))(?=[:\s#;]|$)',
+            r'\1',
+            text,
+        )
+        cleaned = re.sub(
+            r'\b(?:[a-z_][\w$]*\.)+([A-Z][\w$]+)(?=@)',
+            r'\1',
+            cleaned,
+        )
+        cleaned = re.sub(
+            r'^(?:[a-z_][\w$]*\.)+([A-Z][\w$]+(?:Exception|Error|Fault|Failure))$',
+            r'\1',
+            cleaned,
+        )
+        cleaned = re.sub(
+            r'^([A-Z][\w$]+(?:Exception|Error|Fault|Failure)):\s+\1:\s+',
+            r'\1: ',
+            cleaned,
+        )
+        return cleaned
+
+    def _normalize_operator_text(self, text: Optional[str]) -> str:
+        """Normalize user-facing text for root cause / behavior cells."""
+        cleaned = self._clean_unknown(text)
+        if not cleaned:
+            return ""
+
+        import re
+        cleaned = re.sub(
+            r'^(?:Unknown(?:Error|Exception)|Throwable|Exception)\s*:\s*',
+            '',
+            cleaned,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+
+        errormodel_msg = self._extract_errormodel_message(cleaned)
+        if errormodel_msg:
+            cleaned = errormodel_msg
+
+        cleaned = self._clean_stack_trace(cleaned)
+        cleaned = self._strip_exception_packages(cleaned)
+        cleaned = self._collapse_id_noise(cleaned)
+        return " ".join(cleaned.split()).strip()
+
     def _dedup_sample_patterns(
         self,
         problem: ProblemEntry,
@@ -228,9 +291,13 @@ class TableExporter:
         for raw in samples:
             if not raw:
                 continue
-            cleaned = self._clean_stack_trace(str(raw))
-            cleaned = self._collapse_id_noise(cleaned)
-            cleaned = " ".join(cleaned.split())
+            cleaned = self._normalize_operator_text(str(raw))
+            import re as _re
+            cleaned = _re.sub(
+                r'\s+at\s+(?:org|cz|java|javax|jakarta|com)\.[\s\S]*$',
+                '',
+                cleaned,
+            )
             if not cleaned:
                 continue
 
@@ -242,7 +309,6 @@ class TableExporter:
                 norm = cleaned
             # Extra: collapse standalone long-digit runs (5+ digits) which the
             # standard normalizer keeps because they lack an `id=` prefix.
-            import re as _re
             norm = _re.sub(r'\b\d{5,}\b', '<N>', norm)
             key = norm[:80].lower()
             if key in seen_keys:
@@ -290,9 +356,7 @@ class TableExporter:
             return patterns[0]
 
         # No samples — clean stored behavior
-        behavior = self._clean_unknown(getattr(problem, 'behavior', ''))
-        behavior = self._clean_stack_trace(behavior)
-        behavior = self._collapse_id_noise(behavior)
+        behavior = self._normalize_operator_text(getattr(problem, 'behavior', ''))
         if behavior:
             return self._shorten(behavior, 300)
 
@@ -306,26 +370,12 @@ class TableExporter:
 
     def _problem_root_cause(self, problem: ProblemEntry) -> str:
         # Priority 1: root_cause field (populated by write-back from trace enrichment)
-        explicit_root = self._clean_unknown(getattr(problem, 'root_cause', ''))
+        explicit_root = self._normalize_operator_text(getattr(problem, 'root_cause', ''))
         if explicit_root:
-            # Strip useless wrapper prefixes like "UnknownError: " / "UnknownException: "
-            # which carry no signal — the actual exception class lives elsewhere.
-            import re
-            stripped = re.sub(
-                r'^(?:Unknown(?:Error|Exception)|Throwable|Exception)\s*:\s*',
-                '',
-                explicit_root,
-                count=1,
-                flags=re.IGNORECASE,
-            )
-            stripped = self._clean_stack_trace(stripped)
-            stripped = self._collapse_id_noise(stripped)
-            return self._shorten(stripped, 180)
+            return self._shorten(explicit_root, 180)
         # Priority 2: description
-        desc_root = self._clean_unknown(getattr(problem, 'description', ''))
+        desc_root = self._normalize_operator_text(getattr(problem, 'description', ''))
         if desc_root:
-            desc_root = self._clean_stack_trace(desc_root)
-            desc_root = self._collapse_id_noise(desc_root)
             return self._shorten(desc_root, 180)
         # Priority 3: error_class as last resort
         err_class = self._clean_unknown(getattr(problem, 'error_class', ''))
@@ -366,6 +416,10 @@ class TableExporter:
         match = re.search(r'\s+at\s+[a-z][\w$.]+\.\w+\(', cleaned)
         if match:
             cleaned = cleaned[:match.start()].strip()
+        else:
+            split = re.split(r'\s+at\s+(?:org|cz|java|javax|jakarta|com)\.', cleaned, maxsplit=1)
+            if len(split) > 1:
+                cleaned = split[0].strip()
 
         # Also strip trailing "..." from shorten()
         if cleaned.endswith('...'):
@@ -480,10 +534,9 @@ class TableExporter:
 
         if not ranked:
             # Legacy fallback: render single synthetic line from peak.behavior
-            legacy = self._clean_unknown(getattr(peak, 'behavior', ''))
-            legacy = self._clean_stack_trace(legacy)
+            legacy = self._normalize_operator_text(getattr(peak, 'behavior', ''))
             if not legacy and fallback_message:
-                legacy = self._clean_stack_trace(fallback_message)
+                legacy = self._normalize_operator_text(fallback_message)
             if not legacy:
                 return ''
             dom_app = ''
@@ -521,13 +574,11 @@ class TableExporter:
                 dom_app = aff[0] if aff else '?'
 
             # Pattern text: prefer behavior (already cleaned), fallback to first sample
-            msg = self._clean_stack_trace(
-                self._clean_unknown(getattr(problem, 'behavior', '') or '')
-            )
+            msg = self._normalize_operator_text(getattr(problem, 'behavior', '') or '')
             if not msg:
                 samples = getattr(problem, 'sample_messages', None) or []
                 if samples:
-                    msg = self._clean_stack_trace(self._clean_unknown(str(samples[0])))
+                    msg = self._normalize_operator_text(str(samples[0]))
             if not msg:
                 msg = '(no message)'
 
@@ -589,7 +640,7 @@ class TableExporter:
                 msg = str(getattr(top_problem, 'root_cause', '') or '').strip()
             if not msg:
                 msg = str(getattr(top_problem, 'behavior', '') or '').strip()
-            msg = self._clean_stack_trace(self._clean_unknown(msg))
+            msg = self._normalize_operator_text(msg)
 
             if service or msg:
                 msg = msg or '(unknown)'
@@ -601,11 +652,9 @@ class TableExporter:
                 return f"Inferred root cause [{confidence}, {share:.0%} of events]: {msg}"
 
         # Legacy fallback
-        msg = self._clean_stack_trace(
-            self._clean_unknown(getattr(peak, 'root_cause', '') or '')
-        )
+        msg = self._normalize_operator_text(getattr(peak, 'root_cause', '') or '')
         if not msg and fallback_message:
-            msg = self._clean_stack_trace(fallback_message)
+            msg = self._normalize_operator_text(fallback_message)
         service = ''
         app_counts = getattr(peak, 'app_counts', {}) or {}
         if app_counts:
@@ -1022,6 +1071,8 @@ class TableExporter:
             # NOTE: ProblemEntry uses 'description' field, enrichment may populate it
             root_cause = self._problem_root_cause(problem)
             behavior = self._problem_behavior(problem)
+            if root_cause and behavior and root_cause.lower() == behavior.lower():
+                root_cause = ''
             
             # Detail - klíčová info (shorthand)
             detail = f"{problem.error_class}"
@@ -1030,8 +1081,8 @@ class TableExporter:
             
             row = ErrorTableRow(
                 # 1. TIMING
-                first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "Unknown",
-                last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "Unknown",
+                first_seen=first_seen.strftime("%d-%m-%Y %H:%M") if first_seen else "Unknown",
+                last_seen=last_seen.strftime("%d-%m-%Y %H:%M") if last_seen else "Unknown",
                 # 2. FREQUENCY + SEVERITY
                 occurrence_total=problem.occurrences,
                 occurrence_24h=occurrence_24h,
@@ -1089,9 +1140,9 @@ class TableExporter:
             'first_seen', 'last_seen',
             'occurrence_total', 'occurrence_24h', 'severity', 'trend_2h', 'trend_24h',
             'root_cause', 'behavior',
-            'affected_namespaces', 'affected_apps', 'scope',
+            'affected_namespaces', 'affected_apps', 'problem_key', 'scope',
             'category', 'status', 'jira', 'notes',
-            'problem_id', 'problem_key', 'flow', 'error_class', 'detail', 'score', 'ratio'
+            'problem_id', 'flow', 'error_class', 'detail', 'score', 'ratio'
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -1120,7 +1171,7 @@ class TableExporter:
         lines = [
             f"# Error Problems Table",
             f"",
-            f"**Generated:** {self.generated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Generated:** {self.generated_at.strftime('%d-%m-%Y %H:%M:%S')}",
             f"**Total problems:** {len(rows)}",
             f"",
         ]
@@ -1319,8 +1370,8 @@ class TableExporter:
             
             row = PeakTableRow(
                 # 1. TIMING
-                first_seen=first_seen.strftime("%Y-%m-%d %H:%M") if first_seen else "",
-                last_seen=last_seen.strftime("%Y-%m-%d %H:%M") if last_seen else "",
+                first_seen=first_seen.strftime("%d-%m-%Y %H:%M") if first_seen else "",
+                last_seen=last_seen.strftime("%d-%m-%Y %H:%M") if last_seen else "",
                 # 2. FREQUENCY
                 total_errors=raw_peak_count,
                 occurrence_count=occurrence_count,
@@ -1390,7 +1441,7 @@ class TableExporter:
         lines = [
             f"# Peak Events Table",
             f"",
-            f"**Generated:** {self.generated_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"**Generated:** {self.generated_at.strftime('%d-%m-%Y %H:%M:%S')}",
             f"**Total peaks:** {len(rows)}",
             f"",
         ]

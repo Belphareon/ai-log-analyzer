@@ -31,9 +31,9 @@ EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
 def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
     """Convert CSV file to HTML table (Confluence storage format).
 
-    Column widths are derived from observed name lengths in real registries:
-      - affected_apps: max ~35 chars + count → 330px
-      - affected_namespaces: max ~17 chars + count → 200px
+        Column widths are derived from observed name lengths in real registries:
+            - affected_apps: intentionally widened for operator readability → 660px
+            - affected_namespaces: widened by 50px over prior baseline → 250px
       - behavior / root_cause: multi-line free text → 400/350px
       - timing: '2026-04-30 10:30' → 130px
       - numeric/scalar: 70-90px
@@ -52,8 +52,8 @@ def csv_to_html_table(csv_file: Path, max_rows: int = 50) -> str:
         'periodicity': 130,
         'root_cause': 350,
         'behavior': 400,
-        'affected_namespaces': 200,
-        'affected_apps': 330,
+        'affected_namespaces': 250,
+        'affected_apps': 660,
         'test': 60,
         'activity': 100,
         'peak_id': 90,
