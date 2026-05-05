@@ -32,9 +32,9 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
     """Convert CSV file to HTML table (Confluence storage format).
 
         Column widths are derived from observed name lengths in real registries:
-            - affected_apps: compact enough to stop dominating the table → 280px
-            - affected_namespaces: reduced by 25% from the previous 250px → 188px
-      - behavior / root_cause: multi-line free text → 550/350px
+            - affected_apps: compact enough to stop dominating the table → 290px
+            - affected_namespaces: reduced from the old wide value, but +10px for wrapping → 198px
+      - behavior / root_cause: multi-line free text → 580/370px
       - timing: '2026-04-30 10:30' → 130px
       - numeric/scalar: 70-90px
     Multi-line cells use <br/> with vertical-align:top so wide columns
@@ -50,16 +50,17 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
         'avg_errors_per_peak': 70,
         'trend_7d': 110,
         'periodicity': 130,
-        'root_cause': 350,
-        'behavior': 550,
-        'affected_namespaces': 188,
-        'affected_apps': 280,
+        'root_cause': 370,
+        'behavior': 580,
+        'affected_namespaces': 198,
+        'affected_apps': 290,
         'test': 60,
         'activity': 100,
         'peak_id': 90,
         # errors
         'occurrence_total': 90,
         'occurrence_24h': 90,
+        'occurrence_2h': 90,
         'severity': 80,
         'trend_2h': 100,
         'trend_24h': 100,
@@ -79,6 +80,11 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
     HEADER_LABELS: Dict[str, str] = {
         'occurrence_total': 'Total Count',
         'occurrence_24h': '24h Count',
+        'occurrence_2h': '2h Count',
+    }
+    HIDDEN_COLUMNS = {
+        'jira',
+        'notes',
     }
     DEFAULT_WIDTH = 110
 
@@ -89,13 +95,30 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
         'detail',
     }
 
+    def format_header_label(header_key: str, original_header: str) -> str:
+        if header_key in HEADER_LABELS:
+            return HEADER_LABELS[header_key]
+        parts = [part for part in header_key.split('_') if part]
+        if not parts:
+            return original_header
+        formatted = []
+        for part in parts:
+            formatted.append(part.lower() if any(ch.isdigit() for ch in part) else part.capitalize())
+        return ' '.join(formatted)
+
     html_parts = []
 
     with open(csv_file, 'r', encoding='utf-8') as f:
         reader = csv.reader(f)
         headers = next(reader)
         header_keys = [h.strip().lower() for h in headers]
-        widths = [COLUMN_WIDTHS.get(h_lower, DEFAULT_WIDTH) for h_lower in header_keys]
+        visible_indices = [
+            index for index, header_key in enumerate(header_keys)
+            if header_key not in HIDDEN_COLUMNS
+        ]
+        visible_headers = [headers[index] for index in visible_indices]
+        visible_header_keys = [header_keys[index] for index in visible_indices]
+        widths = [COLUMN_WIDTHS.get(h_lower, DEFAULT_WIDTH) for h_lower in visible_header_keys]
         total_width = sum(widths)
 
         html_parts.append('<div style="overflow-x: auto; max-width: 100%;">')
@@ -111,9 +134,9 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
 
         # Header row
         html_parts.append('<thead><tr>')
-        for col_idx, header in enumerate(headers):
-            header_key = header_keys[col_idx] if col_idx < len(header_keys) else header.strip().lower()
-            header_label = HEADER_LABELS.get(header_key, header)
+        for col_idx, header in enumerate(visible_headers):
+            header_key = visible_header_keys[col_idx] if col_idx < len(visible_header_keys) else header.strip().lower()
+            header_label = format_header_label(header_key, header)
             width = widths[col_idx] if col_idx < len(widths) else DEFAULT_WIDTH
             html_parts.append(
                 '<th style="'
@@ -132,9 +155,12 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
             if max_rows is not None and row_count >= max_rows:
                 break
             html_parts.append('<tr>')
-            for col_idx, cell in enumerate(row):
-                col_key = header_keys[col_idx] if col_idx < len(header_keys) else ''
+            for col_idx, source_index in enumerate(visible_indices):
+                cell = row[source_index] if source_index < len(row) else ''
+                col_key = visible_header_keys[col_idx] if col_idx < len(visible_header_keys) else ''
                 width = widths[col_idx] if col_idx < len(widths) else DEFAULT_WIDTH
+                if col_key == 'problem_key':
+                    cell = cell.replace(':', ': ')
                 # Escape HTML special chars
                 escaped = cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 cell_style = (

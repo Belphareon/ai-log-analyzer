@@ -977,7 +977,7 @@ def _send_peak_alert_digest(
     window_start: datetime,
     window_end: datetime,
     alerts: List[Dict[str, Any]],
-    suppressed_count: int,
+    summary: Dict[str, Any],
 ) -> bool:
     if not alerts:
         return False
@@ -994,7 +994,7 @@ def _send_peak_alert_digest(
             window_start=window_start,
             window_end=window_end,
             alerts=alerts,
-            suppressed_count=suppressed_count,
+            summary=summary,
         )
     except Exception as e:
         print(f"⚠️ Error sending peak digest email: {e}")
@@ -1743,6 +1743,7 @@ def run_regular_phase(
                 peak_problems = _select_peak_problems(enriched_problems, limit=0)
                 clusters = _merge_peak_clusters(peak_problems)
                 print(f"ℹ️ Peak problems: {len(peak_problems)} → {len(clusters)} cluster(s)")
+                omitted_clusters = max(len(clusters) - max_alerts, 0)
                 
                 sent_alerts = 0
                 suppressed_alerts = 0
@@ -1786,7 +1787,15 @@ def run_regular_phase(
                     dispatch_payloads.append(payload)
 
                 if digest_enabled:
-                    if dispatch_payloads and _send_peak_alert_digest(window_start, window_end, dispatch_payloads, suppressed_alerts):
+                    digest_summary = {
+                        'raw_window_errors': int(result.get('error_count', 0) or 0),
+                        'detected_peak_problems': len(peak_problems),
+                        'detected_clusters': len(clusters),
+                        'suppressed_clusters': suppressed_alerts,
+                        'omitted_clusters': omitted_clusters,
+                        'max_alerts': max_alerts,
+                    }
+                    if dispatch_payloads and _send_peak_alert_digest(window_start, window_end, dispatch_payloads, digest_summary):
                         sent_alerts = len(dispatch_payloads)
                     elif dispatch_payloads:
                         print("⚠️ Digest send failed, falling back to individual alerts")

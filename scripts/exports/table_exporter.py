@@ -44,6 +44,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
+from zoneinfo import ZoneInfo
 
 # Add paths
 SCRIPT_DIR = Path(__file__).parent
@@ -72,9 +73,10 @@ class ErrorTableRow:
     last_seen: str                  # ISO format
     occurrence_total: int           # Celkový počet
     occurrence_24h: int             # Poslední 24 hodin
-    severity: str                   # critical, high, medium, low
-    trend_2h: str                   # 2 hours: ↑ increasing | → stable | ↓ decreasing + % změna
+    occurrence_2h: int              # Poslední 2 hodiny
     trend_24h: str                  # 24 hours: ↑ increasing | → stable | ↓ decreasing + % změna
+    trend_2h: str                   # 2 hours: ↑ increasing | → stable | ↓ decreasing + % změna
+    severity: str                   # critical, high, medium, low
     root_cause: str                 # Výsledek analysis (CO se stalo) - z enrichment script
     behavior: str                   # Detailed behavior description
     affected_namespaces: str        # comma-separated
@@ -143,6 +145,13 @@ class TableExporter:
         self.generated_at = datetime.now(timezone.utc)
         self.trend_change_threshold_pct = float(os.getenv('TREND_CHANGE_THRESHOLD_PCT', '200'))
         self.trend_display_cap_pct = float(os.getenv('TREND_DISPLAY_CAP_PCT', '200'))
+        self.display_timezone = ZoneInfo(os.getenv('DISPLAY_TIMEZONE', 'Europe/Prague'))
+
+    def _format_display_timestamp(self, value: Optional[datetime]) -> str:
+        aware = self._ensure_aware(value)
+        if not aware:
+            return ""
+        return aware.astimezone(self.display_timezone).strftime("%d-%m-%Y %H:%M")
 
     @staticmethod
     def _clean_unknown(value: Optional[str]) -> str:
@@ -333,32 +342,30 @@ class TableExporter:
         return results
 
     def _problem_behavior(self, problem: ProblemEntry) -> str:
-        """Render problem behavior as multi-pattern view.
-
-        Strategy:
-          1. Take top distinct cleaned sample patterns (stack traces stripped,
-             `<ID>` noise collapsed). When 2+ patterns → multi-line numbered list.
-          2. Otherwise fall back to single cleaned `problem.behavior` line.
-          3. Last resort: error_class / flow.
-        """
+        """Render problem behavior in the same operator style as Known Peaks."""
         patterns = self._dedup_sample_patterns(problem, limit=3)
+        dominant_app = self._dominant_problem_app(problem) or self._clean_unknown(problem.flow) or '?'
 
-        if len(patterns) >= 2:
-            # Multi-pattern view
-            lines = [f"Top patterns ({len(patterns)}):", ""]
+        if patterns:
+            lines = [
+                f"Behavior (top patterns): {int(problem.occurrences or 0):,} events / {len(patterns)} patterns",
+                "",
+            ]
             for i, msg in enumerate(patterns, 1):
+                lines.append(f"  {i}) {dominant_app}")
                 escaped = msg.replace('"', '\\"')
-                lines.append(f'  {i}) "{escaped}"')
+                lines.append(f'     "{escaped}"')
             return "\n".join(lines)
 
-        # Single-pattern fallback: prefer the deduped pattern (already cleaned)
-        if patterns:
-            return patterns[0]
-
-        # No samples — clean stored behavior
         behavior = self._normalize_operator_text(getattr(problem, 'behavior', ''))
         if behavior:
-            return self._shorten(behavior, 300)
+            lines = [
+                f"Behavior (observed): {int(problem.occurrences or 0):,} events",
+                "",
+                f"  1) {dominant_app}",
+                f'     "{self._shorten(behavior, 300).replace("\"", "\\\"")}"',
+            ]
+            return "\n".join(lines)
 
         # Last resort
         detail_parts = [
@@ -368,19 +375,59 @@ class TableExporter:
         detail_parts = [part for part in detail_parts if part]
         return " / ".join(detail_parts)
 
+    def _dominant_problem_app(self, problem: ProblemEntry) -> str:
+        app_counts = getattr(problem, 'app_counts', {}) or {}
+        if app_counts:
+            return max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
+        affected = sorted(getattr(problem, 'affected_apps', set()) or [])
+        return affected[0] if affected else ''
+
     def _problem_root_cause(self, problem: ProblemEntry) -> str:
-        # Priority 1: root_cause field (populated by write-back from trace enrichment)
-        explicit_root = self._normalize_operator_text(getattr(problem, 'root_cause', ''))
-        if explicit_root:
-            return self._shorten(explicit_root, 180)
-        # Priority 2: description
-        desc_root = self._normalize_operator_text(getattr(problem, 'description', ''))
-        if desc_root:
-            return self._shorten(desc_root, 180)
-        # Priority 3: error_class as last resort
-        err_class = self._clean_unknown(getattr(problem, 'error_class', ''))
-        if err_class:
-            return self._shorten(err_class, 180)
+        trc = getattr(problem, 'trace_root_cause', None)
+        confidence = ''
+        service = ''
+        message = ''
+
+        if isinstance(trc, dict):
+            confidence = self._clean_unknown(trc.get('confidence'))
+            service = self._clean_unknown(trc.get('service'))
+            message = self._normalize_operator_text(trc.get('message'))
+
+        if not service:
+            service = self._dominant_problem_app(problem) or self._clean_unknown(problem.flow)
+
+        if not message:
+            explicit_root = self._normalize_operator_text(getattr(problem, 'root_cause', ''))
+            if explicit_root:
+                message = explicit_root
+
+        if not message:
+            desc_root = self._normalize_operator_text(getattr(problem, 'description', ''))
+            if desc_root:
+                message = desc_root
+
+        if not message:
+            patterns = self._dedup_sample_patterns(problem, limit=1)
+            if patterns:
+                message = patterns[0]
+
+        if not message:
+            err_class = self._clean_unknown(getattr(problem, 'error_class', ''))
+            if err_class:
+                message = err_class
+
+        if message:
+            label = confidence or 'observed'
+            short_message = self._shorten(message, 220)
+            if service:
+                return (
+                    f"Inferred root cause [{label}]:\n"
+                    f"  - {service}: {short_message}"
+                )
+            return (
+                f"Inferred root cause [{label}]:\n"
+                f"  - {short_message}"
+            )
         return ""
 
     @staticmethod
@@ -733,7 +780,7 @@ class TableExporter:
                 total += counts[i] if i < len(counts) else 1
         return total
 
-    def _compute_error_trend(self, problem: ProblemEntry, now: datetime) -> tuple[str, str, int]:
+    def _compute_error_trend(self, problem: ProblemEntry, now: datetime) -> tuple[str, str, int, int]:
         occurrence_times = getattr(problem, 'occurrence_times', None) or []
         occurrence_counts = getattr(problem, 'occurrence_counts', None) or []
         aware_times = []
@@ -745,7 +792,7 @@ class TableExporter:
                 counts.append(occurrence_counts[i] if i < len(occurrence_counts) else 1)
 
         if not aware_times:
-            return "2h: → 0", "24h: → 0", 0
+            return "24h: → 0", "2h: → 0", 0, 0
 
         H = 3600  # seconds in hour
 
@@ -768,10 +815,10 @@ class TableExporter:
         non_zero_days = [v for v in baseline_slots_24h if v > 0]
         baseline_24h = sum(non_zero_days) / len(non_zero_days) if non_zero_days else 0.0
 
-        short_trend = self._format_window_trend(current_2h, baseline_2h, "2h")
         long_trend = self._format_window_trend(current_24h, baseline_24h, "24h")
+        short_trend = self._format_window_trend(current_2h, baseline_2h, "2h")
 
-        return short_trend, long_trend, current_24h
+        return long_trend, short_trend, current_24h, current_2h
 
     def _find_related_problem_for_peak(self, peak: PeakEntry, flow: str) -> Optional[ProblemEntry]:
         candidates: List[ProblemEntry] = []
@@ -1065,7 +1112,7 @@ class TableExporter:
             first_seen = self._ensure_aware(problem.first_seen)
             last_seen = self._ensure_aware(problem.last_seen)
 
-            trend_2h, trend_24h, occurrence_24h = self._compute_error_trend(problem, now)
+            trend_24h, trend_2h, occurrence_24h, occurrence_2h = self._compute_error_trend(problem, now)
             
             # Root Cause - extract from description or analysis
             # NOTE: ProblemEntry uses 'description' field, enrichment may populate it
@@ -1081,14 +1128,15 @@ class TableExporter:
             
             row = ErrorTableRow(
                 # 1. TIMING
-                first_seen=first_seen.strftime("%d-%m-%Y %H:%M") if first_seen else "Unknown",
-                last_seen=last_seen.strftime("%d-%m-%Y %H:%M") if last_seen else "Unknown",
+                first_seen=self._format_display_timestamp(first_seen) if first_seen else "Unknown",
+                last_seen=self._format_display_timestamp(last_seen) if last_seen else "Unknown",
                 # 2. FREQUENCY + SEVERITY
                 occurrence_total=problem.occurrences,
                 occurrence_24h=occurrence_24h,
-                severity=self._derive_severity(problem),
-                trend_2h=trend_2h,
+                occurrence_2h=occurrence_2h,
                 trend_24h=trend_24h,
+                trend_2h=trend_2h,
+                severity=self._derive_severity(problem),
                 # 3. ROOT CAUSE + BEHAVIOR
                 root_cause=root_cause,
                 behavior=behavior,
@@ -1121,13 +1169,19 @@ class TableExporter:
                 score=self._derive_score(problem, occurrence_24h),
                 ratio=self._derive_ratio(problem, occurrence_24h, now),
             )
-            rows_with_sort_key.append((last_seen or datetime.min.replace(tzinfo=timezone.utc), row))
+            rows_with_sort_key.append((
+                occurrence_2h,
+                occurrence_24h,
+                last_seen or datetime.min.replace(tzinfo=timezone.utc),
+                problem.occurrences,
+                row,
+            ))
 
-        # Sort by actual datetime DESC (most recent first).
-        # Do not sort by formatted dd-mm-yyyy strings — that breaks chronology.
-        rows_with_sort_key.sort(key=lambda item: item[0], reverse=True)
+        # Sort by current 2h volume DESC so the hottest problems surface first.
+        # Use 24h volume, recency and total volume as deterministic tie-breakers.
+        rows_with_sort_key.sort(key=lambda item: item[:-1], reverse=True)
 
-        return [row for _, row in rows_with_sort_key]
+        return [row for *_, row in rows_with_sort_key]
 
     def export_errors_csv(self, output_path: str) -> str:
         """Export errors jako CSV ."""
@@ -1139,10 +1193,10 @@ class TableExporter:
         # Column order: timing → frequency/severity → root cause → scope → meta
         fieldnames = [
             'first_seen', 'last_seen',
-            'occurrence_total', 'occurrence_24h', 'severity', 'trend_2h', 'trend_24h',
+            'occurrence_total', 'occurrence_24h', 'occurrence_2h', 'trend_24h', 'trend_2h', 'severity',
             'root_cause', 'behavior',
             'affected_namespaces', 'affected_apps', 'problem_key', 'scope',
-            'category', 'status', 'jira', 'notes',
+            'category', 'status',
             'problem_id', 'flow', 'error_class', 'detail', 'score', 'ratio'
         ]
 
@@ -1207,8 +1261,8 @@ class TableExporter:
             # Main table (compact version) — time → frequency → root cause → scope
             lines.append("## All Problems")
             lines.append("")
-            lines.append("| First Seen | Last Seen | Total | 24h | Severity | Trend | Root Cause | Namespaces | Apps | Category | Status |")
-            lines.append("|------------|-----------|-------|-----|----------|-------|------------|------------|------|----------|--------|")
+            lines.append("| First Seen | Last Seen | Total | 24h | 2h | Trend 24h | Trend 2h | Severity | Root Cause | Namespaces | Apps | Category | Status |")
+            lines.append("|------------|-----------|-------|-----|----|-----------|----------|----------|------------|------------|------|----------|--------|")
 
             for row in rows:
                 apps_short = row.affected_apps[:30] + "..." if len(row.affected_apps) > 30 else row.affected_apps
@@ -1218,7 +1272,7 @@ class TableExporter:
                 last_short = row.last_seen[:10] if row.last_seen else "-"
                 lines.append(
                     f"| {first_short} | {last_short} | {row.occurrence_total:,} | "
-                    f"{row.occurrence_24h:,} | {row.severity} | {row.trend_24h} | "
+                    f"{row.occurrence_24h:,} | {row.occurrence_2h:,} | {row.trend_24h} | {row.trend_2h} | {row.severity} | "
                     f"{rc_short} | {ns_short} | {apps_short} | {row.category} | {row.status} |"
                 )
 
@@ -1371,8 +1425,8 @@ class TableExporter:
             
             row = PeakTableRow(
                 # 1. TIMING
-                first_seen=first_seen.strftime("%d-%m-%Y %H:%M") if first_seen else "",
-                last_seen=last_seen.strftime("%d-%m-%Y %H:%M") if last_seen else "",
+                first_seen=self._format_display_timestamp(first_seen),
+                last_seen=self._format_display_timestamp(last_seen),
                 # 2. FREQUENCY
                 total_errors=raw_peak_count,
                 occurrence_count=occurrence_count,

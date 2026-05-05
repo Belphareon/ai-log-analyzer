@@ -440,11 +440,13 @@ Results:
         window_start: datetime,
         window_end: datetime,
         alerts: List[Dict[str, Any]],
-        suppressed_count: int = 0,
+        summary: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Send one digest email for all dispatched alerts in current window."""
         if not self.is_enabled():
             return False
+
+        summary = summary or {}
 
         prague_tz = ZoneInfo('Europe/Prague')
         ws_local = window_start.astimezone(prague_tz) if window_start else None
@@ -457,15 +459,37 @@ Results:
             local_date = "N/A"
 
         total_errors = sum(int(a.get('error_count', 0) or 0) for a in alerts)
+        raw_window_errors = int(summary.get('raw_window_errors', 0) or 0)
+        detected_peak_problems = int(summary.get('detected_peak_problems', 0) or 0)
+        detected_clusters = int(summary.get('detected_clusters', 0) or 0)
+        suppressed_count = int(summary.get('suppressed_clusters', 0) or 0)
+        omitted_clusters = int(summary.get('omitted_clusters', 0) or 0)
+        max_alerts = int(summary.get('max_alerts', 0) or 0)
         subject = f"AI Log Analyzer | {local_time_range} | {local_date}"
 
         lines = [
             "Peak Alerts",
             "",
-            f"Total errors in sent alerts: {total_errors:,}",
+            "Window Summary:",
+            f"  Raw ERROR logs in window: {raw_window_errors:,}" if raw_window_errors else "  Raw ERROR logs in window: n/a",
+            f"  Peak problems detected: {detected_peak_problems:,}" if detected_peak_problems else "  Peak problems detected: n/a",
+            f"  Clusters detected: {detected_clusters:,}" if detected_clusters else "  Clusters detected: n/a",
+            f"  Alert clusters sent: {len(alerts):,}",
+            f"  Errors covered by sent alerts: {total_errors:,}",
+        ]
+
+        if suppressed_count > 0:
+            lines.append(f"  Suppressed clusters: {suppressed_count:,}")
+        if omitted_clusters > 0:
+            if max_alerts > 0:
+                lines.append(f"  Clusters outside top-{max_alerts} limit: {omitted_clusters:,}")
+            else:
+                lines.append(f"  Clusters outside send limit: {omitted_clusters:,}")
+
+        lines.extend([
             "",
             "Dispatched Alerts:",
-        ]
+        ])
 
         for idx, alert in enumerate(alerts, start=1):
             trend = alert.get('trend') or '-'
@@ -590,7 +614,11 @@ Results:
                     <h1 style="margin:0;font-size:22px;font-weight:700;">Peak Alerts</h1>
                 </div>
                 <div style="padding:20px;">
-                    <div style="font-size:16px;margin-bottom:14px;"><strong>Total errors in sent alerts:</strong> {total_errors:,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Raw ERROR logs in window:</strong> {raw_window_errors:,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Peak problems detected:</strong> {detected_peak_problems:,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Clusters detected:</strong> {detected_clusters:,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Alert clusters sent:</strong> {len(alerts):,}</div>
+                    <div style="font-size:16px;margin-bottom:14px;"><strong>Errors covered by sent alerts:</strong> {total_errors:,}</div>
                     <table style="margin-top:12px;border-collapse:collapse;width:100%;font-size:14px;">
                         <thead>
                             <tr style="background:#2c5aa0;color:white;">
@@ -606,6 +634,12 @@ Results:
                             {''.join(rows)}
                         </tbody>
                     </table>
+
+                    <div style="margin-top:12px;font-size:14px;color:#475569;">
+                        {'Suppressed clusters: ' + format(suppressed_count, ',') if suppressed_count > 0 else ''}
+                        {'<br>' if suppressed_count > 0 and omitted_clusters > 0 else ''}
+                        {('Clusters outside top-' + str(max_alerts) + ' limit: ' + format(omitted_clusters, ',')) if omitted_clusters > 0 and max_alerts > 0 else ('Clusters outside send limit: ' + format(omitted_clusters, ',')) if omitted_clusters > 0 else ''}
+                    </div>
 
                     <div style="margin-top:18px;font-size:17px;font-weight:700;color:#2c5aa0;">Details</div>
                     <div style="margin-top:8px;">

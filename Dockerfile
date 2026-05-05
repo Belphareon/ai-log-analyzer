@@ -2,20 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag> .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r75 .
 #
-# Push:
-#   docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
-#
-# Run (local test):
-#   docker run --env-file .env dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
+# Run:
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r75 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
-LABEL maintainer="ai-log-analyzer-team"
-LABEL description="AI Log Analyzer - peak detection, alerting, Confluence reporting"
+LABEL maintainer="your-team@company.com"
+LABEL version="r75"
+LABEL description="AI Log Analyzer - r75 fix: peak digest window totals + Prague time exports"
 
 # Set working directory
 WORKDIR /app
@@ -31,6 +29,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.t
 
 # Copy application code
 COPY scripts/ scripts/
+COPY core/ core/
 COPY incident_analysis/ incident_analysis/
 COPY config/ config/
 COPY run_*.sh ./
