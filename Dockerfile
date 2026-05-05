@@ -29,7 +29,6 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.t
 
 # Copy application code
 COPY scripts/ scripts/
-COPY core/ core/
 COPY incident_analysis/ incident_analysis/
 COPY config/ config/
 COPY run_*.sh ./
