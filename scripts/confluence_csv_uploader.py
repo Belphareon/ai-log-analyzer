@@ -32,9 +32,9 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
     """Convert CSV file to HTML table (Confluence storage format).
 
         Column widths are derived from observed name lengths in real registries:
-            - affected_apps: intentionally widened for operator readability → 660px
-            - affected_namespaces: widened by 50px over prior baseline → 250px
-      - behavior / root_cause: multi-line free text → 400/350px
+            - affected_apps: compact enough to stop dominating the table → 280px
+            - affected_namespaces: reduced by 25% from the previous 250px → 188px
+      - behavior / root_cause: multi-line free text → 550/350px
       - timing: '2026-04-30 10:30' → 130px
       - numeric/scalar: 70-90px
     Multi-line cells use <br/> with vertical-align:top so wide columns
@@ -51,9 +51,9 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
         'trend_7d': 110,
         'periodicity': 130,
         'root_cause': 350,
-        'behavior': 400,
-        'affected_namespaces': 250,
-        'affected_apps': 660,
+        'behavior': 550,
+        'affected_namespaces': 188,
+        'affected_apps': 280,
         'test': 60,
         'activity': 100,
         'peak_id': 90,
@@ -69,12 +69,16 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
         'jira': 100,
         'notes': 140,
         'problem_id': 100,
-        'problem_key': 220,
+        'problem_key': 270,
         'flow': 130,
         'error_class': 200,
         'detail': 320,
         'score': 70,
         'ratio': 70,
+    }
+    HEADER_LABELS: Dict[str, str] = {
+        'occurrence_total': 'Total Count',
+        'occurrence_24h': '24h Count',
     }
     DEFAULT_WIDTH = 110
 
@@ -108,13 +112,15 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
         # Header row
         html_parts.append('<thead><tr>')
         for col_idx, header in enumerate(headers):
+            header_key = header_keys[col_idx] if col_idx < len(header_keys) else header.strip().lower()
+            header_label = HEADER_LABELS.get(header_key, header)
             width = widths[col_idx] if col_idx < len(widths) else DEFAULT_WIDTH
             html_parts.append(
                 '<th style="'
                 f'width: {width}px; min-width: {width}px; max-width: {width}px; '
                 'vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word;'
                 '"><p><strong>'
-                f'{header}'
+                f'{header_label}'
                 '</strong></p></th>'
             )
         html_parts.append('</tr></thead>')
