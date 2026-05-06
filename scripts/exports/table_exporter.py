@@ -359,11 +359,12 @@ class TableExporter:
 
         behavior = self._normalize_operator_text(getattr(problem, 'behavior', ''))
         if behavior:
+            escaped_behavior = self._shorten(behavior, 300).replace('"', '\\"')
             lines = [
                 f"Behavior (observed): {int(problem.occurrences or 0):,} events",
                 "",
                 f"  1) {dominant_app}",
-                f'     "{self._shorten(behavior, 300).replace("\"", "\\\"")}"',
+                f'     "{escaped_behavior}"',
             ]
             return "\n".join(lines)
 
