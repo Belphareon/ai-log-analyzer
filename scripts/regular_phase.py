@@ -24,6 +24,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Tuple, Optional, Any, List
+from zoneinfo import ZoneInfo
+
+_DISPLAY_TZ = ZoneInfo(os.getenv('DISPLAY_TIMEZONE', 'Europe/Prague'))
 
 # Add paths
 SCRIPT_DIR = Path(__file__).parent
@@ -115,6 +118,14 @@ def _format_utc_local(ts: datetime) -> str:
     offset_text = f"{offset[:3]}:{offset[3:]}" if len(offset) == 5 else offset
     local_text = local_dt.strftime('%Y-%m-%d %H:%M:%S')
     return f"{utc_text} | local {local_text} (UTC{offset_text})"
+
+
+def _fmt_prague(ts: Optional[datetime], fmt: str = '%Y-%m-%d %H:%M') -> str:
+    """Format datetime to Prague timezone for user-facing display."""
+    if not ts:
+        return ""
+    aware = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    return aware.astimezone(_DISPLAY_TZ).strftime(fmt)
 
 
 def _registry_snapshot(registry: ProblemRegistry) -> Dict[str, int]:
@@ -1027,8 +1038,8 @@ def _build_peak_notification(
         known_label = f"KNOWN ({known_peak.id})"
 
     peak_window_start = _floor_to_window(known_peak.first_seen, window_minutes) if (is_continues and known_peak and known_peak.first_seen) else window_start
-    peak_window_start_text = peak_window_start.strftime('%Y-%m-%d %H:%M') if peak_window_start else window_start.strftime('%Y-%m-%d %H:%M')
-    peak_window_end_text = window_end.strftime('%Y-%m-%d %H:%M') if window_end else ""
+    peak_window_start_text = _fmt_prague(peak_window_start) or _fmt_prague(window_start)
+    peak_window_end_text = _fmt_prague(window_end)
 
     ratio = None
     ratio_incident = None
@@ -1059,7 +1070,7 @@ def _build_peak_notification(
 
     if problem.first_seen and problem.last_seen:
         duration_sec = int((problem.last_seen - problem.first_seen).total_seconds())
-        event_time = f"Event time: {problem.first_seen.strftime('%Y-%m-%d %H:%M')} - {problem.last_seen.strftime('%H:%M')}"
+        event_time = f"Event time: {_fmt_prague(problem.first_seen)} - {_fmt_prague(problem.last_seen, '%H:%M')}"
         lines.append(event_time)
         lines.append(f"  Duration: {duration_sec}s")
     
@@ -1429,7 +1440,7 @@ def run_regular_phase(
     print("=" * 70)
     
     print(f"\n📅 Window UTC: {window_start.strftime('%Y-%m-%dT%H:%M:%SZ')} → {window_end.strftime('%Y-%m-%dT%H:%M:%SZ')}")
-    print(f"   Window local: {window_start.astimezone().strftime('%Y-%m-%d %H:%M:%S')} → {window_end.astimezone().strftime('%Y-%m-%d %H:%M:%S')} ({datetime.now().astimezone().tzname()})")
+    print(f"   Window Prague: {_fmt_prague(window_start, '%Y-%m-%d %H:%M:%S')} → {_fmt_prague(window_end, '%Y-%m-%d %H:%M:%S')}")
     
     result = {
         'status': 'error',
@@ -1584,7 +1595,7 @@ def run_regular_phase(
 
         registry_after = _registry_snapshot(registry)
         print("\n✅ VALIDATOR - Added data in this regular run:")
-        print(f"   Window UTC: {window_start.strftime('%Y-%m-%dT%H:%M:%SZ')} → {window_end.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+        print(f"   Window: {_fmt_prague(window_start, '%Y-%m-%d %H:%M:%S')} → {_fmt_prague(window_end, '%H:%M:%S')} Prague")
         print(f"   Fetched errors: +{result['error_count']:,}")
         print(f"   DB rows inserted: +{result.get('saved', 0):,}")
         print(f"   Registry occurrences delta: +{registry_after['occurrences'] - registry_before['occurrences']:,}")
@@ -1734,6 +1745,15 @@ def run_regular_phase(
                     getattr(inc, 'score', 0) >= 70)
             )
 
+            # --- r77: Diagnostic summary (always logged for observability) ---
+            _ep_count = len(enriched_problems) if enriched_problems else 0
+            print(f"\n🔍 Peak gate: peaks_detected={peaks_detected}, enriched_problems={_ep_count}, "
+                  f"peak_detector={'loaded' if peak_detector else 'NONE'}")
+            if peaks_detected > 0 and not enriched_problems:
+                print(f"   ⚠️ ALERT BLOCKED: peaks detected but enriched_problems is empty!")
+            elif peaks_detected == 0 and collection.total_incidents > 0:
+                print(f"   ℹ️ No peaks among {collection.total_incidents} incidents (no spike/burst/score>=70)")
+
             if peaks_detected > 0 and enriched_problems:
                 max_alerts = int(os.getenv('MAX_PEAK_ALERTS_PER_WINDOW', '3'))
                 digest_raw = os.getenv('ALERT_DIGEST_ENABLED', 'true').strip().lower()
@@ -1849,6 +1869,13 @@ def run_regular_phase(
                     print(f"   📝 Peak write-back: enriched {peak_wb_count} fields")
 
                 print(f"✅ Peak alerts dispatched: {sent_alerts}/{len(peak_problems)} (suppressed: {suppressed_alerts})")
+
+            # --- r77: Always record peak gate outcome in result ---
+            result['peak_gate'] = {
+                'peaks_detected': peaks_detected,
+                'enriched_problems': _ep_count,
+                'peak_detector_loaded': peak_detector is not None,
+            }
                     
         except Exception as e:
             print(f"⚠️ Peak alert failed: {e}")
