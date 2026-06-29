@@ -73,6 +73,12 @@ def _format_duration_ms(ms: int) -> str:
         return f"{h}h {m}m {s}s"
 
 
+# Maximální věrohodná doba propagace jednoho trace (ms). Delší hodnoty pocházejí
+# z agregovaných incident timestampů (build_trace_flow), ne ze skutečného trace,
+# takže by se neměly prezentovat jako reálná doba propagace.
+_MAX_PLAUSIBLE_PROPAGATION_MS = 15 * 60 * 1000  # 15 min
+
+
 # =============================================================================
 
 class ProblemReportGenerator:
@@ -348,49 +354,52 @@ class ProblemReportGenerator:
 
         lines.append("")
 
-        # === BEHAVIOR / TRACE FLOW ===
-        if problem.representative_trace_id and problem.trace_flow_summary:
-            # Počet zpráv pro trace
-            trace_msg_count = sum(step.get('count', 1) for step in problem.trace_flow_summary)
-            lines.append(f"  Behavior (trace flow): {trace_msg_count} messages")
-            lines.append(f"    TraceID: {problem.representative_trace_id}")
+        # === BEHAVIOR (dominant patterns across incidents) ===
+        # POZOR: trace_flow_summary nese agregované dominantní patterny napříč
+        # VŠEMI incidenty/trace problému (summarize_problem_patterns), NE kroky
+        # jednoho trace. Dříve se to renderovalo jako single-trace flow s jedním
+        # TraceID + číslovanými kroky, což vytvářelo falešnou propagaci a nesedělo
+        # s logy v ES (zobrazená message nepatřila uvedenému TraceID).
+        # Nově: poctivý přehled top patternů s reálným count/share/ns + reálným
+        # příkladem trace PRO KAŽDÝ pattern.
+        if problem.trace_flow_summary:
+            patterns = problem.trace_flow_summary
+            shown_events = sum(int(p.get('count', 0) or 0) for p in patterns)
+            # Celkový počet eventů problému (kvůli konzistenci se share_pct, který
+            # je počítán relativně k total_occurrences). Fallback na součet patternů.
+            total_events = int(getattr(problem, 'total_occurrences', 0) or 0) or shown_events or len(patterns)
+            lines.append(f"  Behavior (top patterns): {total_events:,} events, top {len(patterns)} shown")
             lines.append("")
 
-            # Smart deduplication - zachovat různé apps i se stejnou message
-            steps = problem.trace_flow_summary
-            num_steps = len(steps)
-            step_num = 0
-            prev_app = None
-            prev_msg = None
+            for i, pattern in enumerate(patterns, 1):
+                app = pattern.get('app', '?')
+                msg = pattern.get('message', '')
+                count = int(pattern.get('count', 0) or 0)
+                share = pattern.get('share_pct')
+                # Dopočítej share, pokud chybí, ale máme count i total
+                if share is None and count > 0 and total_events > 0:
+                    share = round(count / total_events * 100, 1)
 
-            for i, step in enumerate(steps):
-                app = step.get('app', '?')
-                msg = step.get('message', '')
-
-                # Skip pouze pokud OBOJE app i message jsou stejné jako předchozí
-                if app == prev_app and msg == prev_msg:
-                    continue
-
-                step_num += 1
-                is_same_msg = (msg == prev_msg)  # Check BEFORE updating
-                prev_app = app
-                prev_msg = msg
-
-                # Přidej "..." před poslední krok (pokud jsou 3+ unikátní kroky)
-                if i == num_steps - 1 and step_num >= 3:
-                    lines.append("    ...")
-
-                # Formát: pokud stejná message jako předchozí (ale jiná app) = zkrácený formát
-                if is_same_msg and step_num > 1:
-                    # Zkrácený formát pro propagaci stejné chyby
-                    lines.append(f"    {step_num}) {app} (same error)")
+                if count > 0 and share is not None:
+                    lines.append(f"    {i}) {app} ({count:,} events, {share:.0f}%)")
+                elif count > 0:
+                    lines.append(f"    {i}) {app} ({count:,} events)")
                 else:
-                    lines.append(f"    {step_num}) {app}")
-                    lines.append(f"       \"{msg}\"")
+                    lines.append(f"    {i}) {app}")
+                lines.append(f"       \"{msg}\"")
+
+                ns_list = pattern.get('namespaces') or []
+                if ns_list:
+                    lines.append(f"       Namespaces: {', '.join(ns_list[:5])}")
+
+                # Reálný příklad trace PRO TENTO pattern (ne falešný společný TraceID)
+                trace_ids = pattern.get('trace_ids') or []
+                if trace_ids:
+                    lines.append(f"       Example trace: {trace_ids[0]}")
 
             lines.append("")
 
-            # Inferred root cause z trace
+            # Inferred root cause z dominantních patternů
             if problem.trace_root_cause:
                 confidence = problem.trace_root_cause.get('confidence', 'unknown')
                 lines.append(f"  Inferred root cause [{confidence}]:")
@@ -404,12 +413,16 @@ class ProblemReportGenerator:
             lines.append(f"    Service: {root_cause.service}")
             lines.append(f"    Error: {root_cause.message}")
 
-        # Propagation
+        # Propagation (scope napříč službami)
         propagation = getattr(problem, 'propagation_result', None)
         if propagation and propagation.service_count > 1:
             lines.append(f"  Propagation [{propagation.propagation_type}]:")
             lines.append(f"    {propagation.to_short_string()}")
-            if propagation.propagation_time_ms > 0:
+            # Duration zobraz JEN když je věrohodná pro jeden trace. Delší hodnoty
+            # pocházejí z agregovaných incident timestampů (build_trace_flow přes
+            # celý časový rozsah problému), ne ze skutečné propagace, a vytvářely
+            # nesmyslné údaje typu "Duration: 20h 30m".
+            if 0 < propagation.propagation_time_ms <= _MAX_PLAUSIBLE_PROPAGATION_MS:
                 lines.append(f"    Duration: {_format_duration_ms(propagation.propagation_time_ms)}")
 
         # Version Impact

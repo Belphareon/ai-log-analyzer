@@ -15,7 +15,7 @@ Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespac
 3. **Určí, co je nové vs. známé** — registry drží historii všech dříve viděných problémů
 4. **Vyhodnotí závažnost** — deterministické bodování 0–100
 5. **Clusteruje** — problémy se stejným trace flow nebo error class se sloučí do jednoho alertu
-6. **Notifikuje** — při peaku odešle digest email + volitelně Teams
+6. **Notifikuje** — při peaku odešle digest email; do Teams kanálu se doručuje e-mailem na jeho adresu (`TEAMS_EMAIL`), webhook je v aplikaci vypnutý
 7. **Aktualizuje Confluence** — Known Errors, Known Peaks a Recent Incidents tabulky
 8. **Sbírá historická data** — ukládá surové počty chyb pro zpětný přepočet P93/CAP prahů
 
@@ -119,8 +119,8 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `SMTP_HOST` | SMTP relay | `css-smtp-prod-os.sos.kb.cz` |
 | `SMTP_PORT` | SMTP port | `25` |
 | `EMAIL_FROM` | Odesílatel emailů | `ai-log-analyzer@kb.cz` |
-| `TEAMS_WEBHOOK_URL` | Teams incoming webhook | URL webhooku |
-| `TEAMS_EMAIL` | Email adresa Teams kanálu | email |
+| `TEAMS_WEBHOOK_URL` | Teams incoming webhook (vypnutý v aplikaci — viz `TEAMS_EMAIL`) | URL webhooku |
+| `TEAMS_EMAIL` | Email adresa Teams kanálu (primární doručení notifikací) | email |
 | `MONITORED_NAMESPACES` | K8s namespace pro monitoring | `pcb-dev-01-app,pca-sit-01-app` |
 
 ### Peak detection a alerting

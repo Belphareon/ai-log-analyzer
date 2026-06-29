@@ -4,6 +4,32 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r78 (2026-06-29) — Recent Incidents Behavior dle reality, Teams notifikace e-mailem
+
+### Opraveno
+
+- **Recent Incidents — Behavior už nepředstírá single-trace flow** (`scripts/analysis/problem_report.py`)
+  - Sekce dříve renderovala agregované dominantní patterny napříč všemi incidenty
+    jako číslovaný `Behavior (trace flow)` pod jedním `TraceID`. Zobrazené zprávy
+    ale tomu trace nepatřily (ověřeno proti ES) → falešná propagace a nesedící počty.
+  - Nově: `Behavior (top patterns): N events, top K shown` s reálným
+    count/share/namespaces a reálným příkladem trace pro KAŽDÝ pattern.
+  - Sjednoceno s `table_exporter.py` (Known Errors/Peaks už tento formát používá).
+- **Propagation — odstraněna nesmyslná Duration** (`scripts/analysis/problem_report.py`)
+  - `Duration` vznikala z časového rozsahu celého problému (agregované incident
+    timestampy v `build_trace_flow`), ne ze skutečného trace → údaje typu
+    `Duration: 20h 30m`. Nově se zobrazuje jen věrohodná doba (≤ 15 min).
+
+### Změněno
+
+- **Teams notifikace e-mailem místo webhooku**
+  - Notifikace se do Teams kanálu doručují e-mailem na adresu kanálu (`TEAMS_EMAIL`),
+    webhook je v aplikaci vypnutý (CNTLM v podu). Kanál přepnut na Card Services Squad
+    `7ad977cb…@emea.teams.ms` (deployment: `infra-apps/ai-log-analyzer/values.yaml`,
+    klíč `teams.email`).
+
+---
+
 ## r66 (2026-04-13) — Peak cluster merge, smart message filter, trend state machine, behavior 3-step
 
 ### Nové
