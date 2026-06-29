@@ -4,6 +4,50 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r79 (2026-06-29) — Reálná trace-timeline propagace, poctivý behavior, de-merge unknownů
+
+### Nové
+
+- **Reálná trace-centric analýza z raw eventů** (`scripts/analysis/trace_timeline.py`)
+  - Z jednoho `trace_id` se složí skutečná časová osa (eventy seřazené dle času)
+    a trace se STEJNÝM průběhem se agregují do jednoho "known erroru".
+  - Metriky dle reality: `occurrences` = počet unikátních trace, `total_errors`,
+    `avg_per_occurrence`, `per_app_errors`, reálná `propagation_path`,
+    `root_cause` (nejdřívější informativní event) a `outcome` (čím trace končí).
+  - Příprava na AI agenta: `set_root_cause_strategy()` / `set_signature_strategy()`
+    umožní později nahradit heuristiku ML modelem beze změny volajícího kódu.
+    Bez agenta funguje plně na heuristice.
+  - Zapnuto v `regular_phase` (`Pipeline(build_trace_patterns=True)`); backfill
+    ponechán bez něj kvůli výkonu. Stavění je non-blocking.
+
+### Opraveno
+
+- **Fabrikovaná trace flow odstraněna U ZDROJE** (`scripts/analysis/trace_analysis.py`)
+  - `enrich_problem_with_trace` už NEvolá `build_trace_flow` (které všem app-krokům
+    nastavovalo stejný timestamp a jednu message rozprostíralo přes všechny app).
+  - Behavior staví výhradně na `summarize_problem_patterns`; propagace jen z
+    reálných dat problému (`duration = 0` místo nesmyslných hodnot).
+- **Žádné falešné kauzální šipky / Duration / TraceID** (Recent Incidents i Known Peaks)
+  - Blok `Propagation [type] A → B → C` + `Duration` (z fabrikovaného flow) a
+    zavádějící jeden `TraceID:` nad agregovanými patterny nahrazeny faktickým
+    `Spread: N services / M namespaces`.
+- **Báze skóre z celkového objemu** (`scripts/pipeline/phase_d_score.py`)
+  - `base_score` bere `total_count` (napříč okny), ne jen poslední 15min okno —
+    pro backfill/denní běh se magnitude problému už neztrácí. Live běh beze změny.
+
+### Změněno
+
+- **De-merge nezařaditelných `unknown` problémů** (`scripts/analysis/problem_aggregator.py`)
+  - Místo jednoho mega-bucketu `unknown:unknown:unknown_error` se distinktní
+    unknowny rozliší podle dominantní message (čitelný discriminator) → report
+    zůstává relevantní.
+- **Known Peaks zobrazují reálnou trace propagaci** (`scripts/regular_phase.py`)
+  - Když problém vlastní reálný trace pattern (jeho dominantní app == root-cause
+    služba), peak e-mail ukáže skutečnou propagaci po časové ose + occurrences/
+    total/avg + per-app counts (jako Recent Incidents), místo agregovaných patternů.
+
+---
+
 ## r78 (2026-06-29) — Recent Incidents Behavior dle reality, Teams notifikace e-mailem
 
 ### Opraveno

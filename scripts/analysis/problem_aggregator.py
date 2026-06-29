@@ -17,6 +17,7 @@ Změny:
 - Lepší diferenciace mezi MEDIUM problémy
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Set, Optional, Any
@@ -374,6 +375,20 @@ def _log_occurrence_source(incident: Any, count: int, source: str):
     logger.debug(f"Occurrence count: {count} from {source} (incident: {fingerprint}...)")
 
 
+def _message_discriminator(normalized_message: str) -> str:
+    """Čitelný stabilní discriminator z dominantní normalizované message.
+
+    Používá se k ROZLIŠENÍ jinak nezařaditelných 'unknown_error' problémů, aby se
+    distinktní unknowny neslévaly do jednoho mega-bucketu (drlo by se vše do
+    'unknown:unknown:unknown_error'). Bere prvních pár významových slov – stabilní
+    pro stejnou message, různé pro různé. Normalized_message už nemá UUID/ID/TS.
+    """
+    if not normalized_message:
+        return ''
+    words = re.findall(r'[a-zA-Z]{4,}', normalized_message.lower())
+    return '_'.join(words[:5])[:50]
+
+
 def _get_problem_key(incident: Any) -> str:
     """
     Získá nebo vypočítá problem_key pro incident.
@@ -395,6 +410,13 @@ def _get_problem_key(incident: Any) -> str:
 
     # Error class z error_type nebo normalized_message
     error_class = _extract_error_class(incident.error_type, incident.normalized_message)
+
+    # #4: nezřaditelné unknowny NEslUČuj do jednoho bucketu – rozliš je podle
+    # dominantní message (čitelně), aby report zůstal relevantní.
+    if error_class == 'unknown_error':
+        disc = _message_discriminator(getattr(incident, 'normalized_message', '') or '')
+        if disc:
+            error_class = f"unknown_{disc}"
 
     return f"{category}:{flow}:{error_class}"
 

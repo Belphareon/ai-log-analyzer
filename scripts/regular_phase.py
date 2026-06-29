@@ -269,6 +269,28 @@ def _format_behavior_step(step: Dict[str, Any], index: int = 0) -> str:
     return f"{prefix}{app}{count_text}{share_text}: {message}"
 
 
+def _pattern_behavior_text(pattern: Any) -> str:
+    """Kompaktní real-propagation shrnutí pro peak email (z trace_timeline.TracePattern).
+
+    Reálná propagace po časové ose + occurrences/total/avg + per-app counts.
+    """
+    if pattern is None or not getattr(pattern, 'representative', None):
+        return ''
+    path_list = getattr(pattern, 'propagation_path', None) or []
+    path = ' \u2192 '.join(path_list[:5])
+    if len(path_list) > 5:
+        path += ' \u2192 \u2026'
+    parts = [path] if path else []
+    parts.append(
+        f"{pattern.occurrences:,} traces, {pattern.total_errors:,} errors "
+        f"(avg {pattern.avg_errors_per_occurrence:.1f}/trace)"
+    )
+    top = sorted((pattern.per_app_errors or {}).items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+    if top:
+        parts.append('per-app: ' + ', '.join(f"{a}({c:,})" for a, c in top))
+    return ' | '.join(parts)
+
+
 def _summarize_behavior_steps(steps: List[Dict[str, Any]], limit: int = 3) -> str:
     """Build numbered behavior summary, deduplicating against already-seen messages."""
     from analysis.trace_analysis import _extract_useful_content, normalize_message
@@ -819,6 +841,32 @@ def _build_peak_alert_payload(
     if not behavior_text:
         behavior_text = str(peak_error_details or '')
 
+    # (b) Reálná trace propagace z raw eventů má PŘEDNOST, pokud problém vlastní
+    # trace pattern (ownership: jeho dominantní app == root-cause služba patternu).
+    # Pak místo agregovaných "dominant patterns" ukážeme skutečnou propagaci po
+    # časové ose + occurrences/total/avg + per-app counts (jako Recent Incidents).
+    trace_pattern = getattr(problem, 'trace_pattern', None)
+    if trace_pattern is not None and getattr(trace_pattern, 'representative', None):
+        real_text = _pattern_behavior_text(trace_pattern)
+        if real_text:
+            behavior_text = real_text
+        rc = getattr(trace_pattern, 'root_cause', None) or {}
+        if rc.get('message'):
+            root_cause = {
+                'service': rc.get('service', '?'),
+                'message': rc.get('message', ''),
+                'confidence': rc.get('confidence', 'medium'),
+            }
+            digest_root_cause = str(rc.get('message') or rc.get('service') or '')
+        path_list = getattr(trace_pattern, 'propagation_path', None) or []
+        if len(path_list) > 1:
+            # 'type' se v emailu zobrazí za "Propagation:" – dáme tam reálný path.
+            propagation_info = {
+                'type': ' \u2192 '.join(path_list[:5]),
+                'service_count': len(path_list),
+                'duration_ms': 0,
+            }
+
     # Originator line
     originator_display = ''
     if originator_application_counts:
@@ -1094,9 +1142,10 @@ def _build_peak_notification(
     if behavior_steps:
         lines.append("")
         lines.append(f"Behavior (dominant patterns): {len(behavior_steps)} items")
-        trace_id = getattr(problem, 'representative_trace_id', None) or getattr(flow, 'trace_id', None)
-        if trace_id:
-            lines.append(f"TraceID: {trace_id}")
+        # POZN.: Nezobrazujeme jeden "TraceID" nad patterny – patterny jsou agregát
+        # napříč VŠEMI trace problému (summarize_problem_patterns), ne kroky jednoho
+        # trace. Jeden TraceID nahoře vytvářel dojem, že všechny zprávy patří jemu
+        # (neseděly s ES). Reálný příklad trace je u jednotlivých patternů.
         lines.append("")
 
         for step in behavior_steps:
@@ -1110,16 +1159,16 @@ def _build_peak_notification(
         lines.append(f"  - {rc.get('service', '?')}: {rc.get('message', '')}")
 
     if not is_continues:
+        # Cross-service scope BEZ kauzálních šipek / root / duration. Bez reálného
+        # pořadí eventů nelze určit směr šíření – affected apps jsou vypsané výše.
+        # Uvádíme jen faktický rozsah, když problém zasahuje víc namespaces.
         propagation = getattr(problem, 'propagation_result', None)
-        if propagation and propagation.service_count > 1:
+        if propagation and propagation.service_count > 1 and propagation.namespace_count > 1:
             lines.append("")
-            lines.append(f"Propagation [{propagation.propagation_type}]:")
-            lines.append(f"  {propagation.to_short_string()}")
-            if propagation.propagation_time_ms > 0:
-                total_sec = int(propagation.propagation_time_ms / 1000)
-                minutes = total_sec // 60
-                seconds = total_sec % 60
-                lines.append(f"  Duration: {minutes}m {seconds}s")
+            lines.append(
+                f"Spread: {propagation.service_count} services / "
+                f"{propagation.namespace_count} namespaces"
+            )
 
     # Footer with wiki link
     lines.append("")
@@ -1533,6 +1582,7 @@ def run_regular_phase(
     pipeline = Pipeline(
         ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
         peak_detector=peak_detector,
+        build_trace_patterns=True,
     )
     
     # ← NOVÉ: Injektuj historické baseline do Phase B
@@ -1630,6 +1680,7 @@ def run_regular_phase(
             analysis_end=window_end,
             run_id=run_id,
             registry_problems=_registry.problems if _registry is not None else None,
+            trace_pattern_index=getattr(collection, 'trace_pattern_index', None),
         )
         enriched_problems = generator.problems
 

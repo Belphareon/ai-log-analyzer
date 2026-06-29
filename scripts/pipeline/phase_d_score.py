@@ -89,7 +89,12 @@ class PhaseD_Score:
         
         base = min(max_base, count / multiplier)
         """
-        count = measurement.current_count
+        # Použij CELKOVÝ objem napříč všemi okny (total_count), ne jen poslední
+        # 15min okno (current_count). Pro backfill/denní běh (96 oken) je
+        # current_count často ~0, takže base_score byl skoro nulový a severity se
+        # řídila jen flagy – magnitude problému se ztrácela. Pro živý 1-oknový běh
+        # platí total_count == current_count, takže live chování zůstává stejné.
+        count = getattr(measurement, 'total_count', 0) or measurement.current_count
         score = min(
             self.weights.base_max,
             count / self.weights.base_multiplier

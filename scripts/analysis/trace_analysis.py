@@ -1088,28 +1088,22 @@ def enrich_problem_with_trace(
 
     problem.representative_trace_id = trace_id
 
-    # 2. Postav flow
-    flow = build_trace_flow(problem.incidents, trace_id)
-    if not flow.steps:
-        return problem
-
-    # 3. Problem-level behavior summary napric incidenty (ne fake per-app trace flow)
+    # 2. Behavior = poctivé agregované dominantní patterny napříč incidenty.
+    #    ZÁMĚRNĚ NEpoužíváme build_trace_flow: ten fabrikoval data – všem app-krokům
+    #    nastavil stejný timestamp (incident.time.first_seen), takže pořadí bylo
+    #    náhodné a "duration" pokrývala celý časový rozsah problému, a jednu
+    #    normalized_message rozprostíral přes všechny app. Výsledná "trace flow"
+    #    nepatřila uvedenému trace a neseděla s logy v ES. Honest patterny nesou
+    #    reálný count/share/namespaces a reálný příklad trace.
     behavior_patterns = summarize_problem_patterns(problem)
-    problem.trace_flow_summary = behavior_patterns or summarize_trace_flow_to_dict(flow)
+    problem.trace_flow_summary = behavior_patterns
 
-    # 4. Root cause preferuj z dominantnich patternu problemu, fallback na trace
-    #    Pass behavior_steps to dedup: root cause != behavior step
+    # 3. Root cause z dominantních patternů (honest; dedup proti behavior krokům).
     problem.trace_root_cause = infer_problem_root_cause(
         problem,
         behavior_patterns=behavior_patterns,
         behavior_steps=behavior_patterns,
     )
-    if not problem.trace_root_cause:
-        problem.trace_root_cause = infer_trace_root_cause(flow)
-
-    # 5. Ulož plný trace (volitelně)
-    if output_dir:
-        store_full_trace(flow, output_dir, problem.problem_key)
 
     return problem
 

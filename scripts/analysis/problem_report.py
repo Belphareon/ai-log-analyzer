@@ -54,31 +54,6 @@ def _format_duration_sec(seconds: int) -> str:
         return f"{h}h {m}m {s}s"
 
 
-def _format_duration_ms(ms: int) -> str:
-    """Formats duration in milliseconds to human-readable: 500ms / 45s 500ms / 23m 5s / 5h 12m 3s"""
-    total_secs = ms // 1000
-    remaining_ms = ms % 1000
-    if total_secs == 0:
-        return f"{ms}ms"
-    elif total_secs < 60:
-        if remaining_ms > 0:
-            return f"{total_secs}s {remaining_ms}ms"
-        return f"{total_secs}s"
-    elif total_secs < 3600:
-        m, s = divmod(total_secs, 60)
-        return f"{m}m {s}s"
-    else:
-        h, rem = divmod(total_secs, 3600)
-        m, s = divmod(rem, 60)
-        return f"{h}h {m}m {s}s"
-
-
-# Maximální věrohodná doba propagace jednoho trace (ms). Delší hodnoty pocházejí
-# z agregovaných incident timestampů (build_trace_flow), ne ze skutečného trace,
-# takže by se neměly prezentovat jako reálná doba propagace.
-_MAX_PLAUSIBLE_PROPAGATION_MS = 15 * 60 * 1000  # 15 min
-
-
 # =============================================================================
 
 class ProblemReportGenerator:
@@ -99,6 +74,7 @@ class ProblemReportGenerator:
         analysis_end: datetime = None,
         run_id: str = "",
         registry_problems: Dict[str, Any] = None,
+        trace_pattern_index: Dict[str, Any] = None,
     ):
         self.problems = problems
         self.trace_flows = trace_flows or {}
@@ -106,6 +82,8 @@ class ProblemReportGenerator:
         self.analysis_end = analysis_end
         self.run_id = run_id
         self.registry_problems = registry_problems or {}
+        # trace_id -> reálný TracePattern (z pipeline, když build_trace_patterns=True)
+        self.trace_pattern_index = trace_pattern_index or {}
 
         # Enrich problems with analysis
         self._enrich_problems()
@@ -133,17 +111,26 @@ class ProblemReportGenerator:
         total = len(self.problems)
         print(f"   Enriching {total} problems...", flush=True)
 
+        # 0. Napoj na reálné trace patterny z pipeline (pokud jsou k dispozici).
+        if self.trace_pattern_index:
+            self._match_trace_patterns()
+
         # 1. Trace behavior - MUSÍ BÝT PRVNÍ pro trace-based root cause
         print("   [1/5] Trace enrichment...", flush=True)
         enrich_all_problems_with_traces(self.problems, output_dir=output_dir, verbose=True)
 
-        # 2. Root cause (fallback pokud trace nemá)
+        # 2. Root cause (fallback když pattern-based root cause chybí).
+        #    ZÁMĚRNĚ NEpředáváme trace_flows: pochází z build_trace_flow s
+        #    fabrikovanými timestampy/pořadím. Fallback se tak bere z reálného
+        #    incidentu s nejvyšším score, ne z fake flow.
         print("   [2/5] Root cause inference...", flush=True)
-        enrich_problems_with_root_cause(self.problems, self.trace_flows)
+        enrich_problems_with_root_cause(self.problems, None)
 
-        # 3. Propagation
+        # 3. Propagation (scope) jen z reálných dat problému (apps/namespaces).
+        #    Bez trace_flows je propagation_time_ms = 0 (N/A) místo nesmyslné
+        #    duration přes celý rozsah problému.
         print("   [3/5] Propagation analysis...", flush=True)
-        enrich_problems_with_propagation(self.problems, self.trace_flows)
+        enrich_problems_with_propagation(self.problems, None)
 
         # 4. Version analysis
         print("   [4/5] Version analysis...", flush=True)
@@ -154,6 +141,44 @@ class ProblemReportGenerator:
         refine_all_problems(self.problems)
 
         print("   ✓ Enrichment complete", flush=True)
+
+    def _match_trace_patterns(self):
+        """Každému problému přiřaď JEHO reálný trace pattern – s ownershipem.
+
+        Fingerprint-grouping rozděluje jeden propagovaný trace do víc problémů
+        (root služba vs. následná služba). Aby se STEJNÁ propagace neukázala
+        dvakrát, přiřadíme pattern jen tomu problému, jehož dominantní app je
+        root-cause služba patternu (u multi-hop) / jeho jediná app (single-hop).
+        Ostatní problémy spadnou na poctivý fallback (top patterns).
+        """
+        # 1. Dominantní app každého problému (podle reálných per-app počtů).
+        dominant: Dict[str, Optional[str]] = {}
+        for key, problem in self.problems.items():
+            problem.trace_pattern = None
+            app_counts = getattr(problem, 'app_counts', {}) or {}
+            if app_counts:
+                dominant[key] = max(app_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+            elif problem.apps:
+                dominant[key] = sorted(problem.apps)[0]
+            else:
+                dominant[key] = None
+
+        # 2. Pro každý problém vyber pattern, jehož root služba == jeho dominantní app.
+        for key, problem in self.problems.items():
+            candidates = {}
+            for tid in (getattr(problem, 'trace_ids', None) or set()):
+                pat = self.trace_pattern_index.get(tid)
+                if pat is not None:
+                    candidates[id(pat)] = pat
+
+            best = None
+            for pat in candidates.values():
+                rc = pat.root_cause or {}
+                owner_app = rc.get('service') or (pat.propagation_path[0] if pat.propagation_path else None)
+                if owner_app and owner_app == dominant.get(key):
+                    if best is None or pat.total_errors > best.total_errors:
+                        best = pat
+            problem.trace_pattern = best
 
     def generate_text_report(self, max_problems: int = 20) -> str:
         """
@@ -362,7 +387,17 @@ class ProblemReportGenerator:
         # s logy v ES (zobrazená message nepatřila uvedenému TraceID).
         # Nově: poctivý přehled top patternů s reálným count/share/ns + reálným
         # příkladem trace PRO KAŽDÝ pattern.
-        if problem.trace_flow_summary:
+        #
+        # NEJLEPŠÍ varianta: pokud máme reálné trace patterny (z raw eventů přes
+        # trace_timeline), ukaž skutečnou propagaci po časové ose + occurrences
+        # (počet trace), total errors, avg/occ, errors-per-app a root cause/outcome.
+        trace_pattern = getattr(problem, 'trace_pattern', None)
+        if trace_pattern is not None and getattr(trace_pattern, 'representative', None):
+            from .trace_timeline import format_pattern_behavior
+            lines.append("  Behavior (real trace propagation):")
+            lines.extend(format_pattern_behavior(trace_pattern, indent="    "))
+            lines.append("")
+        elif problem.trace_flow_summary:
             patterns = problem.trace_flow_summary
             shown_events = sum(int(p.get('count', 0) or 0) for p in patterns)
             # Celkový počet eventů problému (kvůli konzistenci se share_pct, který
@@ -413,17 +448,19 @@ class ProblemReportGenerator:
             lines.append(f"    Service: {root_cause.service}")
             lines.append(f"    Error: {root_cause.message}")
 
-        # Propagation (scope napříč službami)
+        # Cross-service scope BEZ kauzálních šipek / root / duration. Affected apps
+        # jsou vypsané výše ("Apps:"). Bez reálného pořadí eventů nelze určit směr
+        # "propagace" – proto NEpíšeme A → B → C ani Duration (ta dříve pocházela
+        # z fabrikovaného trace flow). Uvádíme jen faktický rozsah přes namespaces.
+        # (Když máme reálný trace_pattern, propagace už je vykreslená výše.)
         propagation = getattr(problem, 'propagation_result', None)
-        if propagation and propagation.service_count > 1:
-            lines.append(f"  Propagation [{propagation.propagation_type}]:")
-            lines.append(f"    {propagation.to_short_string()}")
-            # Duration zobraz JEN když je věrohodná pro jeden trace. Delší hodnoty
-            # pocházejí z agregovaných incident timestampů (build_trace_flow přes
-            # celý časový rozsah problému), ne ze skutečné propagace, a vytvářely
-            # nesmyslné údaje typu "Duration: 20h 30m".
-            if 0 < propagation.propagation_time_ms <= _MAX_PLAUSIBLE_PROPAGATION_MS:
-                lines.append(f"    Duration: {_format_duration_ms(propagation.propagation_time_ms)}")
+        if (getattr(problem, 'trace_pattern', None) is None
+                and propagation and propagation.service_count > 1
+                and propagation.namespace_count > 1):
+            lines.append(
+                f"  Spread: {propagation.service_count} services / "
+                f"{propagation.namespace_count} namespaces"
+            )
 
         # Version Impact
         version_impact = getattr(problem, 'version_impact', None)

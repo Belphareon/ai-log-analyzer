@@ -80,6 +80,9 @@ class Pipeline:
         # P93/CAP peak detection
         peak_detector = None,
 
+        # Tráce-centric analýza (opt-in; backfill ji nechce kvůli výkonu)
+        build_trace_patterns: bool = False,
+
         # Database connection (optional)
         db_conn = None,
     ):
@@ -99,6 +102,8 @@ class Pipeline:
         self.phase_d = PhaseD_Score()
         self.phase_e = PhaseE_Classify()
         self.phase_f = PhaseF_Report()
+
+        self.build_trace_patterns = build_trace_patterns
 
         self.db_conn = db_conn
 
@@ -368,6 +373,31 @@ class Pipeline:
         
         print(f"   ✅ Built {collection.total_incidents} incidents")
         
+        # =====================================================================
+        # TRACE PATTERNS (reálná trace-centric analýza z raw eventů, opt-in)
+        # =====================================================================
+        # Složí reálné časové osy z records (ne fabrikovaně) a seskupí trace se
+        # stejným průběhem do patternů: occurrences = počet trace, total_errors,
+        # avg/occ, errors-per-app, root cause + outcome. Non-blocking.
+        collection.trace_patterns = []
+        collection.trace_pattern_index = {}
+        if self.build_trace_patterns:
+            try:
+                from analysis.trace_timeline import (
+                    build_trace_timelines, group_traces_by_signature,
+                )
+                timelines = build_trace_timelines(records)
+                patterns = group_traces_by_signature(timelines)
+                index = {}
+                for pat in patterns:
+                    for tid in pat.trace_ids:
+                        index[tid] = pat
+                collection.trace_patterns = patterns
+                collection.trace_pattern_index = index
+                print(f"   ✅ Built {len(patterns)} trace patterns from {len(timelines)} traces")
+            except Exception as e:
+                print(f"   ⚠️ Trace pattern build failed (non-blocking): {e}")
+
         # =====================================================================
         # SAVE INTERMEDIATE
         # =====================================================================
