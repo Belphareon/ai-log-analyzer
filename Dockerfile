@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r80 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r81 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r80 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r81 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r80"
-LABEL description="AI Log Analyzer - r80: pre-prod hardening + all-level trace-context root cause"
+LABEL version="r81"
+LABEL description="AI Log Analyzer - r81: OOM protection (cgroup-aware fetch guard)"
 
 # Set working directory
 WORKDIR /app

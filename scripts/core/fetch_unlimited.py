@@ -23,6 +23,79 @@ ES_USER = os.getenv('ES_USER', 'XX_PCBS_ES_READ')
 ES_PASSWORD = os.getenv('ES_PASSWORD')  # Required: Set in .env file
 INDICES = os.getenv('ES_INDEX', 'cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb-ch-*')
 
+# ============================================================================
+# OOM PROTECTION (extrémní okna s miliony logů)
+# ============================================================================
+# Init/regular/backfill pody dříve padaly na OOM, když okno obsahovalo miliony
+# logů (celý den / dlouhý rozsah). Tady fetch hlídá paměť a počet záznamů a
+# raději přestane stahovat (degradovaná, ale živá analýza) než aby ho OOM zabil.
+try:
+    import resource as _resource
+except ImportError:  # ne-Linux (dev)
+    _resource = None
+
+# Hard backstop na počet záznamů (když nejde detekovat cgroup limit).
+MAX_FETCH_RECORDS = int(os.getenv('MAX_FETCH_RECORDS', '2000000'))
+# Rozpočet paměti = % z detekovaného cgroup limitu podu. 50 % nechává hlavu
+# pro 2× expanzi v pipeline (raw dicts + NormalizedRecord kopie).
+FETCH_MEMORY_BUDGET_PCT = float(os.getenv('FETCH_MEMORY_BUDGET_PCT', '50'))
+# Explicitní override v MB (0 = auto z cgroup).
+FETCH_MEMORY_BUDGET_MB = int(os.getenv('FETCH_MEMORY_BUDGET_MB', '0'))
+
+# Poslední výsledek (pro volající: byla data oříznuta?).
+LAST_FETCH_STATS = {'truncated': False, 'reason': None, 'fetched': 0, 'expected': None}
+
+
+def _detect_cgroup_memory_limit_mb():
+    """Přečte memory limit podu/kontejneru z cgroup (v2, pak v1). None = neomezeno."""
+    for path in (
+        '/sys/fs/cgroup/memory.max',                    # cgroup v2
+        '/sys/fs/cgroup/memory/memory.limit_in_bytes',  # cgroup v1
+    ):
+        try:
+            with open(path) as f:
+                raw = f.read().strip()
+        except OSError:
+            continue
+        if raw in ('max', ''):
+            continue
+        try:
+            limit = int(raw)
+        except ValueError:
+            continue
+        # Ignoruj "bez limitu" sentinely (obrovské hodnoty).
+        if 0 < limit < (1 << 62):
+            return limit / (1024 * 1024)
+    return None
+
+
+def _process_rss_mb():
+    """Peak RSS procesu v MB (konzervativní; ru_maxrss je na Linuxu v KB)."""
+    if _resource is None:
+        return 0.0
+    return _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss / 1024.0
+
+
+def _fetch_memory_budget_mb():
+    """Efektivní paměťový rozpočet: explicitní MB, jinak % z detekovaného limitu."""
+    if FETCH_MEMORY_BUDGET_MB > 0:
+        return float(FETCH_MEMORY_BUDGET_MB)
+    limit = _detect_cgroup_memory_limit_mb()
+    if limit and limit > 0:
+        return limit * (FETCH_MEMORY_BUDGET_PCT / 100.0)
+    return 0.0  # nedetekovatelné a bez override → vypnuto (jen record cap chrání)
+
+
+def _should_stop_fetch(record_count, rss_mb, budget_mb, max_records=None):
+    """Čistá (testovatelná) logika OOM guardu. Vrací důvod (str) nebo None."""
+    cap = max_records if max_records is not None else MAX_FETCH_RECORDS
+    if cap and record_count >= cap:
+        return f"record cap {cap:,}"
+    if budget_mb > 0 and rss_mb >= budget_mb:
+        return f"memory budget {budget_mb:.0f}MB (RSS {rss_mb:.0f}MB)"
+    return None
+
+
 def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
     """Fetch all ERROR logs using search_after pagination"""
     
@@ -30,7 +103,13 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
     batch_num = 0
     search_after = None
     expected_total = None
-    
+
+    # OOM guard: rozpočet spočítáme jednou na začátku.
+    mem_budget_mb = _fetch_memory_budget_mb()
+    truncated_reason = None
+    LAST_FETCH_STATS.update({'truncated': False, 'reason': None, 'fetched': 0, 'expected': None})
+    if mem_budget_mb > 0:
+        print(f"   🧷 OOM guard: memory budget {mem_budget_mb:.0f}MB, record cap {MAX_FETCH_RECORDS:,}")
     print("🔄 Fetcher - UNLIMITED via search_after")
     print(f"   Time range: {date_from} to {date_to}")
     print(f"   Batch size: {batch_size:,}")
@@ -179,7 +258,20 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                 })
             
             print(f"🔄 Batch {batch_num:3d}... ✅ {len(hits):,} | Total: {len(all_errors):,}")
-            
+
+            # === OOM PROTECTION: zastav fetch, než nás zabije OOM killer ===
+            truncated_reason = _should_stop_fetch(
+                len(all_errors), _process_rss_mb(), mem_budget_mb
+            )
+            if truncated_reason:
+                total_str = f"{expected_total:,}" if expected_total else "?"
+                print(
+                    f"   ⚠️ OOM GUARD: stopping fetch early — {truncated_reason}. "
+                    f"Fetched {len(all_errors):,} of ~{total_str} total. "
+                    f"Analysis will be PARTIAL (degraded, but pod survives)."
+                )
+                break
+
             # Set search_after for next iteration (last document's sort values)
             if len(hits) < batch_size:
                 # Got less than batch size = we're at the end
@@ -197,8 +289,21 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
 
     print()
     print(f"✅ Total fetched: {len(all_errors):,} errors")
+    LAST_FETCH_STATS.update({
+        'truncated': bool(truncated_reason),
+        'reason': truncated_reason,
+        'fetched': len(all_errors),
+        'expected': expected_total,
+    })
+    if truncated_reason:
+        print(
+            f"⚠️ PARTIAL fetch ({truncated_reason}): analyzed {len(all_errors):,} "
+            f"of ~{expected_total or '?'} — counts/peaks are a LOWER BOUND."
+        )
     if expected_total is not None:
-        if len(all_errors) == expected_total:
+        if truncated_reason:
+            pass  # mismatch je z\u00e1m\u011brn\u00fd (OOM guard), u\u017e nahl\u00e1\u0161eno v\u00fd\u0161e
+        elif len(all_errors) == expected_total:
             print("✅ Completeness check: fetched count matches hits.total")
         else:
             print(

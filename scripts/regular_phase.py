@@ -34,7 +34,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
-from core.fetch_unlimited import fetch_unlimited, fetch_trace_context
+from core.fetch_unlimited import fetch_unlimited, fetch_trace_context, LAST_FETCH_STATS
 from core.problem_registry import ProblemRegistry
 from core.problem_registry import dominant_count_entry, extract_flow, is_test_peak_counts
 from core.baseline_loader import BaselineLoader
@@ -1528,6 +1528,12 @@ def run_regular_phase(
     
     result['error_count'] = len(errors)
     print(f"   📥 Fetched {len(errors):,} errors")
+    # OOM guard: když fetch ořízl data (extrémní okno), report to dolů.
+    if LAST_FETCH_STATS.get('truncated'):
+        result['truncated'] = True
+        result['truncated_reason'] = LAST_FETCH_STATS.get('reason')
+        result['expected_total'] = LAST_FETCH_STATS.get('expected')
+        print(f"   ⚠️ PARTIAL data: {LAST_FETCH_STATS.get('reason')} — counts are a lower bound")
     
     known_peaks_snapshot = dict(registry.peaks) if registry else {}
 

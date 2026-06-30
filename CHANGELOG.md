@@ -4,6 +4,23 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r81 (2026-06-30) — OOM ochrana proti extrémním oknům
+
+### Nové
+
+- **OOM guard ve fetchi** (`scripts/core/fetch_unlimited.py`)
+  - Init/regular/backfill pody dříve padaly na OOM, když okno mělo miliony logů
+    (celý den / dlouhý rozsah) — řešilo se dočasným zvednutím limitů.
+  - Fetch nyní **automaticky detekuje memory limit podu z cgroup** (v2/v1) a
+    přestane stahovat při dosažení rozpočtu (default 50 % limitu — nechává hlavu
+    pro 2× expanzi v pipeline). Hard backstop `MAX_FETCH_RECORDS` (default 2M).
+  - Při oříznutí běží analýza dál (degradovaně) místo OOM kill; počty/peaky jsou
+    pak dolní odhad a regular phase to hlásí (`result['truncated']`).
+  - Ladění: `FETCH_MEMORY_BUDGET_PCT`, `FETCH_MEMORY_BUDGET_MB` (override),
+    `MAX_FETCH_RECORDS`. Bez cgroup (dev) chrání jen record cap.
+
+---
+
 ## r80 (2026-06-30) — Pre-prod hardening + root cause z všech levelů trace
 
 ### Nové
