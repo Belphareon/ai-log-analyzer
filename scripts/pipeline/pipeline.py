@@ -381,6 +381,7 @@ class Pipeline:
         # avg/occ, errors-per-app, root cause + outcome. Non-blocking.
         collection.trace_patterns = []
         collection.trace_pattern_index = {}
+        collection.trace_timelines = {}
         if self.build_trace_patterns:
             try:
                 from analysis.trace_timeline import (
@@ -394,6 +395,8 @@ class Pipeline:
                         index[tid] = pat
                 collection.trace_patterns = patterns
                 collection.trace_pattern_index = index
+                # Reálné per-trace timelines (pro trace-ownership dedup v reportu).
+                collection.trace_timelines = timelines
                 print(f"   ✅ Built {len(patterns)} trace patterns from {len(timelines)} traces")
             except Exception as e:
                 print(f"   ⚠️ Trace pattern build failed (non-blocking): {e}")

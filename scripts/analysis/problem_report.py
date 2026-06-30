@@ -74,6 +74,7 @@ class ProblemReportGenerator:
         run_id: str = "",
         registry_problems: Dict[str, Any] = None,
         trace_pattern_index: Dict[str, Any] = None,
+        trace_timelines: Dict[str, Any] = None,
     ):
         self.problems = problems
         self.trace_flows = trace_flows or {}
@@ -83,6 +84,10 @@ class ProblemReportGenerator:
         self.registry_problems = registry_problems or {}
         # trace_id -> reálný TracePattern (z pipeline, když build_trace_patterns=True)
         self.trace_pattern_index = trace_pattern_index or {}
+        # trace_id -> TraceTimeline (reálná per-event data pro trace-ownership dedup)
+        self.trace_timelines = trace_timelines or {}
+        # problem_key -> OwnershipSummary (naplní _assign_trace_ownership)
+        self.ownership: Dict[str, Any] = {}
 
         # Enrich problems with analysis
         self._enrich_problems()
@@ -110,9 +115,11 @@ class ProblemReportGenerator:
         total = len(self.problems)
         print(f"   Enriching {total} problems...", flush=True)
 
-        # 0. Napoj na reálné trace patterny z pipeline (pokud jsou k dispozici).
-        if self.trace_pattern_index:
-            self._match_trace_patterns()
+        # 0. Trace-ownership (r82): každý trace patří JEDNOMU problému (jeho
+        #    dominantní chyba) → žádné duplicitní reportování téhož trace.
+        #    Behavior se pak staví z reálných vlastněných trace (jeden scope).
+        if self.trace_timelines:
+            self._assign_trace_ownership()
 
         # 1. Trace behavior - MUSÍ BÝT PRVNÍ pro trace-based root cause
         print("   [1/5] Trace enrichment...", flush=True)
@@ -141,43 +148,22 @@ class ProblemReportGenerator:
 
         print("   ✓ Enrichment complete", flush=True)
 
-    def _match_trace_patterns(self):
-        """Každému problému přiřaď JEHO reálný trace pattern – s ownershipem.
+    def _assign_trace_ownership(self):
+        """Přiřadí každý trace JEDNOMU problému a postaví ownership summary.
 
-        Fingerprint-grouping rozděluje jeden propagovaný trace do víc problémů
-        (root služba vs. následná služba). Aby se STEJNÁ propagace neukázala
-        dvakrát, přiřadíme pattern jen tomu problému, jehož dominantní app je
-        root-cause služba patternu (u multi-hop) / jeho jediná app (single-hop).
-        Ostatní problémy spadnou na poctivý fallback (top patterns).
+        Vlastník trace = problém s nejvíce error eventy v daném trace (dominantní
+        / root-cause chyba). Každý error event se tak započítá právě jednou →
+        konec duplicitního reportování téhož trace napříč problémy. Behavior
+        problému se renderuje z jeho vlastněných trace (reálná data, jeden scope).
         """
-        # 1. Dominantní app každého problému (podle reálných per-app počtů).
-        dominant: Dict[str, Optional[str]] = {}
-        for key, problem in self.problems.items():
-            problem.trace_pattern = None
-            app_counts = getattr(problem, 'app_counts', {}) or {}
-            if app_counts:
-                dominant[key] = max(app_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
-            elif problem.apps:
-                dominant[key] = sorted(problem.apps)[0]
-            else:
-                dominant[key] = None
+        try:
+            from .trace_timeline import assign_trace_ownership
+        except ImportError:
+            from trace_timeline import assign_trace_ownership
 
-        # 2. Pro každý problém vyber pattern, jehož root služba == jeho dominantní app.
+        self.ownership = assign_trace_ownership(self.problems, self.trace_timelines)
         for key, problem in self.problems.items():
-            candidates = {}
-            for tid in (getattr(problem, 'trace_ids', None) or set()):
-                pat = self.trace_pattern_index.get(tid)
-                if pat is not None:
-                    candidates[id(pat)] = pat
-
-            best = None
-            for pat in candidates.values():
-                rc = pat.root_cause or {}
-                owner_app = rc.get('service') or (pat.propagation_path[0] if pat.propagation_path else None)
-                if owner_app and owner_app == dominant.get(key):
-                    if best is None or pat.total_errors > best.total_errors:
-                        best = pat
-            problem.trace_pattern = best
+            problem.ownership_summary = self.ownership.get(key)
 
     def generate_text_report(self, max_problems: int = 20) -> str:
         """
@@ -378,20 +364,20 @@ class ProblemReportGenerator:
 
         lines.append("")
 
-        # === BEHAVIOR (dominant patterns across incidents) ===
-        # POZOR: trace_flow_summary nese agregované dominantní patterny napříč
-        # VŠEMI incidenty/trace problému (summarize_problem_patterns), NE kroky
-        # jednoho trace. Dříve se to renderovalo jako single-trace flow s jedním
-        # TraceID + číslovanými kroky, což vytvářelo falešnou propagaci a nesedělo
-        # s logy v ES (zobrazená message nepatřila uvedenému TraceID).
-        # Nově: poctivý přehled top patternů s reálným count/share/ns + reálným
-        # příkladem trace PRO KAŽDÝ pattern.
-        #
-        # NEJLEPŠÍ varianta: pokud máme reálné trace patterny (z raw eventů přes
-        # trace_timeline), ukaž skutečnou propagaci po časové ose + occurrences
-        # (počet trace), total errors, avg/occ, errors-per-app a root cause/outcome.
+        # === BEHAVIOR ===
+        # r82 NEJLEPŠÍ: trace-ownership. Každý trace patří JEDNOMU problému (jeho
+        # dominantní chyba). Behavior se staví VÝHRADNĚ z vlastněných trace →
+        # namespaces/apps/example_trace pochází ze STEJNÝCH reálných trace (jeden
+        # scope), ne z cross-trace agregátu zprávy. Tím mizí nesoulad reportu s ES
+        # (dřív se ukázal nereprezentativní "Example trace" z jiného kontextu).
+        ownership = getattr(problem, 'ownership_summary', None)
         trace_pattern = getattr(problem, 'trace_pattern', None)
-        if trace_pattern is not None and getattr(trace_pattern, 'representative', None):
+        if ownership is not None and getattr(ownership, 'occurrences', 0) > 0:
+            from .trace_timeline import format_ownership_behavior
+            lines.append("  Behavior (owned traces):")
+            lines.extend(format_ownership_behavior(ownership, indent="    "))
+            lines.append("")
+        elif trace_pattern is not None and getattr(trace_pattern, 'representative', None):
             from .trace_timeline import format_pattern_behavior
             lines.append("  Behavior (real trace propagation):")
             lines.extend(format_pattern_behavior(trace_pattern, indent="    "))
@@ -451,9 +437,10 @@ class ProblemReportGenerator:
         # jsou vypsané výše ("Apps:"). Bez reálného pořadí eventů nelze určit směr
         # "propagace" – proto NEpíšeme A → B → C ani Duration (ta dříve pocházela
         # z fabrikovaného trace flow). Uvádíme jen faktický rozsah přes namespaces.
-        # (Když máme reálný trace_pattern, propagace už je vykreslená výše.)
+        # (Když máme ownership/real trace_pattern, propagace už je vykreslená výše.)
         propagation = getattr(problem, 'propagation_result', None)
-        if (getattr(problem, 'trace_pattern', None) is None
+        if (getattr(problem, 'ownership_summary', None) is None
+                and getattr(problem, 'trace_pattern', None) is None
                 and propagation and propagation.service_count > 1
                 and propagation.namespace_count > 1):
             lines.append(
@@ -466,9 +453,12 @@ class ProblemReportGenerator:
         if version_impact and version_impact.total_versions > 0:
             lines.extend(version_impact.to_report_lines())
 
-        # Sample message
+        # Sample message (ořež stack trace / wrapper – operátor chce čistou zprávu)
         if problem.normalized_message:
-            lines.append(f"  Message: {problem.normalized_message}")
+            from .trace_analysis import _extract_useful_content, _smart_trim
+            clean_msg = _smart_trim(problem.normalized_message) or _extract_useful_content(problem.normalized_message)
+            if clean_msg:
+                lines.append(f"  Message: {clean_msg}")
 
         return lines
 

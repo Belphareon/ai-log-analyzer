@@ -4,6 +4,40 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r82 (2026-06-30) — Trace-ownership dedup + rozpad generických výjimek
+
+### Opraveno (report neseděl s ES)
+
+- **Trace-ownership: konec duplicitního a nereprezentativního reportingu**
+  (`scripts/analysis/trace_timeline.py`, `problem_report.py`, `pipeline.py`)
+  - Dříve se behavior pattern skládal ze dvou různých scope: namespaces/apps
+    z agregátu zprávy napříč VŠEMI trace, ale "Example trace" byl jeden konkrétní
+    trace → údaje si neodpovídaly (ověřeno proti ES: report tvrdil ns/app, které
+    v daném trace vůbec nebyly, a zpráva byla 0.6 % obsahu trace).
+  - Nově: každý `trace_id` patří PRÁVĚ JEDNOMU problému = tomu, jehož chyba
+    v trace DOMINUJE (nejvíc error eventů). Behavior se staví VÝHRADNě z
+    vlastněných trace → ns/apps/example/root-cause z JEDNOHO reálného scope.
+  - `occurrences` = počet vlastněných trace, `total_errors` + `avg/trace`,
+    errors-per-app, namespaces — vše bez překryvu (každý error započítán jednou).
+  - Ostatní typy chyb ve vlastněných trace = štítky `Other error types:`.
+
+### Změněno
+
+- **Rozpad generických výjimek podle zprávy** (`scripts/analysis/problem_aggregator.py`)
+  - Generické typy (`ServiceBusinessException`, `ConstraintViolationException`,
+    … — konfigurovatelné) se sub-klíčují konkrétní zprávou, aby se nesléval
+    nesouvisející provoz do jednoho neakčního koše. Discriminator stripuje FQCN
+    prefix výjimky a wrapper ("X error handled."). Pouze report-layer — registry
+    klíče se nemění (žádný alert storm).
+- **Jeden konfigurační soubor** (`config/analyzer.yaml`, `scripts/core/analyzer_config.py`)
+  - Sekce `classification` (generic_error_classes, min_flows) a `trace`. BEZ
+    tajemství (účty/hesla zůstávají v .env / CyberArk). Použitelné i jinými týmy.
+- **Known Errors — pořadí sloupců** (`scripts/exports/table_exporter.py`)
+  - Po time occurrence: `trend_2h, trend_24h`, pak `count_2h, count_24h, total`
+    (recency-first, 2h před 24h).
+
+---
+
 ## r81 (2026-06-30) — OOM ochrana proti extrémním oknům
 
 ### Nové

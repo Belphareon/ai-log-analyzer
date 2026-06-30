@@ -330,6 +330,21 @@ Adresář `registry/` — **append-only, nikdy se nemaže**.
 | `fingerprint_index.yaml` | Inverzní index: fingerprint → problem_key |
 | `alert_state_regular_phase.json` | Stav alertů: cooldown, heartbeat, trend, počet alertů per okno |
 
+### Kde se registry persistuje (kritické)
+
+Cesta k registry je řízena proměnnou **`REGISTRY_DIR`** (default lokálně
+`<repo>/registry`, v podu **`/data/registry`**).
+
+- **V Kubernetes je `/data` namountovaný na PVC `log-analyzer-data` (20 Gi, RWO)**
+  — viz `infra-apps/ai-log-analyzer/templates/pvc.yaml` + `values.yaml`
+  (`storage.claimName`, `env.REGISTRY_DIR`). PVC sdílí všechny joby (regular,
+  backfill, init), proto je registry **perzistentní napříč restarty podů i
+  napříč joby** — NENÍ ephemeral.
+- Důsledek: cokoli uloženého do `REGISTRY_DIR` (registry, alert state a
+  budoucí self-learning korpus) přežije restart podu. Bez PVC (jen image) by se
+  data při každém běhu ztrácela.
+- PVC je třeba zálohovat (Velero / KB backup) — obsahuje historické patterny.
+
 ---
 
 ## Konfigurační soubory
@@ -416,3 +431,7 @@ scripts/exports/latest/     # CSV/MD pro Confluence upload
 | `log-analyzer-thresholds` | `0 3 * * 0` | `scripts/core/calculate_peak_thresholds.py --weeks 4` |
 
 Image: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:<tag>`
+
+**Perzistence:** všechny joby mountují PVC `log-analyzer-data` (20 Gi) na `/data`
+(`REGISTRY_DIR=/data/registry`). Registry, alert state, exporty a reporty tak
+přežívají restarty podů a sdílí se mezi joby (regular ↔ backfill ↔ init).

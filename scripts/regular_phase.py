@@ -1708,6 +1708,7 @@ def run_regular_phase(
             run_id=run_id,
             registry_problems=_registry.problems if _registry is not None else None,
             trace_pattern_index=getattr(collection, 'trace_pattern_index', None),
+            trace_timelines=getattr(collection, 'trace_timelines', None),
         )
         enriched_problems = generator.problems
 

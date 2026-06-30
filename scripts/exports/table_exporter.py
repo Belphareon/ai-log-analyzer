@@ -64,18 +64,18 @@ class ErrorTableRow:
     
     Pořadí (priority):
     1. Timing: first/last seen - WHEN se to stalo
-    2. Frequency + Severity: occurrence + trend - HOW MUCH + HOW BAD
+    2. Trend pak Count, vždy 2h před 24h (recency first) - HOW + HOW MUCH
     3. Root Cause + Behavior - CO se děje (z enrichment)
     4. Scope: namespace + app - WHERE
     5. Meta: category, status, jira, notes (na konci)
     """
     first_seen: str                 # ISO format (ZAČÁTEK)
     last_seen: str                  # ISO format
-    occurrence_total: int           # Celkový počet
-    occurrence_24h: int             # Poslední 24 hodin
-    occurrence_2h: int              # Poslední 2 hodiny
-    trend_24h: str                  # 24 hours: ↑ increasing | → stable | ↓ decreasing + % změna
     trend_2h: str                   # 2 hours: ↑ increasing | → stable | ↓ decreasing + % změna
+    trend_24h: str                  # 24 hours: ↑ increasing | → stable | ↓ decreasing + % změna
+    occurrence_2h: int              # Poslední 2 hodiny
+    occurrence_24h: int             # Poslední 24 hodin
+    occurrence_total: int           # Celkový počet
     severity: str                   # critical, high, medium, low
     root_cause: str                 # Výsledek analysis (CO se stalo) - z enrichment script
     behavior: str                   # Detailed behavior description
@@ -1191,10 +1191,12 @@ class TableExporter:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Column order: timing → frequency/severity → root cause → scope → meta
+        # Column order: timing → trend (2h,24h) → count (2h,24h,total) → severity
+        # → root cause → scope → meta. 2h před 24h (recency-first), per uživatele.
         fieldnames = [
             'first_seen', 'last_seen',
-            'occurrence_total', 'occurrence_24h', 'occurrence_2h', 'trend_24h', 'trend_2h', 'severity',
+            'trend_2h', 'trend_24h',
+            'occurrence_2h', 'occurrence_24h', 'occurrence_total', 'severity',
             'root_cause', 'behavior',
             'affected_namespaces', 'affected_apps', 'problem_key', 'scope',
             'category', 'status',

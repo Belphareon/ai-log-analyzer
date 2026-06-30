@@ -23,6 +23,21 @@ from datetime import datetime
 from typing import Dict, List, Set, Optional, Any
 from collections import defaultdict
 
+# Sdílený extraktor užitečné části zprávy (stripuje wrappery, stack trace, SPEED kódy).
+try:
+    from .trace_analysis import _extract_useful_content
+except ImportError:  # pragma: no cover - standalone import fallback
+    from trace_analysis import _extract_useful_content
+
+# Konfigurace generických typů (BEZ tajemství). Robustní import napříč layouty.
+try:
+    from core.analyzer_config import get_config as _get_analyzer_config
+except ImportError:  # pragma: no cover
+    try:
+        from analyzer_config import get_config as _get_analyzer_config
+    except ImportError:
+        _get_analyzer_config = None
+
 
 @dataclass
 class ProblemAggregate:
@@ -375,17 +390,35 @@ def _log_occurrence_source(incident: Any, count: int, source: str):
     logger.debug(f"Occurrence count: {count} from {source} (incident: {fingerprint}...)")
 
 
-def _message_discriminator(normalized_message: str) -> str:
-    """Čitelný stabilní discriminator z dominantní normalizované message.
+# Stripuje vedoucí plně kvalifikovaný název výjimky: "a.b.C.FooException: msg" -> "msg".
+_FQCN_EXC_PREFIX_RE = re.compile(
+    r'^(?:[a-zA-Z_][\w]*\.)+[A-Z]\w*(?:Exception|Error|Failure|Fault)\s*:\s*'
+)
+# Stripuje i holý název: "FooException: msg" -> "msg".
+_BARE_EXC_PREFIX_RE = re.compile(
+    r'^[A-Z]\w*(?:Exception|Error|Failure|Fault)\s*:\s*'
+)
 
-    Používá se k ROZLIŠENÍ jinak nezařaditelných 'unknown_error' problémů, aby se
-    distinktní unknowny neslévaly do jednoho mega-bucketu (drlo by se vše do
-    'unknown:unknown:unknown_error'). Bere prvních pár významových slov – stabilní
-    pro stejnou message, různé pro různé. Normalized_message už nemá UUID/ID/TS.
+
+def _message_discriminator(message: str) -> str:
+    """Čitelný stabilní discriminator z dominantní message.
+
+    Použití: ROZLIŠENÍ jinak slévaných generických/unknown problémů podle
+    konkrétní zprávy (aby se nesléval nesouvisející provoz do jednoho koše).
+
+    Stripuje wrapper ("X error handled.", Handle fault, stack trace) PŘES
+    _extract_useful_content a poté FQCN/holý prefix výjimky, takže discriminator
+    vznikne z REÁLNÉ zprávy, ne z názvu třídy (cz.kb...ServiceBusinessException).
+    Pure wrapper bez obsahu -> prázdný discriminator (nesplitovat, nech base key).
     """
-    if not normalized_message:
+    if not message:
         return ''
-    words = re.findall(r'[a-zA-Z]{4,}', normalized_message.lower())
+    useful = _extract_useful_content(message)
+    if not useful:
+        return ''  # čistý wrapper bez informace -> nesplitovat
+    text = _FQCN_EXC_PREFIX_RE.sub('', useful)
+    text = _BARE_EXC_PREFIX_RE.sub('', text)
+    words = re.findall(r'[a-zA-Z]{4,}', text.lower())
     return '_'.join(words[:5])[:50]
 
 
@@ -411,12 +444,25 @@ def _get_problem_key(incident: Any) -> str:
     # Error class z error_type nebo normalized_message
     error_class = _extract_error_class(incident.error_type, incident.normalized_message)
 
-    # #4: nezřaditelné unknowny NEslUČuj do jednoho bucketu – rozliš je podle
-    # dominantní message (čitelně), aby report zůstal relevantní.
-    if error_class == 'unknown_error':
+    # Sub-key generických / unknown error_class podle konkrétní zprávy, aby se
+    # nesléval nesouvisející provoz do jednoho neakčního koše (ServiceBusiness-
+    # Exception se vyskytuje všude a sám o sobě neidentifikuje problém).
+    # Generické typy jsou konfigurovatelné v config/analyzer.yaml.
+    is_generic = (error_class == 'unknown_error')
+    if not is_generic and _get_analyzer_config is not None:
+        try:
+            cfg = _get_analyzer_config()
+            is_generic = (
+                cfg.is_generic_error_class(error_class)
+                or cfg.is_generic_error_class(getattr(incident, 'error_type', '') or '')
+            )
+        except Exception:
+            is_generic = False
+
+    if is_generic:
         disc = _message_discriminator(getattr(incident, 'normalized_message', '') or '')
         if disc:
-            error_class = f"unknown_{disc}"
+            error_class = f"{error_class}__{disc}"
 
     return f"{category}:{flow}:{error_class}"
 

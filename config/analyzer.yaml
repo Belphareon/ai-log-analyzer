@@ -1,0 +1,50 @@
+# ============================================================================
+# AI Log Analyzer — hlavní konfigurace (BEZ tajemství)
+# ============================================================================
+# Tento soubor obsahuje JEN ne-citlivou konfiguraci chování analyzátoru.
+# Účty a hesla (ES / DB / SMTP / Teams / Confluence) NEPATŘÍ sem — zůstávají
+# v .env (lokálně) resp. v CyberArk secretu (v podu), po vzoru PCB aplikací.
+#
+# Cíl: jeden přehledný konfigurák rozdělený do sekcí, aby analyzátor mohly
+# používat i jiné týmy/aplikace (ne jen PCA/PCB/PCB-CH). PCB hodnoty níže jsou
+# jen výchozí profil — jiný tým si dodá vlastní analyzer.yaml.
+#
+# Priorita načítání: ENV proměnná > tento soubor > vestavěný default.
+# ============================================================================
+
+# --- Klasifikace chyb -------------------------------------------------------
+classification:
+  # Generické typy výjimek, které se vyskytují napříč mnoha flow a samy o sobě
+  # neidentifikují konkrétní problém (např. "ServiceBusinessException error
+  # handled."). Pro tyto typy se problem_key DOPLNÍ o diskriminátor z konkrétní
+  # zprávy, aby se nesléval nesouvisející provoz do jednoho neakčního koše.
+  # Seznam je empirický (ověřeno proti ES/registry) — uprav podle své domény.
+  generic_error_classes:
+    - servicebusinessexception
+    - constraintviolationexception
+    - unknownerror
+    - notfounderror
+    - not_found
+    - forbiddenerror
+    - servererror
+    - unauthorizederror
+    - accessdeniedexception
+    - mismatchedinputexception
+    - illegalargumentexception
+    - internal_error
+
+  # Práh pro AUTOMATICKOU detekci generického typu na delších oknech
+  # (backfill / dlouhý rozsah): pokud jeden error_class zasahuje >= N různých
+  # flow, považuje se za generický i když není v seznamu výše. V 15min okně se
+  # tento práh skoro neuplatní (málo flow), proto je primární seznam výše.
+  generic_error_class_min_flows: 8
+
+# --- Trace / behavior analýza ----------------------------------------------
+trace:
+  # Každý trace_id patří právě jednomu problému = tomu, jehož chyba v daném
+  # trace DOMINUJE (nejvíce error eventů). Zabraňuje duplicitnímu reportování
+  # téhož trace napříč více problémy. Ostatní typy chyb v trace = štítky.
+  ownership_enabled: true
+  # Memory guard pro stavění trace timelines (velká okna s miliony logů).
+  max_traces: 20000
+  max_events_per_trace: 10000

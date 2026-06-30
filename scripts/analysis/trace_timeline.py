@@ -44,9 +44,11 @@ _UNINFORMATIVE_TYPES = frozenset({
 })
 
 # Memory guard pro stavění trace timelines (env-tunable). Velká okna (65k+ eventů)
-# by jinak alokovala timeline pro každý trace bez limitu.
+# by jinak alokovala timeline pro každý trace bez limitu. Per-trace cap je vysoký
+# (mega-trace = celá session může mít tisíce eventů, chceme je SPRÁVNě započítat;
+# celkovou paměť drží _MAX_TRACES + fetch OOM guard z r81).
 _MAX_TRACES = int(os.getenv('TRACE_TIMELINE_MAX_TRACES', '20000'))
-_MAX_EVENTS_PER_TRACE = int(os.getenv('TRACE_TIMELINE_MAX_EVENTS_PER_TRACE', '500'))
+_MAX_EVENTS_PER_TRACE = int(os.getenv('TRACE_TIMELINE_MAX_EVENTS_PER_TRACE', '10000'))
 
 
 # =============================================================================
@@ -472,3 +474,145 @@ def enrich_patterns_with_trace_context(
         p.root_cause = _root_cause_strategy(tl)
         p.outcome = _outcome(tl)
     return patterns
+
+
+# =============================================================================
+# TRACE OWNERSHIP (r82) — každý trace patří JEDNOMU problému (řeší duplikaci)
+# =============================================================================
+
+@dataclass
+class OwnershipSummary:
+    """Behavior problému postavený VÝHRADNĚ z trace, které problém VLASTNÍ.
+
+    Vlastník trace = problém s nejvíce error eventy v daném trace (dominantní /
+    root-cause chyba). Tím se každý trace (a každý error event) započítá právě
+    jednou → žádné duplicitní reportování téhož trace napříč problémy. Ostatní
+    typy chyb ve vlastněných trace = štítky ("Other error types").
+    """
+    problem_key: str
+    owned_trace_ids: List[str] = field(default_factory=list)
+    total_errors: int = 0
+    per_app_errors: Dict[str, int] = field(default_factory=dict)
+    per_ns_errors: Dict[str, int] = field(default_factory=dict)
+    primary_error_class: str = ''
+    other_error_types: Dict[str, int] = field(default_factory=dict)
+    representative: Optional[TraceTimeline] = None
+    root_cause: Optional[Dict[str, Any]] = None
+    propagation_path: List[str] = field(default_factory=list)
+
+    @property
+    def occurrences(self) -> int:
+        """Počet vlastněných trace = počet výskytů problému."""
+        return len(self.owned_trace_ids)
+
+    @property
+    def avg_errors_per_occurrence(self) -> float:
+        return (self.total_errors / self.occurrences) if self.occurrences else 0.0
+
+
+def assign_trace_ownership(
+    problems: Dict[str, Any],
+    timelines: Dict[str, TraceTimeline],
+) -> Dict[str, OwnershipSummary]:
+    """Přiřadí každý trace JEDNOMU vlastníkovi a postaví per-problém summary.
+
+    Args:
+        problems: dict[problem_key, ProblemAggregate] (duck-typed: .incidents,
+                  každý incident má .trace_event_counts {trace_id: count}).
+        timelines: dict[trace_id, TraceTimeline] z pipeline (reálné per-event data).
+
+    Returns:
+        dict[problem_key, OwnershipSummary] jen pro problémy, které něco vlastní.
+    """
+    # 1. Spočítej, kolik error eventů přispívá každý problém do každého trace.
+    trace_problem_counts: Dict[str, Counter] = defaultdict(Counter)
+    for pk, problem in problems.items():
+        for inc in (getattr(problem, 'incidents', None) or []):
+            for tid, cnt in (getattr(inc, 'trace_event_counts', None) or {}).items():
+                if tid:
+                    trace_problem_counts[tid][pk] += int(cnt or 0)
+
+    # 2. Vlastník trace = problém s nejvíce eventy (tie-break: jméno klíče).
+    owned: Dict[str, List[str]] = defaultdict(list)
+    for tid, counts in trace_problem_counts.items():
+        if not counts:
+            continue
+        owner = max(counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        owned[owner].append(tid)
+
+    # 3. Pro každý problém postav summary z VLASTNĚNÝCH trace (z timelines).
+    summaries: Dict[str, OwnershipSummary] = {}
+    for pk, tids in owned.items():
+        tls = [timelines[t] for t in tids if t in timelines]
+        per_app: Counter = Counter()
+        per_ns: Counter = Counter()
+        ec_counts: Counter = Counter()
+        total = 0
+        for tl in tls:
+            for ev in tl.events:
+                per_app[ev.app] += 1
+                if ev.namespace:
+                    per_ns[ev.namespace] += 1
+                ec_counts[ev.error_class] += 1
+                total += 1
+
+        primary = ec_counts.most_common(1)[0][0] if ec_counts else ''
+        other = {k: v for k, v in ec_counts.items() if k != primary}
+
+        rep = _pick_representative(tls) if tls else None
+        summaries[pk] = OwnershipSummary(
+            problem_key=pk,
+            owned_trace_ids=tids,
+            total_errors=total,
+            per_app_errors=dict(per_app),
+            per_ns_errors=dict(per_ns),
+            primary_error_class=primary,
+            other_error_types=dict(sorted(other.items(), key=lambda kv: (-kv[1], kv[0]))),
+            representative=rep,
+            root_cause=_root_cause_strategy(rep) if rep else None,
+            # Propagace = DISTINCTNÍ app v pořadí prvního výskytu (ne každý event –
+            # mega-trace by jinak měl tisíce "hopů" téže app).
+            propagation_path=rep.apps_in_order if rep else [],
+        )
+
+    return summaries
+
+
+def format_ownership_behavior(summary: OwnershipSummary, indent: str = "  ") -> List[str]:
+    """Vyrenderuje behavior z vlastněných trace (reálná data, jeden scope)."""
+    lines: List[str] = []
+    lines.append(
+        f"{indent}Occurrences: {summary.occurrences:,} traces "
+        f"(total {summary.total_errors:,} errors, avg {summary.avg_errors_per_occurrence:.1f}/trace)"
+    )
+
+    rep = summary.representative
+    if rep and rep.events:
+        path = " → ".join(summary.propagation_path[:6])
+        if len(summary.propagation_path) > 6:
+            path += f" → … (+{len(summary.propagation_path) - 6} apps)"
+        if path:
+            lines.append(f"{indent}Propagation: {path}")
+        lines.append(f"{indent}  Example trace: {rep.trace_id}")
+
+    if summary.per_app_errors:
+        top = sorted(summary.per_app_errors.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        lines.append(f"{indent}Errors per app: " + ', '.join(f"{a} ({c:,})" for a, c in top))
+
+    if summary.per_ns_errors:
+        top = sorted(summary.per_ns_errors.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+        lines.append(f"{indent}Namespaces: " + ', '.join(f"{n} ({c:,})" for n, c in top))
+
+    rc = summary.root_cause
+    if rc and rc.get('message'):
+        lines.append(
+            f"{indent}Root cause [{rc.get('confidence', '?')}]: "
+            f"{rc.get('service', '?')} — {rc.get('message', '')}"
+        )
+
+    if summary.other_error_types:
+        top = list(summary.other_error_types.items())[:6]
+        lines.append(f"{indent}Other error types: " + ', '.join(f"{t} ({c:,})" for t, c in top))
+
+    return lines
+
