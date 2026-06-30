@@ -24,6 +24,8 @@ Příprava na AI agenta:
 
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -41,6 +43,11 @@ _UNINFORMATIVE_TYPES = frozenset({
     '', 'unknownerror', 'unknown', 'error', 'exception', 'runtimeexception',
 })
 
+# Memory guard pro stavění trace timelines (env-tunable). Velká okna (65k+ eventů)
+# by jinak alokovala timeline pro každý trace bez limitu.
+_MAX_TRACES = int(os.getenv('TRACE_TIMELINE_MAX_TRACES', '20000'))
+_MAX_EVENTS_PER_TRACE = int(os.getenv('TRACE_TIMELINE_MAX_EVENTS_PER_TRACE', '500'))
+
 
 # =============================================================================
 # DATA MODEL
@@ -54,6 +61,7 @@ class TraceEvent:
     error_class: str
     message: str            # ořezaná informativní část
     namespace: str = ""
+    level: str = "ERROR"    # ERROR/WARN/INFO/... (jen když máme všechny levely)
     signal: int = 0         # informativnost message (vyšší = konkrétnější)
 
 
@@ -167,7 +175,17 @@ def build_trace_timelines(records: List[Any]) -> Dict[str, TraceTimeline]:
         by_trace[tid].append(r)
 
     timelines: Dict[str, TraceTimeline] = {}
-    for tid, recs in by_trace.items():
+    # Memory guard: zpracuj jen nejaktivnější trace + omez eventy/trace, aby velká
+    # okna nezahltila paměť. Ladění přes TRACE_TIMELINE_MAX_* env proměnné.
+    ordered_traces = sorted(by_trace.items(), key=lambda kv: len(kv[1]), reverse=True)
+    if len(ordered_traces) > _MAX_TRACES:
+        ordered_traces = ordered_traces[:_MAX_TRACES]
+    for tid, recs in ordered_traces:
+        if len(recs) > _MAX_EVENTS_PER_TRACE:
+            recs = sorted(
+                recs,
+                key=lambda r: (getattr(r, 'timestamp', None) or datetime.max),
+            )[:_MAX_EVENTS_PER_TRACE]
         recs_sorted = sorted(
             recs,
             key=lambda r: (getattr(r, 'timestamp', None) or datetime.max),
@@ -263,10 +281,15 @@ def set_root_cause_strategy(fn: Callable[[TraceTimeline], Optional[Dict[str, Any
 
 
 def _outcome(timeline: TraceTimeline) -> Optional[Dict[str, Any]]:
-    """Čím trace končí (poslední event) = jak se problém projeví navenek."""
+    """Čím trace končí = jak se problém projeví navenek.
+
+    Preferuje POSLEDNÍ ERROR (když máme všechny levely, poslední event může být
+    INFO/recovery – ten nechceme). Bez level info je vše ERROR → poslední event.
+    """
     if not timeline.events:
         return None
-    last = timeline.events[-1]
+    errors = [e for e in timeline.events if e.level in ('ERROR', 'FATAL')]
+    last = errors[-1] if errors else timeline.events[-1]
     return {
         'service': last.app,
         'error_class': last.error_class,
@@ -374,3 +397,78 @@ def format_pattern_behavior(pattern: TracePattern, indent: str = "  ") -> List[s
         lines.append(f"{indent}Ends at: {out.get('service', '?')} — {out.get('message', '')}")
 
     return lines
+
+
+# =============================================================================
+# #3: ENRICH REPREZENTATIVNÍHO TRACE VŠEMI LEVELY (WARN/INFO před ERROR)
+# =============================================================================
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """Parse ES ISO timestamp; toleruje 'Z' i chybějící hodnotu."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except (ValueError, TypeError):
+        return None
+
+
+def timeline_from_raw_events(trace_id: str, raw_events: List[Dict[str, Any]]) -> TraceTimeline:
+    """Složí TraceTimeline z raw all-level eventů (fetch_trace_context).
+
+    Event dict: message, application, namespace, timestamp, level, error_type.
+    """
+    events: List[TraceEvent] = []
+    for e in raw_events or []:
+        raw_msg = str(e.get('message', '') or '')
+        useful = _extract_useful_content(raw_msg) or raw_msg
+        events.append(TraceEvent(
+            timestamp=_parse_ts(e.get('timestamp')),
+            app=e.get('application') or '?',
+            error_class=_event_error_class(e.get('error_type', '') or '', raw_msg),
+            message=_smart_trim(useful) or useful[:200],
+            namespace=e.get('namespace', '') or '',
+            level=(e.get('level', '') or 'ERROR').upper(),
+            signal=_message_signal_score(useful),
+        ))
+    events.sort(key=lambda x: (x.timestamp or datetime.max))
+    return TraceTimeline(trace_id=trace_id, events=events)
+
+
+def enrich_patterns_with_trace_context(
+    patterns: List[TracePattern],
+    fetch_fn: Callable[[List[str], Any, Any], Dict[str, List[Dict[str, Any]]]],
+    date_from: Any,
+    date_to: Any,
+    top_n: int = 10,
+) -> List[TracePattern]:
+    """Pro top-N patternů dotáhne VŠECHNY levely reprezentativního trace a přepočítá
+    root_cause/outcome/propagation z bohatší časové osy (WARN/INFO před ERROR).
+
+    fetch_fn(trace_ids, date_from, date_to) -> dict[trace_id]->list[event dict].
+    Non-blocking: při chybě ponechá původní (ERROR-only) heuristiku.
+    """
+    if not patterns or fetch_fn is None:
+        return patterns
+    targets = [p for p in patterns[:top_n] if p.representative]
+    rep_ids = [p.representative.trace_id for p in targets if p.representative]
+    if not rep_ids:
+        return patterns
+    try:
+        ctx = fetch_fn(rep_ids, date_from, date_to) or {}
+    except Exception:
+        return patterns
+    for p in targets:
+        events = ctx.get(p.representative.trace_id)
+        if not events:
+            continue
+        tl = timeline_from_raw_events(p.representative.trace_id, events)
+        if not tl.events:
+            continue
+        p.representative = tl
+        p.propagation_path = [app for app, _ in _signature_strategy(tl)]
+        p.root_cause = _root_cause_strategy(tl)
+        p.outcome = _outcome(tl)
+    return patterns

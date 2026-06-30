@@ -206,6 +206,89 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
             )
     return all_errors
 
+def fetch_trace_context(trace_ids, date_from, date_to, max_events=3000, retry=2):
+    """Fetch ALL levels (ne jen ERROR) pro konkrétní trace_ids.
+
+    Účel (#3): primární sběr běží jen na ERROR (fetch_unlimited), ale pro
+    REPREZENTATIVNÍ trace reportovaných problémů dotáhneme kompletní balík eventů
+    VŠECH levelů (WARN/INFO/DEBUG). Skutečná příčina totiž často PŘEDCHÁZÍ prvnímu
+    ERRORu – tady ji zachytíme.
+
+    Returns: dict[trace_id] -> list[event dict] (message, application, namespace,
+    timestamp, trace_id, level, error_type). Časově NEseřazeno (řadí konzument).
+    """
+    if not trace_ids or not ES_PASSWORD:
+        return {}
+    ids = [t for t in dict.fromkeys(trace_ids) if t][:200]  # dedup + cap
+    if not ids:
+        return {}
+
+    session = requests.Session()
+    session.auth = HTTPBasicAuth(ES_USER, ES_PASSWORD)
+    session.verify = False
+    session.trust_env = True
+
+    out = {}
+    try:
+        query = {
+            "query": {"bool": {"must": [
+                {"range": {"@timestamp": {"gte": date_from, "lte": date_to}}},
+                {"terms": {"traceId": ids}},
+            ]}},
+            "sort": [{"@timestamp": {"order": "asc"}}],
+            "size": max_events,
+            "_source": [
+                "message", "application.name", "@timestamp", "traceId",
+                "level", "kubernetes.namespace",
+                "exception.type", "error.type", "error_type", "errorType",
+                "http.status_code",
+            ],
+        }
+        resp = None
+        for attempt in range(retry):
+            try:
+                resp = session.post(f"{BASE_URL}/{INDICES}/_search", json=query, timeout=120)
+                if resp.status_code == 200:
+                    break
+                if resp.status_code in (401, 403) and attempt < retry - 1:
+                    time.sleep(2)
+                    continue
+                print(f"   ⚠️ trace context fetch error {resp.status_code}")
+                return {}
+            except requests.RequestException as e:
+                if attempt < retry - 1:
+                    time.sleep(1)
+                    continue
+                print(f"   ⚠️ trace context fetch exception: {e}")
+                return {}
+        if resp is None or resp.status_code != 200:
+            return {}
+        for hit in resp.json().get('hits', {}).get('hits', []):
+            s = hit.get('_source', {})
+            tid = s.get('traceId', '') or ''
+            if not tid:
+                continue
+            msg = s.get('message', '')
+            if isinstance(msg, dict):
+                msg = json.dumps(msg)
+            k8s = s.get('kubernetes', {}) if isinstance(s.get('kubernetes'), dict) else {}
+            out.setdefault(tid, []).append({
+                'message': (msg[:1000] if isinstance(msg, str) else str(msg)),
+                'application': s.get('application.name', 'unknown'),
+                'namespace': k8s.get('namespace', 'unknown'),
+                'timestamp': s.get('@timestamp', ''),
+                'trace_id': tid,
+                'level': s.get('level', '') or '',
+                'error_type': (
+                    s.get('exception.type') or s.get('error.type')
+                    or s.get('error_type') or s.get('errorType') or ''
+                ),
+            })
+    finally:
+        session.close()
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description='Fetch ERROR logs from ES (unlimited, search_after)')
     parser.add_argument('--from', dest='date_from', required=True, help='Start date (ISO format, e.g., 2025-12-02T07:30:00Z)')

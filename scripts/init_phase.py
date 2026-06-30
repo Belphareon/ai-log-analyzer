@@ -89,7 +89,7 @@ def group_into_windows(errors: list, namespaces: list) -> dict:
         ts_str = error.get('timestamp', '')
         try:
             ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-        except:
+        except (ValueError, AttributeError):
             continue
         
         # Align to 15-min boundary

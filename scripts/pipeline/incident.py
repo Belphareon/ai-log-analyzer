@@ -382,6 +382,19 @@ class Incident:
         inc.originator_application_counts = data.get("originator_application_counts", {})
         inc.trace_event_counts = data.get("trace_event_counts", {})
         inc.versions = data.get("versions", [])
+        inc.app_versions = data.get("app_versions", [])
+        inc.deployment_labels = data.get("deployment_labels", [])
+        inc.environments = data.get("environments", [])
+
+        # Trace IDs (z trace_info – pro report behavior/propagaci)
+        _trace_info_data = data.get("trace_info", {}) or {}
+        _restored_trace_ids = _trace_info_data.get("trace_ids", []) or []
+        if _restored_trace_ids:
+            inc.trace_ids = list(_restored_trace_ids)
+            inc.trace_info.trace_ids = list(_restored_trace_ids)
+
+        # Subcategory
+        inc.subcategory = data.get("subcategory", "")
         
         # Flags
         flags_data = data.get("flags", {})

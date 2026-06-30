@@ -28,7 +28,6 @@ from .problem_aggregator import ProblemAggregate, sort_problems_by_priority
 from .trace_analysis import (
     TraceFlow,
     get_representative_traces,
-    format_trace_flow_text,
     enrich_all_problems_with_traces,
 )
 from .root_cause import enrich_problems_with_root_cause

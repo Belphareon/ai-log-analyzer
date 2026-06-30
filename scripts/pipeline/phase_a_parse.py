@@ -384,7 +384,7 @@ class PhaseA_Parser:
             # Handle various formats
             ts_str = ts_str.replace('Z', '+00:00')
             return datetime.fromisoformat(ts_str)
-        except:
+        except (ValueError, TypeError):
             return None
     
     def parse(self, error: dict) -> NormalizedRecord:

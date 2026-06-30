@@ -423,7 +423,7 @@ class PhaseC_Detect:
             return [int(n) for n in nums] if nums else [0]
         try:
             return parse_version(v1) >= parse_version(v2)
-        except:
+        except (ValueError, TypeError):
             return False
     
     def detect(

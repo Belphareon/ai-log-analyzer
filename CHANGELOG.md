@@ -4,6 +4,36 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r80 (2026-06-30) — Pre-prod hardening + root cause z všech levelů trace
+
+### Nové
+
+- **Root cause z kompletní časové osy trace** (`scripts/core/fetch_unlimited.py`,
+  `scripts/analysis/trace_timeline.py`, `scripts/regular_phase.py`)
+  - Sběr dál běží jen na ERROR. Nově ale pro REPREZENTATIVNÍ trace top problémů
+    dotáhneme `fetch_trace_context()` všechny levely (WARN/INFO/DEBUG) a z bohatší
+    osy přepočítáme root cause/propagaci — skutečná příčina často PŘEDCHÁZÍ
+    prvnímu ERRORu. Opt-in přes `REP_TRACE_CONTEXT=1`
+    (`REP_TRACE_CONTEXT_TOPN`, `REP_TRACE_CONTEXT_LOOKBACK_MIN`).
+
+### Opraveno / vyčištěno (pre-prod)
+
+- **Odstraněn mrtvý fabrikační kód** (`scripts/analysis/trace_analysis.py`)
+  - Smazány `build_trace_flow`, `summarize_trace_flow(_to_dict)`,
+    `infer_trace_root_cause`, `store_full_trace`, `format_trace_flow_text`,
+    `save_trace_details`. `get_representative_traces` nově vybírá jen REÁLNÉ
+    `trace_id` (bez syntetických kroků).
+- **Konkrétní výjimky místo `except:`** (`init_phase.py`, `phase_a_parse.py`,
+  `phase_c_detect.py`) — tiché polykání chyb nahrazeno cílenými `except`.
+- **Replay přesnější** (`scripts/pipeline/incident.py`) — `Incident.from_dict`
+  nově obnovuje `app_versions`, `deployment_labels`, `environments`,
+  `trace_ids`/`trace_info`, `subcategory`.
+- **Memory guard** (`scripts/analysis/trace_timeline.py`) — stavění trace timelines
+  je limitované (`TRACE_TIMELINE_MAX_TRACES`, `TRACE_TIMELINE_MAX_EVENTS_PER_TRACE`),
+  aby velká okna nezahltila paměť.
+
+---
+
 ## r79 (2026-06-29) — Reálná trace-timeline propagace, poctivý behavior, de-merge unknownů
 
 ### Nové

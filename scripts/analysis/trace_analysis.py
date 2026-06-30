@@ -585,81 +585,9 @@ class TraceFlow:
         }
 
 
-def build_trace_flow(incidents: List[Any], trace_id: str) -> TraceFlow:
-    """
-    Sestaví trace flow z incidentů s daným trace_id.
-
-    Args:
-        incidents: Seznam incidentů (všechny, ne jen ty s trace_id)
-        trace_id: ID trace pro sestavení
-
-    Returns:
-        TraceFlow s seřazenými kroky
-    """
-    flow = TraceFlow(trace_id=trace_id)
-
-    for incident in incidents:
-        # Zkontroluj, zda incident patří do tohoto trace
-        incident_traces = set()
-        if hasattr(incident, 'trace_ids'):
-            incident_traces.update(incident.trace_ids)
-        if hasattr(incident, 'trace_info') and incident.trace_info:
-            incident_traces.update(incident.trace_info.trace_ids)
-
-        if trace_id not in incident_traces:
-            continue
-
-        # Vytvoř step pro každou app v incidentu
-        for app in incident.apps:
-            # Použij first_seen jako timestamp (nebo current time)
-            ts = incident.time.first_seen or datetime.utcnow()
-
-            # Level podle flags
-            level = "ERROR"
-            if incident.flags.is_spike or incident.flags.is_burst:
-                level = "ERROR"
-            elif incident.score < 40:
-                level = "WARN"
-
-            step = TraceStep(
-                timestamp=ts,
-                app=app,
-                level=level,
-                message=incident.normalized_message or "",
-                namespace=incident.namespaces[0] if incident.namespaces else "",
-                error_type=incident.error_type or "",
-            )
-            flow.add_step(step)
-
-    # Finalizuj (sort + metriky) až po přidání všech kroků
-    flow.finalize()
-    return flow
-
-
-def summarize_trace_flow(flow: TraceFlow, max_steps: int = 3) -> List[TraceStep]:
-    """
-    Zkrátí trace flow pro report.
-
-    Pravidlo:
-    - Pokud <= max_steps: vrátí vše
-    - Jinak: 2 první + 1 poslední
-
-    Args:
-        flow: TraceFlow ke zkrácení
-        max_steps: Maximum kroků v summary
-
-    Returns:
-        Seznam zkrácených kroků
-    """
-    if len(flow.steps) <= max_steps:
-        return flow.steps
-
-    # 2 první + 1 poslední
-    return [
-        flow.steps[0],
-        flow.steps[1],
-        flow.steps[-1],
-    ]
+# POZN. (r80): build_trace_flow + summarize_trace_flow odstraněny – fabrikovaly
+# trace kroky (stejný timestamp pro všechny app, jedna message rozprostřená přes
+# apps). Reálné trace timelines staví scripts/analysis/trace_timeline.py.
 
 
 def group_incidents_by_trace(
@@ -696,109 +624,39 @@ def get_representative_traces(
     max_traces_per_problem: int = 3
 ) -> Dict[str, List[TraceFlow]]:
     """
-    Vybere reprezentativní traces pro každý problém.
+    Vybere reprezentativní REÁLNÁ trace_id pro každý problém.
 
-    Kritéria výběru:
-    1. Traces s nejvíce službami
-    2. Traces s nejvíce errory
-    3. Nejdelší traces
-
-    Args:
-        problems: Dict[problem_key, ProblemAggregate]
-        max_traces_per_problem: Max traces per problém
-
-    Returns:
-        Dict[problem_key, List[TraceFlow]]
+    Vrací lite TraceFlow nesoucí jen reálné trace_id (BEZ syntetických kroků).
+    Dřívější build_trace_flow fabrikoval kroky – odstraněno (r80). Behavior
+    i propagace se stavějí z reálných dat (summarize_problem_patterns /
+    trace_timeline). Konzumentům stačí reálné .trace_id; .steps zůstává prázdné.
     """
     result: Dict[str, List[TraceFlow]] = {}
 
     for problem_key, problem in problems.items():
-        # Seskup incidenty podle trace
         trace_groups = group_incidents_by_trace(problem.incidents)
-
         if not trace_groups:
             result[problem_key] = []
             continue
 
-        # Postav flows
-        flows = []
-        for trace_id, trace_incidents in trace_groups.items():
-            flow = build_trace_flow(trace_incidents, trace_id)
-            if flow.steps:  # Jen non-empty
-                flows.append(flow)
-
-        # Seřaď podle priority
-        flows.sort(key=lambda f: (
-            -f.service_count,
-            -f.error_count,
-            -f.duration_ms
-        ))
-
-        result[problem_key] = flows[:max_traces_per_problem]
+        # Deterministicky seřaď reálné trace podle fan-out + počtu incidentů.
+        ranked = sorted(
+            trace_groups.items(),
+            key=lambda kv: (
+                -len({a for inc in kv[1] for a in (getattr(inc, 'apps', None) or [])}),
+                -len(kv[1]),
+                kv[0],
+            ),
+        )
+        result[problem_key] = [
+            TraceFlow(trace_id=tid) for tid, _ in ranked[:max_traces_per_problem]
+        ]
 
     return result
 
 
-def format_trace_flow_text(flow: TraceFlow, summarize: bool = True) -> str:
-    """
-    Formátuje trace flow jako text pro report.
-
-    Args:
-        flow: TraceFlow k formátování
-        summarize: Pokud True, zkrátí na 3 kroky
-
-    Returns:
-        Formátovaný text
-    """
-    steps = summarize_trace_flow(flow) if summarize else flow.steps
-
-    lines = [f"Trace: {flow.trace_id[:16]}..."]
-    lines.append(f"  Duration: {flow.duration_ms}ms | Services: {flow.service_count} | Errors: {flow.error_count}")
-    lines.append(f"  Flow: {' → '.join(flow.services[:5])}")
-    lines.append("")
-
-    for i, step in enumerate(steps):
-        marker = "├──" if i < len(steps) - 1 else "└──"
-        lines.append(f"  {marker} [{step.timestamp.strftime('%H:%M:%S')}] {step.app}")
-        lines.append(f"      {step.level}: {step.message[:80]}")
-
-    if len(flow.steps) > len(steps):
-        lines.append(f"  ... ({len(flow.steps) - len(steps)} more steps)")
-
-    return "\n".join(lines)
-
-
-def save_trace_details(
-    flow: TraceFlow,
-    output_dir: str,
-    prefix: str = "trace"
-) -> str:
-    """
-    Uloží detailní trace flow do souboru.
-
-    Args:
-        flow: TraceFlow k uložení
-        output_dir: Adresář pro výstup
-        prefix: Prefix názvu souboru
-
-    Returns:
-        Cesta k uloženému souboru
-    """
-    from pathlib import Path
-    import json
-
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # Sanitize trace_id pro filename
-    safe_id = flow.trace_id.replace('/', '_').replace('\\', '_')[:32]
-    filename = f"{prefix}_{safe_id}.json"
-    filepath = output_path / filename
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(flow.to_dict(), f, indent=2, default=str)
-
-    return str(filepath)
+# POZN. (r80): format_trace_flow_text + save_trace_details odstraněny – vykreslovaly
+# / ukládaly fabrikované trace flow kroky. Reporty používají reálné patterny.
 
 
 # =============================================================================
@@ -862,195 +720,9 @@ def select_representative_trace(
     return best_trace
 
 
-def summarize_trace_flow_to_dict(flow: TraceFlow) -> List[Dict[str, Any]]:
-    """
-    Zkrátí trace flow na 2+1 kroky a vrátí jako list of dicts.
-
-    Format:
-    [
-        {"app": "svc1", "message": "...", "level": "ERROR", "ts": "..."},
-        {"app": "svc2", "message": "...", "level": "WARN", "ts": "..."},
-        {"app": "svc3", "message": "...", "level": "ERROR", "ts": "..."},
-    ]
-
-    Args:
-        flow: TraceFlow k zpracování
-
-    Returns:
-        List of step dicts (max 3)
-    """
-    if not flow.steps:
-        return []
-
-    unique_steps: List[TraceStep] = []
-    seen = set()
-    for step in flow.steps:
-        key = (step.app, normalize_message(step.message))
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_steps.append(step)
-
-    if len(unique_steps) <= 3:
-        steps = unique_steps
-    else:
-        first = unique_steps[0]
-        last = unique_steps[-1]
-        middle_candidates = unique_steps[1:-1] if len(unique_steps) > 2 else []
-
-        first_norm = normalize_message(first.message)
-        if normalize_message(last.message) == first_norm:
-            for candidate in reversed(unique_steps[1:-1]):
-                if normalize_message(candidate.message) != first_norm:
-                    last = candidate
-                    break
-
-        if middle_candidates:
-            best_middle = max(
-                middle_candidates,
-                key=lambda s: (_message_signal_score(s.message), -s.timestamp.timestamp() if s.timestamp else 0),
-            )
-            steps = [first, best_middle, last]
-        else:
-            steps = [first, last]
-
-        deduped = []
-        seen_norm = set()
-        for step in steps:
-            norm = normalize_message(step.message)
-            if norm in seen_norm:
-                continue
-            seen_norm.add(norm)
-            deduped.append(step)
-        steps = deduped
-
-    return [
-        {
-            'app': step.app,
-            'message': _smart_trim(step.message),
-            'level': step.level,
-            'ts': step.timestamp.isoformat() if step.timestamp else None,
-        }
-        for step in steps
-    ]
-
-
-def infer_trace_root_cause(flow: TraceFlow) -> Optional[Dict[str, Any]]:
-    """
-    Odvodí root cause z trace flow (deterministicky).
-
-    Pravidlo: první ERROR v trace = root cause.
-    Fallback: první WARN, pak první krok.
-
-    Confidence levels:
-    - high: ERROR a zároveň první krok v trace
-    - medium: ERROR ale ne první krok
-    - low: pouze WARN nebo INFO (žádný ERROR)
-
-    Args:
-        flow: TraceFlow k analýze
-
-    Returns:
-        Dict s root cause info včetně confidence
-    """
-    if not flow.steps:
-        return None
-
-    first_step = flow.steps[0]
-
-    error_candidates = [
-        (idx, step) for idx, step in enumerate(flow.steps)
-        if step.level in ('ERROR', 'FATAL')
-    ]
-
-    if error_candidates:
-        best_idx, best_step = max(
-            error_candidates,
-            key=lambda item: (_message_signal_score(item[1].message), -item[0]),
-        )
-        best_score = _message_signal_score(best_step.message)
-
-        if best_score <= 0:
-            for idx, step in error_candidates:
-                if _message_signal_score(step.message) >= 2:
-                    best_idx, best_step = idx, step
-                    best_score = _message_signal_score(step.message)
-                    break
-
-        confidence = 'high' if best_score >= 2 else ('medium' if best_idx <= 2 else 'low')
-        return {
-            'service': best_step.app,
-            'message': normalize_message(best_step.message[:300]),
-            'level': best_step.level,
-            'timestamp': best_step.timestamp.isoformat() if best_step.timestamp else None,
-            'confidence': confidence,
-        }
-
-    # 2. Fallback na první WARN - confidence low
-    for step in flow.steps:
-        if step.level == 'WARN':
-            return {
-                'service': step.app,
-                'message': normalize_message(step.message[:300]),
-                'level': step.level,
-                'timestamp': step.timestamp.isoformat() if step.timestamp else None,
-                'confidence': 'low',
-            }
-
-    # 3. Fallback na první krok - confidence low
-    return {
-        'service': first_step.app,
-        'message': normalize_message(first_step.message[:300]),
-        'level': first_step.level,
-        'timestamp': first_step.timestamp.isoformat() if first_step.timestamp else None,
-        'confidence': 'low',
-    }
-
-
-def store_full_trace(
-    flow: TraceFlow,
-    output_dir: str,
-    problem_key: str = ""
-) -> str:
-    """
-    Uloží plný trace flow do .log souboru.
-
-    Format:
-        2026-01-15T10:30:00 payment-service ERROR Connection pool exhausted
-        2026-01-15T10:30:01 card-service WARN Retrying request
-        ...
-
-    Args:
-        flow: TraceFlow k uložení
-        output_dir: Výstupní adresář
-        problem_key: Volitelný problem key pro název souboru
-
-    Returns:
-        Cesta k souboru
-    """
-    from pathlib import Path
-
-    output_path = Path(output_dir) / 'traces'
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    # Název souboru
-    safe_trace_id = flow.trace_id.replace('/', '_').replace('\\', '_')[:24]
-    safe_problem = problem_key.replace(':', '_')[:30] if problem_key else 'unknown'
-    filename = f"trace_{safe_problem}_{safe_trace_id}.log"
-    filepath = output_path / filename
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(f"# Trace: {flow.trace_id}\n")
-        f.write(f"# Duration: {flow.duration_ms}ms\n")
-        f.write(f"# Services: {', '.join(flow.services)}\n")
-        f.write(f"# Errors: {flow.error_count}\n")
-        f.write("#" + "=" * 70 + "\n\n")
-
-        for step in flow.steps:
-            ts = step.timestamp.isoformat() if step.timestamp else "?"
-            f.write(f"{ts} {step.app:30} {step.level:6} {step.message}\n")
-
-    return str(filepath)
+# POZN. (r80): summarize_trace_flow_to_dict + infer_trace_root_cause +
+# store_full_trace odstraněny – pracovaly nad fabrikovanými trace kroky. Root cause
+# se odvozuje z reálných patternu (infer_problem_root_cause / trace_timeline).
 
 
 def enrich_problem_with_trace(

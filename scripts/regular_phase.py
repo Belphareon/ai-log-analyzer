@@ -34,7 +34,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
-from core.fetch_unlimited import fetch_unlimited
+from core.fetch_unlimited import fetch_unlimited, fetch_trace_context
 from core.problem_registry import ProblemRegistry
 from core.problem_registry import dominant_count_entry, extract_flow, is_test_peak_counts
 from core.baseline_loader import BaselineLoader
@@ -1596,6 +1596,27 @@ def run_regular_phase(
     
     run_id = f"regular-{now.strftime('%Y%m%d')}-{window_start.strftime('%H%M')}"
     collection = pipeline.run(errors, run_id=run_id)
+
+    # #3: pro reprezentativní trace top problémů dotáhni VŠECHNY levely (WARN/INFO
+    # před ERROR) a přepočítej root cause/propagaci z bohatší časové osy. Opt-in
+    # (REP_TRACE_CONTEXT=1) – dělá extra ES dotaz jen na pár reprezentativních trace.
+    if os.getenv('REP_TRACE_CONTEXT', '0').strip().lower() in {'1', 'true', 'yes', 'on'}:
+        _patterns = getattr(collection, 'trace_patterns', None)
+        if _patterns:
+            try:
+                from analysis.trace_timeline import enrich_patterns_with_trace_context
+                _lookback = int(os.getenv('REP_TRACE_CONTEXT_LOOKBACK_MIN', '5'))
+                _ctx_from = window_start - timedelta(minutes=max(0, _lookback))
+                enrich_patterns_with_trace_context(
+                    _patterns,
+                    fetch_trace_context,
+                    _ctx_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    top_n=int(os.getenv('REP_TRACE_CONTEXT_TOPN', '10')),
+                )
+                print("   ✅ Enriched representative traces with full-level context (#3)")
+            except Exception as e:
+                print(f"   ⚠️ Trace context enrichment failed (non-blocking): {_one_line_error(e)}")
     
     result['incidents'] = collection.total_incidents
     

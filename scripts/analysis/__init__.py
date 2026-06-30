@@ -24,14 +24,10 @@ from .problem_aggregator import (
 from .trace_analysis import (
     TraceStep,
     TraceFlow,
-    build_trace_flow,
-    summarize_trace_flow,
     group_incidents_by_trace,
     get_representative_traces,
     # Behavior
     select_representative_trace,
-    summarize_trace_flow_to_dict,
-    infer_trace_root_cause,
     enrich_problem_with_trace,
     enrich_all_problems_with_traces,
     normalize_message,
@@ -69,14 +65,10 @@ __all__ = [
     # Trace Analysis
     'TraceStep',
     'TraceFlow',
-    'build_trace_flow',
-    'summarize_trace_flow',
     'group_incidents_by_trace',
     'get_representative_traces',
     # Behavior
     'select_representative_trace',
-    'summarize_trace_flow_to_dict',
-    'infer_trace_root_cause',
     'enrich_problem_with_trace',
     'enrich_all_problems_with_traces',
     'normalize_message',
