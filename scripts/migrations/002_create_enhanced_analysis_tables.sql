@@ -249,10 +249,13 @@ CREATE TABLE IF NOT EXISTS ailog_peak.service_dependencies (
     is_healthy BOOLEAN DEFAULT TRUE,
     health_score NUMERIC(5,2) DEFAULT 100,
     
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    
-    UNIQUE (source_app, target_app, COALESCE(source_namespace, ''), COALESCE(target_namespace, ''))
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- NOTE: table-level UNIQUE constraints can't contain expressions (COALESCE),
+-- so this is a unique index instead of an inline UNIQUE(...) constraint.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sd_source_target
+ON ailog_peak.service_dependencies (source_app, target_app, COALESCE(source_namespace, ''), COALESCE(target_namespace, ''));
 
 CREATE INDEX IF NOT EXISTS idx_sd_source ON ailog_peak.service_dependencies(source_app);
 CREATE INDEX IF NOT EXISTS idx_sd_target ON ailog_peak.service_dependencies(target_app);

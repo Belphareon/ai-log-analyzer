@@ -4,6 +4,42 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r86 (2026-07-21) — Hotfix: opravená DB role pro granty init jobu
+
+### Opraveno
+
+- **Init job padal na `psycopg2.errors.UndefinedObject: role "role_ailog_analyzer_app" does not exist`**
+  po dokončení migrací (`scripts/core/run_db_migrations.py`, `GRANT ... TO {app_role}`).
+  Výchozí/nakonfigurovaná role `role_ailog_analyzer_app` v produkční databázi
+  neexistuje — appka se reálně připojuje jako CyberArk uživatel
+  (`ailog_analyzer_user_d1`/`d2`), který je členem role `role_ailog_analyzer_user`.
+  Opraven výchozí název role v `run_db_migrations.py` i v `values.yaml`/`job-init.yaml`
+  živého Helm chartu (`DB_APP_ROLE: role_ailog_analyzer_user`).
+
+## r85 (2026-07-21) — Hotfix: DB migration runner odolný proti legacy schématu
+
+### Opraveno
+
+- **Init job padal na `psycopg2.errors.UndefinedColumn: column "status" does not exist`**
+  (`scripts/core/run_db_migrations.py`) — produkční `ailog_peak.peak_investigation`
+  existuje z doby před migračními soubory a má jiné názvy sloupců
+  (`investigation_status` místo `status`, `peak_id` místo `id` atd.).
+  `CREATE TABLE IF NOT EXISTS` je proto no-op, ale následné `CREATE INDEX`
+  na neexistující sloupec shodil celou migraci (a celý init job) i pro tabulky,
+  které ve skutečnosti reálně fungují a nepotřebují žádnou změnu.
+  Migrační runner teď rozděluje každý `.sql` soubor na jednotlivé příkazy
+  (respektuje `$$ ... $$` PL/pgSQL bloky) a spouští je v samostatných
+  SAVEPOINTech — chyba v jednom příkazu (typicky index/constraint na starším
+  schématu) se zaloguje jako varování a migrace pokračuje dál, místo aby
+  spadl celý init job.
+- **`scripts/migrations/002_create_enhanced_analysis_tables.sql`**: tabulka
+  `service_dependencies` měla neplatný `UNIQUE (..., COALESCE(...))` — table-level
+  UNIQUE constraint nesmí obsahovat výrazy. Nahrazeno `CREATE UNIQUE INDEX`.
+- Migrační runner navíc přeskakuje fragmenty, které obsahují jen SQL komentáře
+  (dřív hlásily zavádějící `can't execute an empty query`).
+
+---
+
 ## r83 (2026-07-21) — Notifikace (webhook + email), CyberArk secrets model, digest fix
 
 ### Opraveno
