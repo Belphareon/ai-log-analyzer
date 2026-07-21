@@ -146,8 +146,8 @@ CREATE INDEX IF NOT EXISTS idx_ep_last_seen ON ailog_peak.error_patterns(last_se
 -- ============================================================================
 -- GRANTS (adjust for your users)
 -- ============================================================================
--- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ailog_peak TO ailog_analyzer_user_d1;
--- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ailog_peak TO ailog_analyzer_user_d1;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ailog_peak TO role_ailog_analyzer_app;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ailog_peak TO role_ailog_analyzer_app;
 
 -- ============================================================================
 -- VERIFICATION

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Email Notification via SMTP
-============================
+Email + Teams Webhook Notifications
+====================================
 
-Sends email notifications when Teams webhook fails (DNS issues).
+Sends notifications via email and/or Microsoft Teams incoming webhook.
+Both channels can be enabled independently or together.
 
 Environment Variables:
-    TEAMS_EMAIL: Teams channel email (e.g., xxx@emea.teams.ms)
+    TEAMS_ENABLED: true/false (default: false) - master switch
+    TEAMS_WEBHOOK_URL: Microsoft Teams Incoming Webhook URL (optional)
+    TEAMS_EMAIL: Teams channel email, e.g. xxx@emea.teams.ms (optional)
     SMTP_HOST: SMTP server (default: localhost)
     SMTP_PORT: SMTP port (default: 25)
     EMAIL_FROM: Sender email (default: ai-log-analyzer@kb.cz)
@@ -14,6 +17,7 @@ Environment Variables:
 
 import os
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
@@ -22,24 +26,65 @@ from zoneinfo import ZoneInfo
 
 
 class EmailNotifier:
-    """Sends email notifications as fallback for Teams."""
+    """Sends notifications via email and/or Teams incoming webhook."""
     
     def __init__(self):
         self.teams_email = os.getenv('TEAMS_EMAIL', '').strip()
         self.smtp_host = os.getenv('SMTP_HOST', 'localhost')
         self.smtp_port = int(os.getenv('SMTP_PORT', '25'))
         self.from_email = os.getenv('EMAIL_FROM', 'ai-log-analyzer@kb.cz')
-        self.enabled = bool(self.teams_email)
+        self.webhook_url = os.getenv('TEAMS_WEBHOOK_URL', '').strip()
+        self.master_enabled = os.getenv('TEAMS_ENABLED', 'false').lower() in ('true', '1', 'yes')
+        self.enabled = self.master_enabled and (bool(self.teams_email) or bool(self.webhook_url))
     
     def is_enabled(self) -> bool:
-        """Check if email notifications are configured."""
+        """Check if at least one notification channel (email or webhook) is configured and enabled."""
         return self.enabled
     
+    def _send_webhook(self, subject: str, body: str) -> bool:
+        """Send message to Microsoft Teams incoming webhook."""
+        if not self.webhook_url:
+            return False
+
+        message = {
+            "@type": "MessageCard",
+            "@context": "https://schema.org/extensions",
+            "summary": subject,
+            "themeColor": "28a745",
+            "sections": [
+                {
+                    "activityTitle": subject,
+                    "text": body.replace("\n", "\n\n")
+                }
+            ]
+        }
+
+        try:
+            response = requests.post(self.webhook_url, json=message, timeout=10)
+            response.raise_for_status()
+            print("✅ Teams webhook accepted message")
+            return True
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Failed to send Teams webhook message: {e}")
+            return False
+
     def _send_email(self, subject: str, body: str, html_body: Optional[str] = None) -> bool:
-        """Send email via SMTP."""
+        """Send notification via whichever channel(s) are configured (email and/or webhook)."""
         if not self.is_enabled():
             return False
-        
+
+        results = []
+
+        if self.webhook_url:
+            results.append(self._send_webhook(subject, body))
+
+        if self.teams_email:
+            results.append(self._send_email_smtp(subject, body, html_body))
+
+        return any(results)
+
+    def _send_email_smtp(self, subject: str, body: str, html_body: Optional[str] = None) -> bool:
+        """Send email via SMTP."""
         try:
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject

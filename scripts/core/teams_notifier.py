@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Teams Notification (Email Only)
-===============================
+Teams Notifications (Webhook and/or Email)
+===========================================
 
-Sends notifications about backfill and regular phase completion.
-Teams webhook is disabled (CNTLM required in pod).
+Sends notifications about backfill and regular phase completion via
+Microsoft Teams incoming webhook and/or email, depending on which
+channel(s) are configured. Both can be enabled at once.
 
 Environment Variables:
-    TEAMS_ENABLED: true/false (default: false)
-    TEAMS_USE_EMAIL_PRIMARY: true/false (default: true)
+    TEAMS_ENABLED: true/false (default: false) - master switch
+    TEAMS_WEBHOOK_URL: Microsoft Teams Incoming Webhook URL (optional)
+    TEAMS_EMAIL: Teams channel email (optional)
 """
 
 import os
@@ -22,14 +24,13 @@ except ImportError:
 
 
 class TeamsNotifier:
-    """Sends formatted messages via email (Teams webhook disabled)."""
+    """Sends formatted messages via Teams webhook and/or email."""
 
     def __init__(self):
         self.enabled = os.getenv('TEAMS_ENABLED', 'false').lower() in ('true', '1', 'yes')
         self.host = os.getenv('HOSTNAME', 'unknown-host')
         self.env = os.getenv('ENVIRONMENT', 'production')
         self.email_notifier = EmailNotifier() if HAS_EMAIL else None
-        self.use_email_primary = os.getenv('TEAMS_USE_EMAIL_PRIMARY', 'true').lower() in ('true', '1', 'yes')
 
     def is_enabled(self) -> bool:
         """Check if notifications are enabled."""
@@ -113,10 +114,10 @@ class TeamsNotifier:
         duration_minutes: float,
         problem_report: str = None
     ) -> bool:
-        """Send completion notification for backfill (email only)."""
+        """Send completion notification for backfill (webhook and/or email)."""
 
-        if not (self.use_email_primary and self.email_notifier and self.email_notifier.is_enabled()):
-            print("⚠️ Email notifier not enabled")
+        if not (self.email_notifier and self.email_notifier.is_enabled()):
+            print("⚠️ Notifier not enabled")
             return False
 
         peaks_info = {
@@ -149,7 +150,7 @@ class TeamsNotifier:
         days_attempted: int,
         error_count: int
     ) -> bool:
-        """Backfill error notification (webhook disabled)."""
+        """Backfill error notification."""
         print(f"⚠️ Backfill error: {error_message} (days_attempted={days_attempted}, error_count={error_count})")
         return False
 
@@ -165,7 +166,7 @@ class TeamsNotifier:
         peaks_info: Optional[Dict[str, int]] = None,
         summary_override: Optional[str] = None
     ) -> bool:
-        """Send completion notification for regular 15-minute phase (email only)."""
+        """Send completion notification for regular 15-minute phase (webhook and/or email)."""
 
         if not (self.email_notifier and self.email_notifier.is_enabled()):
             print("⚠️ Email notifier not enabled")

@@ -7,9 +7,9 @@ Kompletní průvodce od prerekvizit po běžící systém v K8s.
 ## Přehled procesu
 
 ```
-1. Prerekvizity (manuální)       — DB, CyberArk, Confluence, Teams
-2. Konfigurace (.env)            — vyplnit .env.example → .env
-3. Instalační skript (install.sh) — automatická DB migrace, Docker build, K8s manifesty, git push
+1. Prerekvizity (manuální)       — DB, CyberArk, Confluence, email kanál
+2. Konfigurace (.env)            — non-secret instalační vstup + názvy CyberArk účtů
+3. Instalační skript (install.sh) — Docker build, values.yaml, K8s manifesty, git push
 4. PR & ArgoCD sync              — merge PR, ArgoCD nasadí
 5. Init joby                     — bootstrap historických dat (kubectl)
 6. Ověření                       — CronJoby běží, Confluence aktualizován
@@ -28,7 +28,7 @@ Požádat DBA o vytvoření:
 | Položka | Popis |
 |---------|-------|
 | **Databáze** | `ailog_analyzer` |
-| **Schéma** | `ailog_peak` (vytvoří install.sh automaticky) |
+| **Schéma** | `ailog_peak` (vytvoří K8s init job automaticky) |
 | **DDL role** | `role_ailog_analyzer_ddl` — vlastní schéma, CREATE TABLE |
 | **App role** | `role_ailog_analyzer_app` — SELECT/INSERT/UPDATE/DELETE |
 | **DDL user** | Přiřazen do `role_ailog_analyzer_ddl` |
@@ -41,26 +41,35 @@ Hostnames se liší podle prostředí:
 | nprod | `P050TD01.DEV.KB.CZ` |
 | prod | `<prod_db_host>` (dle DBA) |
 
-> **Tabulky a oprávnění vytváří `install.sh` automaticky** — stačí mít DB, schéma a uživatele.
+> **Tabulky a oprávnění vytváří K8s init job automaticky** pomocí DDL účtu dotaženého z CyberArku. `install.sh` lokálně negeneruje ani nevyžaduje DB hesla pro standardní prod/nprod deploy.
 
 ### 1.2 CyberArk (SPEED) — uložení credentials
 
-Všechny credentials jsou uloženy v CyberArk SPEED safe a do K8s se injektují přes Conjur secrets provider.
+Všechny credentials jsou uloženy v CyberArk SPEED safe a do K8s se injektují přes Conjur (annotation-based Secrets Provider — Secret `log-analyzer-secrets` je labelovaný `conjur.org/managed-by-provider: "true"` a obsahuje `conjur-map` s cestami k EPV záznamům; runtime hodnoty doplňuje centrální Secrets Provider, žádný per-pod init container není potřeba).
 
 **Kroky v PSIAM portálu:**
 
 1. **Registrovat Application Identity** — unikátní identifikátor aplikace v Conjur (např. `AI-LOG-ANALYZER`). Slouží pro autentizaci podu vůči Conjur API.
 2. **Vytvořit SPEED Safe** — úložiště pro credentials (např. `DAN_AI-LOG-ANALYZER`).
-3. **Uložit účty do safe:**
+3. **Uložit 4 účty do safe** — každý účet musí mít v EPV vyplněný `username` a `password` atribut, Conjur je mapuje 1:1:
 
-| Účet | Co to je | Jak získat |
-|------|----------|-----------|
-| **DB DML user** | PostgreSQL app user | Viz 1.1 — založit u DBA |
-| **DB DDL user** | PostgreSQL DDL user | Viz 1.1 — založit u DBA |
-| **ES read user** | Elasticsearch read-only | Založit technický účet (např. `XX_<TEAM>_ES_READ`), přidat do CyberArk |
-| **Confluence user** | API přístup na wiki.kb.cz | Založit služební účet, nebo použít sdílený (např. `XX_AWX_CONFLUENCE` v safe `DAN_OCSS`) |
+| `values.yaml` klíč (`conjur.accounts.*`) | Účet | Co to je | Jak získat | Secret klíče v podu |
+|---|---|---|---|---|
+| `database` | DB DML user | PostgreSQL app-runtime účet (SELECT/INSERT/UPDATE/DELETE) | Viz 1.1 — založit u DBA, např. `ailog_analyzer_user_d1` | `DB_USER`, `DB_PASSWORD` |
+| `database_ddl` | DB DDL user | PostgreSQL migrační účet (CREATE/ALTER/DROP), používá ho jen init job | Viz 1.1 — založit u DBA, např. `ailog_analyzer_ddl_user_d1` | `DB_DDL_USER`, `DB_DDL_PASSWORD` |
+| `elastic` | ES read user | Elasticsearch read-only | Založit technický účet (např. `XX_<TEAM>_ES_READ`), přidat do CyberArk | `ES_USER`, `ES_PASSWORD` |
+| `confluence` | Confluence user | API přístup na wiki.kb.cz | Založit služební účet, nebo použít sdílený (např. `XX_AWX_CONFLUENCE` v safe `DAN_OCSS`) | `CONFLUENCE_USERNAME`, `CONFLUENCE_PASSWORD` |
 
-> **Důležité:** Každý účet musí být v CyberArk uložen se správným username a password. Conjur mapuje `username` a `password` atributy z EPV záznamu.
+**Formát EPV cesty** (jak ji Conjur/Secrets Provider očekává, viz `k8s/templates/secrets.yaml`):
+
+```
+epv/{lobUser}/{safeName}/{accountName}/username
+epv/{lobUser}/{safeName}/{accountName}/password
+```
+
+kde `{lobUser}` = `conjur.lobUser` (např. `CAR_TA_LOBUser_PROD`/`_TEST`), `{safeName}` = `conjur.safeName` (např. `DAN_AI-LOG-ANALYZER`), `{accountName}` = hodnota z tabulky výše (např. `ailog_analyzer_user_d1`).
+
+> **Důležité:** Každý účet musí být v CyberArk uložen se správným username a password. Conjur mapuje `username` a `password` atributy z EPV záznamu. Bez těchto 4 účtů založených v safe se init job/CronJoby nespustí (chybějící DB/ES/Confluence secrets).
 
 ### 1.3 Confluence — vytvoření stránek
 
@@ -74,9 +83,14 @@ Vytvořit 3 stránky v příslušném Confluence space:
 
 Page ID je číslo na konci URL stránky. Zapsat do `.env`.
 
-### 1.4 Teams — webhook
+### 1.4 Notifikace — webhook a/nebo email
 
-Vytvořit Incoming Webhook v cílovém Teams kanálu. Zapsat URL a email adresu kanálu do `.env`.
+Aplikace umí posílat notifikace přes Teams Incoming Webhook, e-mail (na adresu Teams kanálu nebo distribuční schránku), nebo oba kanály zároveň — každý zapnutý kanál dostane notifikaci nezávisle.
+
+- `TEAMS_ENABLED` — master switch, musí být `true`, jinak se neposílá nic.
+- `TEAMS_WEBHOOK_URL` — nastav pro doručení přes Teams Incoming Webhook.
+- `TEAMS_EMAIL` — nastav pro doručení e-mailem (vyžaduje i `SMTP_HOST`/`SMTP_PORT`/`EMAIL_FROM`).
+- Musí být vyplněný alespoň jeden z `TEAMS_WEBHOOK_URL`/`TEAMS_EMAIL` — `install.sh` to validuje.
 
 ### 1.5 Elasticsearch
 
@@ -96,7 +110,9 @@ cd ai-log-analyzer/
 cp .env.example .env
 ```
 
-Otevřít `.env` a vyplnit **všechny** sekce. Soubor je komentovaný s příklady pro nprod i prod.
+Otevřít `.env` a vyplnit non-secret sekce. Soubor je komentovaný s příklady pro nprod i prod.
+
+Do `.env` pro prod/nprod deploy **nepatří runtime hesla ani tokeny** (`DB_PASSWORD`, `ES_PASSWORD`, `CONFLUENCE_TOKEN`, ...). Místo nich se v sekci CyberArk vyplní názvy účtů v safe. Runtime credentials se do podů injektují přes Conjur secrets provider do K8s Secretu `log-analyzer-secrets`.
 
 Klíčové sekce:
 
@@ -105,17 +121,24 @@ Klíčové sekce:
 | 1. PROSTŘEDÍ | `nprod` nebo `prod` |
 | 2. DOCKER IMAGE | Squad a tag (např. `pccm-sq016`, `r63`) |
 | 3. GIT REPOZITÁŘE | Cesta k tomuto repu + k infra-apps repu |
-| 4. POSTGRESQL | Host, uživatelé (z prerekvizit) |
-| 5. ELASTICSEARCH | URL, index pattern, účet |
-| 6. CONFLUENCE | Token, page IDs (z prerekvizit) |
-| 7–8. TEAMS & EMAIL | Webhook, email kanálu |
-| 9. CYBERARK | App ID, safe, názvy účtů |
+| 4. POSTGRESQL | Host, DB název, port, DB role (`DB_DDL_ROLE`, `DB_APP_ROLE`) |
+| 5. ELASTICSEARCH | URL a index pattern |
+| 6. CONFLUENCE | URL, proxy, page IDs |
+| 7–8. NOTIFIKACE & EMAIL | Email cíle, SMTP relay, webhook jen volitelně |
+| 9. CYBERARK | App ID, safe, názvy účtů pro DB DML, DB DDL, ES a Confluence |
 | 10. NAMESPACES | Čárkou oddělený seznam K8s namespace k monitoringu |
 | 11–12. DETEKCE | Defaulty — většinou není třeba měnit |
 
 ### 2.2 Poznámka k values.yaml
 
-`install.sh` **automaticky vygeneruje** `values.yaml` z `.env` a uloží ho do infra-apps repozitáře. Na konci instalace skript vypíše cestu — zkontroluj a dolad, pokud je třeba.
+`install.sh` **automaticky vygeneruje** `values.yaml` z `.env` a uloží ho do infra-apps repozitáře. Do `values.yaml` se zapisují non-secret hodnoty a názvy CyberArk účtů, ne hesla.
+
+Vygenerovaný `values.yaml` je autoritativní konfigurace pro K8s prostředí. Na konci instalace skript vypíše cestu — zkontroluj hlavně:
+
+- `conjur.applicationId`, `conjur.lobUser`, `conjur.safeName`
+- `conjur.accounts.database`, `database_ddl`, `elastic`, `confluence`
+- `env.DB_HOST`, `env.ES_HOST`, `env.ES_INDEX`, Confluence page IDs
+- `teams.email`, `teams.enabled`, `email.smtpHost`
 
 ---
 
@@ -130,8 +153,9 @@ chmod +x install.sh
 # Jen validace (bez změn)
 ./install.sh --dry-run
 
-# Přeskočit DB (už existuje z dřívějška)
-./install.sh --skip-db
+# Volitelně spustit DB migrace lokálně mimo K8s
+# Vyžaduje DB_USER/DB_PASSWORD/DB_DDL_USER/DB_DDL_PASSWORD v .env.
+./install.sh --run-db-migrations
 
 # Přeskočit Docker build (image už existuje)
 ./install.sh --skip-docker
@@ -142,7 +166,7 @@ chmod +x install.sh
 | Krok | Co dělá |
 |------|---------|
 | **1. Validace** | Ověří, že všechny povinné proměnné v `.env` jsou vyplněné |
-| **2. DB migrace** | Připojí se jako DDL user, spustí SQL migrace, nastaví oprávnění, ověří tabulky |
+| **2. DB migrace** | Standardně se lokálně přeskočí; prod/nprod migrace běží v K8s init jobu přes DB DDL účet z CyberArku |
 | **3. Docker build & push** | Buildne image a pushne do registru |
 | **4. K8s manifesty** | Vygeneruje `values.yaml`, zkopíruje/aktualizuje Helm templates do infra-apps repu |
 | **5. Git commit & push** | Vytvoří branch `feat/ai-log-analyzer-<env>-<tag>`, commitne, pushne |
@@ -174,9 +198,10 @@ kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
 Init job provede:
-1. **Backfill** — stáhne error logy z ES za posledních N dní (default: 21)
-2. **Threshold calc** — vypočítá P93/CAP prahy z backfill dat
-3. **Verify** — zobrazí vypočtené thresholdy
+1. **DB migrations** — spustí SQL migrace přes `DB_DDL_USER`/`DB_DDL_PASSWORD` z CyberArku a nastaví oprávnění pro `role_ailog_analyzer_app`
+2. **Backfill** — stáhne error logy z ES za posledních N dní (default: 21)
+3. **Threshold calc** — vypočítá P93/CAP prahy z backfill dat
+4. **Verify** — zobrazí vypočtené thresholdy
 
 Po dokončení init jobu systém běží autonomně přes CronJoby.
 
@@ -220,16 +245,16 @@ Po prvním backfill jobu by měly být aktualizované stránky Known Errors, Kno
 - [ ] **Prerekvizity:** DB existuje, uživatelé založeni
 - [ ] **Prerekvizity:** CyberArk safe vytvořen, účty uloženy
 - [ ] **Prerekvizity:** Confluence stránky vytvořeny, Page IDs zaznamenány
-- [ ] **Prerekvizity:** Teams webhook nastaven
+- [ ] **Prerekvizity:** Email cíle pro notifikace ověřený
 - [ ] **Prerekvizity:** ES účet založen a v CyberArk
-- [ ] `.env` vyplněn a validován (`install.sh` krok 1)
-- [ ] DB migrace provedena (`install.sh` krok 2)
+- [ ] `.env` vyplněn bez runtime hesel a validován (`install.sh` krok 1)
+- [ ] CyberArk account names zapsané do `values.yaml`
 - [ ] Docker image built & pushed (`install.sh` krok 3)
 - [ ] K8s manifesty vygenerovány a v infra-apps (`install.sh` krok 4)
 - [ ] Branch pushed (`install.sh` krok 5)
 - [ ] PR vytvořen a mergnout
 - [ ] ArgoCD sync proběhl — Synced & Healthy
-- [ ] Init job dokončen (backfill + thresholds)
+- [ ] Init job dokončen (DB migrations + backfill + thresholds)
 - [ ] CronJoby běží (regular, backfill, thresholds)
 - [ ] Email/Teams notifikace ověřena
 - [ ] Confluence stránky aktualizovány
@@ -242,7 +267,8 @@ Pro vývoj/debugging bez K8s:
 
 ```bash
 cp .env.example .env
-# Doplnit credentials (potřeba přímý přístup k DB a ES)
+# Lokálně doplnit credentials jen pro vývoj/debugging mimo K8s.
+# Prod/nprod runtime je bere z CyberArku přes Conjur.
 
 # Dry-run regular phase
 python3 scripts/regular_phase.py --window 15 --dry-run

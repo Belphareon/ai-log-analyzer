@@ -26,6 +26,7 @@ namespaces:
 
 # Namespace groups pro reporting
 groups:
+  #By application
   pca:
     - pca-dev-01-app
     - pca-fat-01-app
@@ -41,6 +42,8 @@ groups:
     - pcb-ch-fat-01-app
     - pcb-ch-sit-01-app
     - pcb-ch-uat-01-app
+  
+  #By environment
   development:
     - pca-dev-01-app
     - pcb-dev-01-app

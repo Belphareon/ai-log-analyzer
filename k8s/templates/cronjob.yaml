@@ -151,15 +151,13 @@ spec:
                 - name: TEAMS_EMAIL
                   value: {{ .Values.teams.email | quote }}
                 - name: SMTP_HOST
-                  value: "css-smtp-prod-os.sos.kb.cz"
+                  value: {{ .Values.email.smtpHost | quote }}
                 - name: SMTP_PORT
-                  value: "25"
+                  value: {{ .Values.email.smtpPort | quote }}
                 - name: EMAIL_FROM
-                  value: "ai-log-analyzer@kb.cz"
+                  value: {{ .Values.email.from | quote }}
                 - name: TEAMS_ENABLED
-                  value: "true"
-                - name: TEAMS_USE_EMAIL_PRIMARY
-                  value: "true"
+                  value: {{ .Values.teams.enabled | quote }}
 
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}
@@ -313,6 +311,8 @@ spec:
                   value: {{ .Values.env.CONFLUENCE_KNOWN_ERRORS_PAGE_ID | quote }}
                 - name: CONFLUENCE_KNOWN_PEAKS_PAGE_ID
                   value: {{ .Values.env.CONFLUENCE_KNOWN_PEAKS_PAGE_ID | quote }}
+                - name: CONFLUENCE_RECENT_INCIDENTS_PAGE_ID
+                  value: {{ .Values.env.CONFLUENCE_RECENT_INCIDENTS_PAGE_ID | quote }}
                 # === Peak Detection ===
                 - name: SPIKE_THRESHOLD
                   value: {{ .Values.env.SPIKE_THRESHOLD | quote }}
@@ -343,15 +343,13 @@ spec:
                 - name: TEAMS_EMAIL
                   value: {{ .Values.teams.email | quote }}
                 - name: SMTP_HOST
-                  value: "css-smtp-prod-os.sos.kb.cz"
+                  value: {{ .Values.email.smtpHost | quote }}
                 - name: SMTP_PORT
-                  value: "25"
+                  value: {{ .Values.email.smtpPort | quote }}
                 - name: EMAIL_FROM
-                  value: "ai-log-analyzer@kb.cz"
+                  value: {{ .Values.email.from | quote }}
                 - name: TEAMS_ENABLED
-                  value: "true"
-                - name: TEAMS_USE_EMAIL_PRIMARY
-                  value: "true"
+                  value: {{ .Values.teams.enabled | quote }}
 
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}

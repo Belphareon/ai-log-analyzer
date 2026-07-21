@@ -111,7 +111,7 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `DB_USER` / `DB_PASSWORD` | DB app user | CyberArk |
 | `DB_DDL_USER` / `DB_DDL_PASSWORD` | DB DDL user (migrace) | CyberArk |
 | `CONFLUENCE_URL` | Confluence base URL | `https://wiki.kb.cz` |
-| `CONFLUENCE_USERNAME` / `CONFLUENCE_TOKEN` | Confluence služební účet | CyberArk |
+| `CONFLUENCE_USERNAME` / `CONFLUENCE_PASSWORD` | Confluence služební účet; token/heslo je uložené v CyberArku jako password atribut | CyberArk |
 | `CONFLUENCE_KNOWN_ERRORS_PAGE_ID` | ID stránky Known Errors | z URL stránky |
 | `CONFLUENCE_KNOWN_PEAKS_PAGE_ID` | ID stránky Known Peaks | z URL stránky |
 | `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` | ID stránky Recent Incidents | z URL stránky |
@@ -119,7 +119,7 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `SMTP_HOST` | SMTP relay | `css-smtp-prod-os.sos.kb.cz` |
 | `SMTP_PORT` | SMTP port | `25` |
 | `EMAIL_FROM` | Odesílatel emailů | `ai-log-analyzer@kb.cz` |
-| `TEAMS_WEBHOOK_URL` | Teams incoming webhook (vypnutý v aplikaci — viz `TEAMS_EMAIL`) | URL webhooku |
+| `TEAMS_WEBHOOK_URL` | Volitelný Teams incoming webhook; defaultně vypnutý, primární je `TEAMS_EMAIL` | URL webhooku |
 | `TEAMS_EMAIL` | Email adresa Teams kanálu (primární doručení notifikací) | email |
 | `MONITORED_NAMESPACES` | K8s namespace pro monitoring | `pcb-dev-01-app,pca-sit-01-app` |
 
@@ -249,9 +249,8 @@ ai-log-analyzer/
 │       ├── cronjob.yaml            # Regular + Backfill + Threshold CronJoby
 │       ├── job-init.yaml           # Bootstrap job (jednorázový)
 │       ├── pvc.yaml                # Persistent Volume Claim
-│       ├── secrets.yaml            # Conjur secret mapping
-│       ├── serviceaccount.yaml     # ServiceAccount + RBAC
-│       └── _conjur.tpl             # Conjur init container helper
+│       ├── secrets.yaml            # Conjur secret mapping (conjur-map, centrální Secrets Provider)
+│       └── serviceaccount.yaml     # ServiceAccount + RBAC
 ├── wheels/                         # Pre-stažené Python wheels (offline Docker build)
 ├── docs/                           # Rozšířená dokumentace
 ├── Dockerfile                      # Multi-stage offline build

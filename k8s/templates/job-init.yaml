@@ -49,6 +49,10 @@ spec:
               echo "============================================"
               echo ""
 
+              echo "🗄️  Step 0/3: Run DB migrations with DDL credentials from CyberArk..."
+              python3 /app/scripts/core/run_db_migrations.py
+              echo ""
+
               # Step 1: Backfill historical data (skip if backfillDays=0)
               BACKFILL_DAYS={{ .Values.init.backfillDays | default 21 }}
               BACKFILL_WORKERS={{ .Values.init.backfillWorkers | default 4 }}
@@ -107,6 +111,10 @@ spec:
               value: {{ .Values.env.DB_PORT | quote }}
             - name: DB_NAME
               value: {{ .Values.env.DB_NAME | quote }}
+            - name: DB_DDL_ROLE
+              value: {{ .Values.env.DB_DDL_ROLE | quote }}
+            - name: DB_APP_ROLE
+              value: {{ .Values.env.DB_APP_ROLE | default "role_ailog_analyzer_app" | quote }}
             - name: DB_USER
               valueFrom:
                 secretKeyRef:

@@ -122,16 +122,6 @@ LEFT JOIN ailog_peak.peak_threshold_caps c
 ORDER BY g.namespace, g.day_of_week;
 
 -- ============================================================================
--- PERMISSIONS
--- ============================================================================
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.peak_thresholds TO ailog_analyzer_user_d1;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.peak_threshold_caps TO ailog_analyzer_user_d1;
-GRANT SELECT ON ailog_peak.v_peak_thresholds TO ailog_analyzer_user_d1;
-GRANT SELECT ON ailog_peak.v_all_thresholds_matrix TO ailog_analyzer_user_d1;
-GRANT USAGE, SELECT ON SEQUENCE ailog_peak.peak_thresholds_id_seq TO ailog_analyzer_user_d1;
-GRANT USAGE, SELECT ON SEQUENCE ailog_peak.peak_threshold_caps_id_seq TO ailog_analyzer_user_d1;
-
--- ============================================================================
 -- COMMENTS
 -- ============================================================================
 COMMENT ON TABLE ailog_peak.peak_thresholds IS 'Percentile thresholds per (namespace, day_of_week) - calculated from peak_raw_data by calculate_peak_thresholds.py';

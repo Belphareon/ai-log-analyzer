@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r82 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r83 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r82 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r83 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r82"
-LABEL description="AI Log Analyzer - r82: trace ownership dedup + generic sub-key + analyzer.yaml"
+LABEL version="r83"
+LABEL description="AI Log Analyzer - r83: Teams webhook restored alongside email, backfill digest-hour fix, CyberArk-driven DB migration runner"
 
 # Set working directory
 WORKDIR /app

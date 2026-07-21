@@ -1071,7 +1071,10 @@ def run_backfill(
                 except Exception:
                     already_sent_today = False
 
-                should_send = (error_count > 0) or (now_utc.hour == report_hour and not already_sent_today)
+                # NOTE: use >= instead of == — the CronJob schedule may not fire exactly
+                # on report_hour (e.g. schedule "5 */2 * * *" only runs on even hours),
+                # so an exact-hour match can permanently suppress the daily digest.
+                should_send = (error_count > 0) or (now_utc.hour >= report_hour and not already_sent_today)
 
                 if should_send:
                     registry_stats = _global_registry.get_stats() if _global_registry else {}

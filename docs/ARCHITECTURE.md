@@ -351,7 +351,7 @@ Cesta k registry je řízena proměnnou **`REGISTRY_DIR`** (default lokálně
 
 | Soubor | Popis |
 |--------|-------|
-| `.env` | Hlavní konfigurace (ES, DB, SMTP, Teams, Confluence, alertování, detekce) |
+| `.env` | Lokální/instalační vstup pro non-secret hodnoty a CyberArk account names; prod runtime čte konfiguraci z infra-apps `values.yaml` a secrets z Conjuru |
 | `config/namespaces.yaml` | Seznam monitorovaných K8s namespace |
 | `config/known_issues/known_errors.yaml` | Manuální knowledge base (popis, workaround, JIRA ticket) |
 

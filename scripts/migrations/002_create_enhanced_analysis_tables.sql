@@ -371,23 +371,6 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- ============================================================================
--- GRANTS
--- ============================================================================
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.known_issues TO ailog_analyzer_user_d1;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.error_signatures TO ailog_analyzer_user_d1;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.service_health TO ailog_analyzer_user_d1;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.cascade_failures TO ailog_analyzer_user_d1;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ailog_peak.service_dependencies TO ailog_analyzer_user_d1;
-
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ailog_peak TO ailog_analyzer_user_d1;
-
-GRANT SELECT ON ailog_peak.v_current_service_health TO ailog_analyzer_user_d1;
-GRANT SELECT ON ailog_peak.v_active_cascades TO ailog_analyzer_user_d1;
-GRANT SELECT ON ailog_peak.v_new_errors TO ailog_analyzer_user_d1;
-GRANT SELECT ON ailog_peak.v_unhealthy_dependencies TO ailog_analyzer_user_d1;
-
--- ============================================================================
 -- DONE
 -- ============================================================================
 -- Run: psql -f 002_create_enhanced_analysis_tables.sql

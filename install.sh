@@ -14,7 +14,7 @@
 #   cp .env.example .env   # vyplnit hodnoty
 #   ./install.sh            # spustit instalaci
 #   ./install.sh --dry-run  # jen validace, bez změn
-#   ./install.sh --skip-db  # přeskočit DB setup (už existuje)
+#   ./install.sh --run-db-migrations  # volitelně spustit DB migrace lokálně
 #   ./install.sh --skip-docker  # přeskočit Docker build
 # =============================================================================
 set -euo pipefail
@@ -37,17 +37,19 @@ check_skip() { CHECKLIST+=("⏭️  $*"); }
 
 # ─── Argumenty ───────────────────────────────────────────────────────────────
 DRY_RUN=false
-SKIP_DB=false
+SKIP_DB=true
 SKIP_DOCKER=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)     DRY_RUN=true;     shift ;;
         --skip-db)     SKIP_DB=true;     shift ;;
+        --run-db-migrations) SKIP_DB=false; shift ;;
         --skip-docker) SKIP_DOCKER=true; shift ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run] [--skip-db] [--skip-docker]"
+            echo "Usage: $0 [--dry-run] [--run-db-migrations] [--skip-db] [--skip-docker]"
             echo "  --dry-run      Jen validace, bez změn"
-            echo "  --skip-db      Přeskočit DB migrace (DB už existuje)"
+            echo "  --run-db-migrations  Spustit DB migrace lokálně pomocí DB_DDL_* z .env"
+            echo "  --skip-db      Přeskočit lokální DB migrace (default; migrace běží v K8s init jobu přes Conjur)"
             echo "  --skip-docker  Přeskočit Docker build & push"
             exit 0 ;;
         *) err "Neznámý argument: $1"; exit 1 ;;
@@ -81,28 +83,49 @@ validate() {
     fi
 }
 
+validate_optional_url() {
+    local var_name="$1" var_value="${!1:-}"
+    if [[ -n "$var_value" && "$var_value" == "<"* ]]; then
+        err "  $var_name obsahuje placeholder"
+        ((ERRORS++))
+    fi
+}
+
+validate_at_least_one() {
+    # Vyžaduje, aby alespoň jedna z proměnných byla vyplněná (bez placeholderu)
+    local names=("$@") found=false
+    for n in "${names[@]}"; do
+        local v="${!n:-}"
+        if [[ -n "$v" && "$v" != "<"* ]]; then
+            found=true
+            ok "  $n = $v"
+        fi
+    done
+    if [[ "$found" == false ]]; then
+        err "  Alespoň jedno z: ${names[*]} musí být vyplněno (webhook a/nebo email kanál)"
+        ((ERRORS++))
+    fi
+}
+
 # Povinné
 validate ENVIRONMENT
 validate DOCKER_SQUAD
 validate IMAGE_TAG
 validate INFRA_APPS_DIR
 validate DB_HOST
+validate DB_PORT
 validate DB_NAME
-validate DB_USER
-validate DB_PASSWORD
-validate DB_DDL_USER
-validate DB_DDL_PASSWORD
 validate ES_HOST
 validate ES_INDEX
-validate ES_USER
-validate ES_PASSWORD
 validate CONFLUENCE_URL
-validate CONFLUENCE_TOKEN
-validate CONFLUENCE_USERNAME
 validate CONFLUENCE_KNOWN_ERRORS_PAGE_ID
 validate CONFLUENCE_KNOWN_PEAKS_PAGE_ID
-validate TEAMS_WEBHOOK_URL
-validate TEAMS_EMAIL
+validate CONFLUENCE_RECENT_INCIDENTS_PAGE_ID
+validate_optional_url TEAMS_WEBHOOK_URL
+validate_at_least_one TEAMS_WEBHOOK_URL TEAMS_EMAIL
+validate SMTP_HOST
+validate SMTP_PORT
+validate EMAIL_FROM
 validate CONJUR_APP_ID
 validate CONJUR_LOB_USER
 validate CONJUR_SAFE_NAME
@@ -111,6 +134,13 @@ validate CONJUR_ACCOUNT_DB_DDL
 validate CONJUR_ACCOUNT_ES
 validate CONJUR_ACCOUNT_CONFLUENCE
 validate MONITORED_NAMESPACES
+
+if ! $SKIP_DB; then
+    validate DB_USER
+    validate DB_PASSWORD
+    validate DB_DDL_USER
+    validate DB_DDL_PASSWORD
+fi
 
 if [[ $ERRORS -gt 0 ]]; then
     err "$ERRORS proměnných není vyplněno. Uprav .env a spusť znovu."
@@ -128,8 +158,9 @@ check_ok "Konfigurace validována"
 header "2/6  Databáze — migrace schématu"
 
 if $SKIP_DB; then
-    warn "Přeskočeno (--skip-db)"
-    check_skip "DB migrace (přeskočeno)"
+    warn "Lokální DB migrace přeskočeny (default)"
+    info "Prod/NPROD migrace poběží v K8s init jobu přes CyberArk/Conjur a DB_DDL_* secret."
+    check_skip "DB migrace (K8s init job přes Conjur)"
 else
     info "Host: $DB_HOST:$DB_PORT / $DB_NAME"
     info "DDL user: $DB_DDL_USER"
@@ -277,6 +308,8 @@ env:
   DB_HOST: "$DB_HOST"
   DB_NAME: "$DB_NAME"
   DB_PORT: "$DB_PORT"
+    DB_DDL_ROLE: "${DB_DDL_ROLE:-role_ailog_analyzer_ddl}"
+    DB_APP_ROLE: "${DB_APP_ROLE:-role_ailog_analyzer_app}"
   ES_HOST: "$ES_HOST"
   ES_INDEX: "$ES_INDEX"
   CONFLUENCE_URL: "$CONFLUENCE_URL"
@@ -285,6 +318,7 @@ env:
   HTTPS_PROXY: "$PROXY_VALUE"
   CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "$CONFLUENCE_KNOWN_ERRORS_PAGE_ID"
   CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "$CONFLUENCE_KNOWN_PEAKS_PAGE_ID"
+    CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID"
   SPIKE_THRESHOLD: "${SPIKE_THRESHOLD:-3.0}"
   EWMA_ALPHA: "${EWMA_ALPHA:-0.3}"
   WINDOW_MINUTES: "${WINDOW_MINUTES:-15}"
@@ -304,8 +338,14 @@ init:
   thresholdWeeks: ${INIT_THRESHOLD_WEEKS:-3}
   activeDeadlineSeconds: 14400
 
+email:
+    smtpHost: "${SMTP_HOST:-css-smtp-prod-os.sos.kb.cz}"
+    smtpPort: "${SMTP_PORT:-25}"
+    from: "${EMAIL_FROM:-ai-log-analyzer@kb.cz}"
+
 teams:
-  webhook_url: "$TEAMS_WEBHOOK_URL"
+    enabled: "${TEAMS_ENABLED:-false}"
+    webhook_url: "${TEAMS_WEBHOOK_URL:-}"
   email: "$TEAMS_EMAIL"
 VALEOF
 

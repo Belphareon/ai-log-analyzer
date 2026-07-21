@@ -4,6 +4,37 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r83 (2026-07-21) — Notifikace (webhook + email), CyberArk secrets model, digest fix
+
+### Opraveno
+
+- **Backfill daily-digest notifikace se nikdy neposílala** (`scripts/backfill.py`)
+  - Podmínka `now_utc.hour == report_hour` (default hodina 7, lichá) nikdy
+    nebyla pravdivá pro CronJob schedule `5 */2 * * *` (jen sudé hodiny) →
+    denní souhrnný e-mail byl trvale potlačen ("daily cadence" suppress).
+  - Změněno na `now_utc.hour >= report_hour` (schedule-agnostic).
+
+### Přidáno
+
+- **Teams webhook obnoven vedle emailu** (`scripts/core/email_notifier.py`,
+  `scripts/core/teams_notifier.py`) — zákazník si teď může zvolit webhook,
+  email, nebo oba kanály zároveň nezávisle (`TEAMS_WEBHOOK_URL`/`TEAMS_EMAIL`).
+  Odstraněn mrtvý přepínač `TEAMS_USE_EMAIL_PRIMARY`/`useEmailPrimary`.
+- **`scripts/core/run_db_migrations.py`** — Python/psycopg2 migration runner
+  pro K8s init job (image nemá `psql` binárku); centralizuje granty na
+  `DB_APP_ROLE` místo hard-coded uživatele v SQL migracích.
+- **CyberArk/Conjur dotace pro DB (dual DML/DDL), ES, Confluence** — `.env`
+  nese jen non-secret hodnoty a názvy CyberArk účtů; runtime secrets bere
+  K8s z Conjuru přes `log-analyzer-secrets` (Secret `conjur-map`, centrální
+  Secrets Provider — bez per-pod init containeru).
+
+### Odstraněno
+
+- Nepoužívaný `_conjur.tpl` (init-container Conjur pattern) — live cluster
+  reálně používá jen annotation-based central Secrets Provider.
+
+---
+
 ## r82 (2026-06-30) — Trace-ownership dedup + rozpad generických výjimek
 
 ### Opraveno (report neseděl s ES)

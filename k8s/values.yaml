@@ -90,6 +90,8 @@ env:
   DB_HOST: <db_hostname>                 # nprod: P050TD01.DEV.KB.CZ | prod: <prod_host>
   DB_NAME: ailog_analyzer
   DB_PORT: "5432"
+  DB_DDL_ROLE: role_ailog_analyzer_ddl
+  DB_APP_ROLE: role_ailog_analyzer_app
 
   # === Elasticsearch ===
   ES_HOST: <es_url>                      # nprod: https://elasticsearch-test.kb.cz:9500
@@ -102,6 +104,7 @@ env:
   HTTPS_PROXY: "http://cntlm.speed-default:3128"
   CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "<page_id>"
   CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "<page_id>"
+  CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "<page_id>"
 
   # === Peak Detection ===
   SPIKE_THRESHOLD: "3.0"
@@ -130,8 +133,19 @@ init:
   activeDeadlineSeconds: 14400           # Max 4 hodiny
 
 # -----------------------------------------------------------------------------
-# Teams Webhook
+# Email notifications
 # -----------------------------------------------------------------------------
+email:
+  smtpHost: css-smtp-prod-os.sos.kb.cz
+  smtpPort: "25"
+  from: ai-log-analyzer@kb.cz
+
+# -----------------------------------------------------------------------------
+# Teams delivery
+# -----------------------------------------------------------------------------
+# enabled = master switch. Nastav webhook_url pro Teams webhook, email pro
+# doručení na e-mail Teams kanálu, nebo obojí zároveň (pošle se na oba kanály).
 teams:
-  webhook_url: "<webhook_url>"
+  enabled: "false"
+  webhook_url: ""
   email: "<teams_channel_email>"
