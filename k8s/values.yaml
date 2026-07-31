@@ -5,9 +5,7 @@
 #   k8s-infra-apps-nprod/infra-apps/ai-log-analyzer/values.yaml
 #   k8s-infra-apps-prod/infra-apps/ai-log-analyzer/values.yaml
 #
-# Docker image:
-#   docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag> .
-#   docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
+# Docker image publikuje aplikacni repozitar; instalator ji nebuildi ani nepushuje.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -21,7 +19,7 @@ environment: nprod                     # nprod | prod
 # -----------------------------------------------------------------------------
 app:
   name: log-analyzer
-  image: dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>   # ← Doplnit squad a tag
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest
   imagePullPolicy: IfNotPresent
   secretName: log-analyzer-secrets
 
@@ -67,12 +65,16 @@ conjur:
   lobUser: CAR_TA_LOBUser_<ENV>          # TEST pro nprod, PROD pro prod
   safeName: DAN_<SAFE_NAME>             # Název safe v CyberArk
 
-  # Účty v safe
+  # Nazvy vsech DB uctu v safe. D1 je aktualne aktivni, D2 je pripraveny.
   accounts:
     confluence: <CONFLUENCE_USER>        # Confluence service account
-    database: <DB_DML_USER>              # PostgreSQL DML user
-    database_ddl: <DB_DDL_USER>          # PostgreSQL DDL user
     elastic: <ES_READ_USER>              # Elasticsearch read-only user
+    database:
+      d1: <DB_USER_D1>
+      d2: <DB_USER_D2>
+    database_ddl:
+      d1: <DB_DDL_USER_D1>
+      d2: <DB_DDL_USER_D2>
 
 # -----------------------------------------------------------------------------
 # Environment Variables

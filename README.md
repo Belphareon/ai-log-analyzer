@@ -42,7 +42,7 @@ Kompletní postup založení → [docs/INSTALLATION.md](docs/INSTALLATION.md)
 
 ```bash
 # 1. Vyplnit konfiguraci
-cp .env.example .env && vi .env
+cp config/install.conf.example .env && vi .env
 
 # 2. Instalační skript — validuje → DB migrace → Docker build+push → K8s manifesty → git branch+push
 ./install.sh
@@ -55,7 +55,7 @@ kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ### Lokální testování
 
 ```bash
-cp .env.example .env
+cp config/install.conf.example .env
 # Vyplnit credentials (potřeba přímý síťový přístup k DB a ES)
 
 python3 scripts/regular_phase.py --window 15 --dry-run
@@ -94,7 +94,7 @@ Detaily → [docs/OPERATIONS.md](docs/OPERATIONS.md)
 | Prostředí | Kde |
 |-----------|-----|
 | **K8s (produkce)** | `values.yaml` v infra-apps repu → env vars v CronJob template |
-| **Lokální vývoj** | `.env` soubor (šablona: `.env.example`) |
+| **Instalace** | `.env` soubor (šablona: `config/install.conf.example`) |
 
 Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K8s Secret. Nikdy se nepíšou do values.yaml.
 
@@ -156,8 +156,8 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `CONJUR_APP_ID` | Application Identity z PSIAM |
 | `CONJUR_LOB_USER` | nprod: `CAR_TA_LOBUser_TEST`, prod: `CAR_TA_LOBUser_PROD` |
 | `CONJUR_SAFE_NAME` | Název SPEED safe |
-| `CONJUR_ACCOUNT_DB` | Název DB DML účtu v safe |
-| `CONJUR_ACCOUNT_DB_DDL` | Název DB DDL účtu v safe |
+| `PROD_DB_USER_D1/D2`, `NPROD_DB_USER_D1/D2` | Názvy runtime DB účtů získané při založení DB |
+| `PROD_DB_DDL_USER_D1/D2`, `NPROD_DB_DDL_USER_D1/D2` | Názvy DDL DB účtů získané při založení DB |
 | `CONJUR_ACCOUNT_ES` | Název ES read účtu v safe |
 | `CONJUR_ACCOUNT_CONFLUENCE` | Název Confluence účtu v safe |
 
@@ -253,28 +253,20 @@ ai-log-analyzer/
 │       └── serviceaccount.yaml     # ServiceAccount + RBAC
 ├── wheels/                         # Pre-stažené Python wheels (offline Docker build)
 ├── docs/                           # Rozšířená dokumentace
-├── Dockerfile                      # Multi-stage offline build
 ├── requirements.txt                # Python závislosti
-├── install.sh                      # Instalační orchestrace (DB + Docker + K8s + git)
+├── install.sh                      # Instalační orchestrace (profil + K8s + git)
 ├── run_regular.sh                  # Shell wrapper pro regular phase
 ├── run_backfill.sh                 # Shell wrapper pro backfill
 ├── run_init.sh                     # Shell wrapper pro init phase
-├── .env.example                    # Template konfigurace — kompletní popis všech proměnných
+├── config/install.conf.example     # Prod/nprod instalační profily bez hesel
 └── CHANGELOG.md                    # Historie verzí
 ```
 
 ---
 
-## Docker build
+## Image pro instalaci
 
-Dockerfile používá **offline build** — Python wheels jsou v `wheels/` a instalují se bez přístupu k internetu:
-
-```bash
-docker build -t dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag> .
-docker push dockerhub.kb.cz/<squad>/ai-log-analyzer:<tag>
-```
-
-> `install.sh` automatizuje build+push na základě `.env` (`DOCKER_REGISTRY`, `DOCKER_SQUAD`, `IMAGE_TAG`).
+Instalace vždy používá publikovanou image `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest`. Instalační balíček image nebuildí ani nepushuje.
 
 ---
 

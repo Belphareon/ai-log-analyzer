@@ -1,0 +1,108 @@
+# =============================================================================
+# AI LOG ANALYZER - INSTALACE DO NOVEHO PROSTREDI
+# =============================================================================
+# 1. Zvol ENVIRONMENT=prod nebo ENVIRONMENT=nprod.
+# 2. Vypln hodnoty oznacene <...> v profilech, ktere chces pouzivat.
+# 3. Zkopiruj soubor do .env, spust ./install.sh --dry-run a ./install.sh.
+#
+# Jeden soubor obsahuje oba profily. Pri zmene prostredi staci zmenit pouze
+# ENVIRONMENT; install.sh automaticky pouzije vsechny hodnoty PROD_* nebo NPROD_*.
+# Hesla se sem nikdy nezapisuji.
+# =============================================================================
+
+ENVIRONMENT=prod
+
+# Image dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest je pevne nastavena
+# v install.sh. Instalator ji nikdy nebuildi ani nepushuje.
+
+# Spolecne hodnoty pro prod i nprod.
+DB_PORT=5432
+CONJUR_APP_ID=AI-LOG-ANALYZER
+CONFLUENCE_URL=https://wiki.kb.cz
+CONFLUENCE_PROXY=http://cntlm.speed-default:3128
+SMTP_PORT=25
+TEAMS_ENABLED=true
+TEAMS_WEBHOOK_URL=
+MONITORED_NAMESPACES=pcb-dev-01-app,pcb-sit-01-app,pcb-uat-01-app,pca-dev-01-app,pca-sit-01-app,pca-uat-01-app
+
+# Databazove role jsou nazvy opravneni, nikoli uzivatelske ucty.
+# DDL role: tvorba a zmeny schematu pri initu/migracich.
+DB_DDL_ROLE=role_ailog_analyzer_ddl
+# App role: cteni a zapis dat bez zmen databazoveho schematu.
+DB_APP_ROLE=role_ailog_analyzer_app
+
+# =============================================================================
+# PROD PROFIL
+# =============================================================================
+PROD_INFRA_APPS_REPO=/root/git/sas/k8s-infra-apps-prod
+PROD_INFRA_APPS_BASE_BRANCH="<prod_base_branch>"
+
+# Udaje z JDBC connection stringu:
+# jdbc:postgresql://P050P001.PROD.KB.CZ:5432/ai_log_analyzer
+PROD_DB_HOST=P050P001.PROD.KB.CZ
+PROD_DB_NAME=ai_log_analyzer
+
+# Nazvy vsech ctyr uctu, ktere uzivatel dostane pri zalozeni DB.
+# Hesla zustavaji v CyberArku. D1 je nyni aktivni, D2 je pripraven pro pozdejsi
+# doplneni dual-account prepinani.
+PROD_DB_DDL_USER_D1=ai_log_analyzer_ddl_user_d1
+PROD_DB_DDL_USER_D2=ai_log_analyzer_ddl_user_d2
+PROD_DB_USER_D1=ai_log_analyzer_user_d1
+PROD_DB_USER_D2=ai_log_analyzer_user_d2
+
+PROD_ES_HOST=https://elasticsearch.kb.cz:9500
+PROD_ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*
+PROD_CONJUR_LOB_USER=CAR_TA_LOBUser_PROD
+PROD_CONJUR_SAFE_NAME=DAP_AI-LOG-ANALYZER
+PROD_CONJUR_ACCOUNT_ES=XX_PCBS_ES_READ
+PROD_CONJUR_ACCOUNT_CONFLUENCE=XX_AWX_CONFLUENCE
+PROD_CONFLUENCE_KNOWN_ERRORS_PAGE_ID="<prod_known_errors_page_id>"
+PROD_CONFLUENCE_KNOWN_PEAKS_PAGE_ID="<prod_known_peaks_page_id>"
+PROD_CONFLUENCE_RECENT_INCIDENTS_PAGE_ID="<prod_recent_incidents_page_id>"
+PROD_SMTP_HOST=css-smtp-prod-os.sos.kb.cz
+PROD_EMAIL_FROM=ai-log-analyzer@kb.cz
+PROD_TEAMS_EMAIL="<prod_teams_channel_email>"
+
+# =============================================================================
+# NPROD PROFIL
+# =============================================================================
+NPROD_INFRA_APPS_REPO=/root/git/sas/k8s-infra-apps-nprod
+NPROD_INFRA_APPS_BASE_BRANCH=k8s-nprod-3394
+NPROD_DB_HOST=P050TD01.DEV.KB.CZ
+NPROD_DB_NAME=ailog_analyzer
+NPROD_DB_DDL_USER_D1=ailog_analyzer_ddl_user_d1
+NPROD_DB_DDL_USER_D2=ailog_analyzer_ddl_user_d2
+NPROD_DB_USER_D1=ailog_analyzer_user_d1
+NPROD_DB_USER_D2=ailog_analyzer_user_d2
+NPROD_ES_HOST=https://elasticsearch-test.kb.cz:9500
+NPROD_ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*
+NPROD_CONJUR_LOB_USER=CAR_TA_LOBUser_TEST
+NPROD_CONJUR_SAFE_NAME=DAN_AI-LOG-ANALYZER
+NPROD_CONJUR_ACCOUNT_ES=XX_PCBS_ES_READ
+NPROD_CONJUR_ACCOUNT_CONFLUENCE=XX_AWX_CONFLUENCE
+NPROD_CONFLUENCE_KNOWN_ERRORS_PAGE_ID="<nprod_known_errors_page_id>"
+NPROD_CONFLUENCE_KNOWN_PEAKS_PAGE_ID="<nprod_known_peaks_page_id>"
+NPROD_CONFLUENCE_RECENT_INCIDENTS_PAGE_ID="<nprod_recent_incidents_page_id>"
+NPROD_SMTP_HOST=css-smtp-prod-os.sos.kb.cz
+NPROD_EMAIL_FROM=ai-log-analyzer@kb.cz
+NPROD_TEAMS_EMAIL="<nprod_teams_channel_email>"
+
+# =============================================================================
+# DETEKCE A INIT - BEZNE NENI TREBA MENIT
+# =============================================================================
+LOG_LEVEL=INFO
+PERCENTILE_LEVEL=0.93
+MIN_SAMPLES_FOR_THRESHOLD=10
+DEFAULT_THRESHOLD=100
+SPIKE_THRESHOLD=3.0
+EWMA_ALPHA=0.3
+WINDOW_MINUTES=15
+MAX_PEAK_ALERTS_PER_WINDOW=3
+ALERT_DIGEST_ENABLED=true
+ALERT_COOLDOWN_MIN=45
+ALERT_HEARTBEAT_MIN=120
+ALERT_MIN_DELTA_PCT=30
+ALERT_CONTINUATION_LOOKBACK_MIN=60
+INIT_BACKFILL_DAYS=60
+INIT_BACKFILL_WORKERS=8
+INIT_THRESHOLD_WEEKS=3

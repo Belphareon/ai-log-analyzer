@@ -2,20 +2,18 @@
 # =============================================================================
 # AI Log Analyzer — INSTALL SCRIPT
 # =============================================================================
-# Orchestruje celou instalaci po splnění prerekvizit:
-#   1. Validace .env konfigurace
-#   2. DB schéma — migrace + oprávnění
-#   3. Docker build & push
-#   4. Generování values.yaml + kopírování manifestů do infra-apps repo
-#   5. Commit & push (nová branch pro PR)
-#   6. Výpis dalších kroků (init joby po ArgoCD sync)
+# Připraví kompletní deployment v novém prod/nprod prostředí:
+#   1. Načte profil prostředí a validuje konfiguraci
+#   2. Vytvoří novou branch v příslušném infra-apps repozitáři
+#   3. Vytvoří infra-apps/ai-log-analyzer.yaml (ArgoCD Application)
+#   4. Vytvoří infra-apps/ai-log-analyzer/ (Helm chart + values)
+#   5. Ověří YAML a Helm chart
+#   6. Commitne a pushne branch pro PR
 #
 # Použití:
-#   cp .env.example .env   # vyplnit hodnoty
-#   ./install.sh            # spustit instalaci
-#   ./install.sh --dry-run  # jen validace, bez změn
-#   ./install.sh --run-db-migrations  # volitelně spustit DB migrace lokálně
-#   ./install.sh --skip-docker  # přeskočit Docker build
+#   cp config/install.conf.example .env
+#   ./install.sh
+#   ./install.sh --dry-run
 # =============================================================================
 set -euo pipefail
 
@@ -37,34 +35,63 @@ check_skip() { CHECKLIST+=("⏭️  $*"); }
 
 # ─── Argumenty ───────────────────────────────────────────────────────────────
 DRY_RUN=false
-SKIP_DB=true
-SKIP_DOCKER=false
+CONFIG_FILE="$SCRIPT_DIR/.env"
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dry-run)     DRY_RUN=true;     shift ;;
-        --skip-db)     SKIP_DB=true;     shift ;;
-        --run-db-migrations) SKIP_DB=false; shift ;;
-        --skip-docker) SKIP_DOCKER=true; shift ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        --config)
+            [[ $# -ge 2 ]] || { err "--config vyžaduje cestu k souboru"; exit 1; }
+            CONFIG_FILE="$2"; shift 2 ;;
         -h|--help)
-            echo "Usage: $0 [--dry-run] [--run-db-migrations] [--skip-db] [--skip-docker]"
-            echo "  --dry-run      Jen validace, bez změn"
-            echo "  --run-db-migrations  Spustit DB migrace lokálně pomocí DB_DDL_* z .env"
-            echo "  --skip-db      Přeskočit lokální DB migrace (default; migrace běží v K8s init jobu přes Conjur)"
-            echo "  --skip-docker  Přeskočit Docker build & push"
+            echo "Usage: $0 [--dry-run] [--config FILE]"
+            echo "  --dry-run      Vygeneruje a ověří výstup jen v dočasném adresáři"
+            echo "  --config FILE  Použije jiný konfigurační soubor než .env"
             exit 0 ;;
         *) err "Neznámý argument: $1"; exit 1 ;;
     esac
 done
 
-# ─── Load .env ───────────────────────────────────────────────────────────────
-if [[ ! -f .env ]]; then
-    err ".env soubor nenalezen!"
-    echo "  Vytvoř ho:  cp .env.example .env"
+# ─── Načtení konfigurace ─────────────────────────────────────────────────────
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    err "Konfigurační soubor nenalezen: $CONFIG_FILE"
+    echo "  Vytvoř ho: cp config/install.conf.example .env"
     echo "  Vyplň hodnoty a spusť znovu."
     exit 1
 fi
 
-set -a; source .env; set +a
+set -a; source "$CONFIG_FILE"; set +a
+
+case "${ENVIRONMENT:-}" in
+    prod) ENV_PREFIX="PROD" ;;
+    nprod) ENV_PREFIX="NPROD" ;;
+    *) err "ENVIRONMENT musí být prod nebo nprod (aktuálně: ${ENVIRONMENT:-nenastaveno})"; exit 1 ;;
+esac
+
+use_environment_value() {
+    local target_name="$1"
+    local profile_name="${ENV_PREFIX}_${target_name}"
+    printf -v "$target_name" '%s' "${!profile_name:-}"
+}
+
+for profile_value in \
+    INFRA_APPS_REPO INFRA_APPS_BASE_BRANCH DB_HOST DB_NAME \
+    DB_DDL_USER_D1 DB_DDL_USER_D2 DB_USER_D1 DB_USER_D2 \
+    ES_HOST ES_INDEX CONJUR_LOB_USER CONJUR_SAFE_NAME \
+    CONJUR_ACCOUNT_ES CONJUR_ACCOUNT_CONFLUENCE \
+    CONFLUENCE_KNOWN_ERRORS_PAGE_ID CONFLUENCE_KNOWN_PEAKS_PAGE_ID \
+    CONFLUENCE_RECENT_INCIDENTS_PAGE_ID SMTP_HOST EMAIL_FROM TEAMS_EMAIL
+do
+    use_environment_value "$profile_value"
+done
+
+DB_PORT="${DB_PORT:-5432}"
+DB_DDL_ROLE="${DB_DDL_ROLE:-role_ailog_analyzer_ddl}"
+DB_APP_ROLE="${DB_APP_ROLE:-role_ailog_analyzer_app}"
+readonly DOCKER_IMAGE="dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest"
+BRANCH_NAME="${BRANCH_NAME:-feat/ai-log-analyzer-${ENVIRONMENT}}"
+INFRA_APPS_DIR="${INFRA_APPS_REPO}/infra-apps"
+CHART_DIR="$INFRA_APPS_DIR/ai-log-analyzer"
+APP_MANIFEST="$INFRA_APPS_DIR/ai-log-analyzer.yaml"
 
 header "AI Log Analyzer — Instalace ($ENVIRONMENT)"
 if $DRY_RUN; then warn "DRY-RUN mód — žádné změny nebudou provedeny"; fi
@@ -80,6 +107,16 @@ validate() {
         ((ERRORS++))
     else
         ok "  $var_name = $var_value"
+    fi
+}
+
+validate_quiet() {
+    local var_name="$1" var_value="${!1:-}"
+    if [[ -z "$var_value" || "$var_value" == "<"* ]]; then
+        err "  $var_name není vyplněn"
+        ((ERRORS++))
+    else
+        ok "  $var_name je vyplněn"
     fi
 }
 
@@ -109,12 +146,16 @@ validate_at_least_one() {
 
 # Povinné
 validate ENVIRONMENT
-validate DOCKER_SQUAD
-validate IMAGE_TAG
-validate INFRA_APPS_DIR
+validate DOCKER_IMAGE
+validate INFRA_APPS_REPO
+validate INFRA_APPS_BASE_BRANCH
 validate DB_HOST
 validate DB_PORT
 validate DB_NAME
+validate DB_DDL_USER_D1
+validate DB_DDL_USER_D2
+validate DB_USER_D1
+validate DB_USER_D2
 validate ES_HOST
 validate ES_INDEX
 validate CONFLUENCE_URL
@@ -129,146 +170,123 @@ validate EMAIL_FROM
 validate CONJUR_APP_ID
 validate CONJUR_LOB_USER
 validate CONJUR_SAFE_NAME
-validate CONJUR_ACCOUNT_DB
-validate CONJUR_ACCOUNT_DB_DDL
 validate CONJUR_ACCOUNT_ES
 validate CONJUR_ACCOUNT_CONFLUENCE
 validate MONITORED_NAMESPACES
-
-if ! $SKIP_DB; then
-    validate DB_USER
-    validate DB_PASSWORD
-    validate DB_DDL_USER
-    validate DB_DDL_PASSWORD
-fi
 
 if [[ $ERRORS -gt 0 ]]; then
     err "$ERRORS proměnných není vyplněno. Uprav .env a spusť znovu."
     exit 1
 fi
 
-# Odvozené proměnné
-DOCKER_IMAGE="${DOCKER_REGISTRY:-dockerhub.kb.cz}/${DOCKER_SQUAD}/ai-log-analyzer:${IMAGE_TAG}"
-ANALYZER_REPO_DIR="${ANALYZER_REPO_DIR:-$SCRIPT_DIR}"
-
 ok "Validace OK ($ENVIRONMENT)"
 check_ok "Konfigurace validována"
 
-# ─── 2. DB Schéma ────────────────────────────────────────────────────────────
-header "2/6  Databáze — migrace schématu"
+# ─── 2. Příprava infra-apps branche ─────────────────────────────────────────
+header "2/6  Infra-apps branch"
 
-if $SKIP_DB; then
-    warn "Lokální DB migrace přeskočeny (default)"
-    info "Prod/NPROD migrace poběží v K8s init jobu přes CyberArk/Conjur a DB_DDL_* secret."
-    check_skip "DB migrace (K8s init job přes Conjur)"
-else
-    info "Host: $DB_HOST:$DB_PORT / $DB_NAME"
-    info "DDL user: $DB_DDL_USER"
-
-    # Test připojení
-    if ! PGPASSWORD="$DB_DDL_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_DDL_USER" -d "$DB_NAME" -c "SELECT 1;" > /dev/null 2>&1; then
-        err "Nelze se připojit k DB jako $DB_DDL_USER"
-        err "Ověř, že DB existuje a DDL user má přístup."
-        exit 1
-    fi
-    ok "DB připojení OK"
-
-    if $DRY_RUN; then
-        info "DRY-RUN: Migrace by se spustily:"
-        for f in scripts/migrations/[0-9]*.sql; do
-            info "  → $f"
-        done
-        check_skip "DB migrace (dry-run)"
-    else
-        info "Spouštím migrace..."
-        for f in scripts/migrations/[0-9]*.sql; do
-            info "  → $(basename "$f")"
-            PGPASSWORD="$DB_DDL_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
-                -U "$DB_DDL_USER" -d "$DB_NAME" -f "$f" 2>&1 || {
-                warn "  Migrace $(basename "$f") vrátila warning (může být OK pokud tabulka existuje)"
-            }
-        done
-        ok "Migrace dokončeny"
-
-        # Oprávnění pro app usera
-        info "Nastavuji oprávnění pro app user..."
-        PGPASSWORD="$DB_DDL_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
-            -U "$DB_DDL_USER" -d "$DB_NAME" -c "
-            SET ROLE ${DB_DDL_ROLE:-role_ailog_analyzer_ddl};
-            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ailog_peak TO role_ailog_analyzer_app;
-            GRANT USAGE ON ALL SEQUENCES IN SCHEMA ailog_peak TO role_ailog_analyzer_app;
-        " 2>&1 || warn "GRANT příkazy vrátily warning"
-        ok "Oprávnění nastavena"
-
-        # Ověření
-        TABLE_COUNT=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" \
-            -U "$DB_USER" -d "$DB_NAME" -tAc \
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='ailog_peak';")
-        if [[ "$TABLE_COUNT" -ge 4 ]]; then
-            ok "DB ověření: $TABLE_COUNT tabulek v ailog_peak"
-            check_ok "DB migrace ($TABLE_COUNT tabulek)"
-        else
-            err "DB ověření: jen $TABLE_COUNT tabulek (očekáváno ≥4)"
-            check_fail "DB migrace (jen $TABLE_COUNT tabulek)"
-        fi
-    fi
-fi
-
-# ─── 3. Docker Build & Push ──────────────────────────────────────────────────
-header "3/6  Docker build & push"
-
-if $SKIP_DOCKER; then
-    warn "Přeskočeno (--skip-docker)"
-    check_skip "Docker build (přeskočeno)"
-else
-    info "Image: $DOCKER_IMAGE"
-
-    if $DRY_RUN; then
-        info "DRY-RUN: docker build -t $DOCKER_IMAGE ."
-        info "DRY-RUN: docker push $DOCKER_IMAGE"
-        check_skip "Docker build (dry-run)"
-    else
-        info "Building..."
-        docker build -t "$DOCKER_IMAGE" "$ANALYZER_REPO_DIR"
-        ok "Build OK"
-
-        info "Pushing..."
-        docker push "$DOCKER_IMAGE"
-        ok "Push OK: $DOCKER_IMAGE"
-        check_ok "Docker image: $DOCKER_IMAGE"
-    fi
-fi
-
-# ─── 4. Generování values.yaml + kopírování do infra-apps ────────────────────
-header "4/6  K8s manifesty → infra-apps repozitář"
-
-if [[ ! -d "$INFRA_APPS_DIR" ]]; then
-    err "Infra-apps adresář neexistuje: $INFRA_APPS_DIR"
-    err "Naklonuj příslušný k8s-infra-apps-<env> repozitář."
+if [[ ! -d "$INFRA_APPS_REPO/.git" ]]; then
+    err "INFRA_APPS_REPO není Git repozitář: $INFRA_APPS_REPO"
     exit 1
 fi
 
-# Generování values.yaml z .env
+info "V infra-apps vznikne nová branch: $BRANCH_NAME"
+info "Vytvoří se kompletní struktura:"
+info "  infra-apps/ai-log-analyzer.yaml"
+info "  infra-apps/ai-log-analyzer/"
+
+if $DRY_RUN; then
+    WORK_DIR="$(mktemp -d)"
+    trap 'rm -rf "$WORK_DIR"' EXIT
+    INFRA_APPS_DIR="$WORK_DIR/infra-apps"
+    CHART_DIR="$INFRA_APPS_DIR/ai-log-analyzer"
+    APP_MANIFEST="$INFRA_APPS_DIR/ai-log-analyzer.yaml"
+    mkdir -p "$INFRA_APPS_DIR"
+    check_skip "Git branch (dry-run)"
+else
+    cd "$INFRA_APPS_REPO"
+    git diff --quiet && git diff --cached --quiet || {
+        err "Infra-apps repozitář obsahuje necommitnuté změny. Před instalací je ukliď."
+        exit 1
+    }
+    git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" && {
+        err "Lokální branch už existuje: $BRANCH_NAME"
+        exit 1
+    }
+    git ls-remote --exit-code --heads origin "$BRANCH_NAME" > /dev/null 2>&1 && {
+        err "Vzdálená branch už existuje: $BRANCH_NAME"
+        exit 1
+    }
+    git switch "$INFRA_APPS_BASE_BRANCH"
+    git pull --ff-only origin "$INFRA_APPS_BASE_BRANCH"
+    git switch -c "$BRANCH_NAME"
+    mkdir -p "$INFRA_APPS_DIR"
+    ok "Branch vytvořena: $BRANCH_NAME"
+    check_ok "Git branch: $BRANCH_NAME"
+fi
+
+# ─── 3. Kompletní infra-apps struktura ───────────────────────────────────────
+header "3/6  K8s struktura"
+
+mkdir -p "$CHART_DIR/templates"
+cp "$SCRIPT_DIR/k8s/Chart.yaml" "$CHART_DIR/Chart.yaml"
+cp "$SCRIPT_DIR/k8s/README.md" "$CHART_DIR/README.md"
+cp -R "$SCRIPT_DIR/k8s/templates/." "$CHART_DIR/templates/"
+
+REPO_URL="$(git -C "$INFRA_APPS_REPO" remote get-url origin | sed -E 's#https://[^/@]+@#https://#')"
+
+cat > "$APP_MANIFEST" << APPEOF
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-log-analyzer
+  namespace: argocd-system
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: ai-log-analyzer
+    server: "https://kubernetes.default.svc"
+  source:
+    path: infra-apps/ai-log-analyzer
+    repoURL: "$REPO_URL"
+    targetRevision: "$INFRA_APPS_BASE_BRANCH"
+  project: application
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+APPEOF
+
 info "Generuji values.yaml pro $ENVIRONMENT..."
 PROXY_VALUE="${CONFLUENCE_PROXY:-http://cntlm.speed-default:3128}"
 
-cat > "$INFRA_APPS_DIR/values.yaml" << VALEOF
+cat > "$CHART_DIR/values.yaml" << VALEOF
 # =============================================================================
 # AI Log Analyzer — values.yaml ($ENVIRONMENT)
 # =============================================================================
 # Generováno: $(date '+%Y-%m-%d %H:%M:%S') pomocí install.sh
-# ZKONTROLUJ a dolad, pokud je třeba!
+# Zdroj hodnot: ${ENV_PREFIX}_* profil v $(basename "$CONFIG_FILE")
 # =============================================================================
 
+# -----------------------------------------------------------------------------
+# Základní identita aplikace
+# -----------------------------------------------------------------------------
 namespace: ai-log-analyzer
 environment: $ENVIRONMENT
 
 app:
   name: log-analyzer
-  image: $DOCKER_IMAGE
+  # Image se vždy používá z aplikačního repozitáře. Instalační balíček ji nebuildí.
+  image: "$DOCKER_IMAGE"
   imagePullPolicy: IfNotPresent
   secretName: log-analyzer-secrets
 
+# -----------------------------------------------------------------------------
+# Výpočetní prostředky
+# -----------------------------------------------------------------------------
 resources:
   requests:
     cpu: 500m
@@ -286,39 +304,59 @@ persistence:
     exports: exports
     reports: reports
 
+# -----------------------------------------------------------------------------
+# CyberArk / Conjur
+# Hesla se sem nezapisují. Uvádějí se názvy účtů obdržené při založení DB.
+# D1 se nyní používá pro runtime a migrace; D2 je uložen pro budoucí přepínání.
+# -----------------------------------------------------------------------------
 conjur:
-  image: dockerhub.kb.cz/ps-sq008-pub/cyberark/secrets-provider-for-k8s:1.7.3-kb.1
-  imagePullPolicy: IfNotPresent
-  containerName: conjur-secrets-provider
   applicationId: $CONJUR_APP_ID
   componentId: restricted
   lobUser: $CONJUR_LOB_USER
   safeName: $CONJUR_SAFE_NAME
   accounts:
     confluence: $CONJUR_ACCOUNT_CONFLUENCE
-    database: $CONJUR_ACCOUNT_DB
-    database_ddl: $CONJUR_ACCOUNT_DB_DDL
     elastic: $CONJUR_ACCOUNT_ES
+    database:
+      d1: $DB_USER_D1
+      d2: $DB_USER_D2
+    database_ddl:
+      d1: $DB_DDL_USER_D1
+      d2: $DB_DDL_USER_D2
 
+# -----------------------------------------------------------------------------
+# Runtime konfigurace
+# -----------------------------------------------------------------------------
 env:
+  # Obecné
   ENVIRONMENT: $ENVIRONMENT
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   REGISTRY_DIR: /data/registry
   EXPORT_DIR: /data/exports
+
+  # PostgreSQL spojení z JDBC údajů. Hesla dodává Conjur.
   DB_HOST: "$DB_HOST"
   DB_NAME: "$DB_NAME"
   DB_PORT: "$DB_PORT"
-    DB_DDL_ROLE: "${DB_DDL_ROLE:-role_ailog_analyzer_ddl}"
-    DB_APP_ROLE: "${DB_APP_ROLE:-role_ailog_analyzer_app}"
+  # DB_DDL_ROLE: oprávnění pro tvorbu a změny schématu během init/migrací.
+  DB_DDL_ROLE: "$DB_DDL_ROLE"
+  # DB_APP_ROLE: oprávnění běžící aplikace pro čtení a zápis dat.
+  DB_APP_ROLE: "$DB_APP_ROLE"
+
+  # Elasticsearch
   ES_HOST: "$ES_HOST"
   ES_INDEX: "$ES_INDEX"
+
+  # Confluence a proxy
   CONFLUENCE_URL: "$CONFLUENCE_URL"
   CONFLUENCE_PROXY: "$PROXY_VALUE"
   HTTP_PROXY: "$PROXY_VALUE"
   HTTPS_PROXY: "$PROXY_VALUE"
   CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "$CONFLUENCE_KNOWN_ERRORS_PAGE_ID"
   CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "$CONFLUENCE_KNOWN_PEAKS_PAGE_ID"
-    CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID"
+  CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID"
+
+  # Detekce peaků a alerting
   SPIKE_THRESHOLD: "${SPIKE_THRESHOLD:-3.0}"
   EWMA_ALPHA: "${EWMA_ALPHA:-0.3}"
   WINDOW_MINUTES: "${WINDOW_MINUTES:-15}"
@@ -339,63 +377,56 @@ init:
   activeDeadlineSeconds: 14400
 
 email:
-    smtpHost: "${SMTP_HOST:-css-smtp-prod-os.sos.kb.cz}"
-    smtpPort: "${SMTP_PORT:-25}"
-    from: "${EMAIL_FROM:-ai-log-analyzer@kb.cz}"
+  smtpHost: "$SMTP_HOST"
+  smtpPort: "${SMTP_PORT:-25}"
+  from: "$EMAIL_FROM"
 
 teams:
-    enabled: "${TEAMS_ENABLED:-false}"
-    webhook_url: "${TEAMS_WEBHOOK_URL:-}"
+  enabled: "${TEAMS_ENABLED:-false}"
+  webhook_url: "${TEAMS_WEBHOOK_URL:-}"
   email: "$TEAMS_EMAIL"
 VALEOF
 
-ok "values.yaml vygenerován"
+ok "Vytvořen ArgoCD manifest i kompletní Helm chart"
+check_ok "K8s struktura: infra-apps/ai-log-analyzer{.yaml,/}"
 
-# Kopie templates (pokud chybí)
-if [[ ! -d "$INFRA_APPS_DIR/templates" ]]; then
-    info "Kopíruji K8s templates..."
-    cp -r "$ANALYZER_REPO_DIR/k8s/templates" "$INFRA_APPS_DIR/templates"
-    ok "Templates zkopírovány"
+# ─── 4. Validace výstupu ─────────────────────────────────────────────────────
+header "4/6  Validace výstupu"
+
+python3 - "$APP_MANIFEST" "$CHART_DIR/values.yaml" <<'PYEOF'
+import sys
+import yaml
+
+for path in sys.argv[1:]:
+    with open(path, encoding="utf-8") as stream:
+        data = yaml.safe_load(stream)
+    if not isinstance(data, dict):
+        raise SystemExit(f"Neplatný YAML objekt: {path}")
+print("YAML parse OK")
+PYEOF
+
+if command -v helm > /dev/null 2>&1; then
+    helm lint "$CHART_DIR"
+    helm template ai-log-analyzer "$CHART_DIR" > /dev/null
+    ok "Helm lint a render OK"
+else
+    warn "Helm není nainstalován; proběhla pouze YAML validace"
 fi
+check_ok "YAML/Helm validace"
 
-if [[ ! -f "$INFRA_APPS_DIR/Chart.yaml" ]]; then
-    cp "$ANALYZER_REPO_DIR/k8s/Chart.yaml" "$INFRA_APPS_DIR/Chart.yaml"
-    ok "Chart.yaml zkopírován"
-fi
-
-# Aktualizace templates (vždy přepsat)
-info "Aktualizuji templates z aktuální verze..."
-cp -r "$ANALYZER_REPO_DIR/k8s/templates/"* "$INFRA_APPS_DIR/templates/"
-cp "$ANALYZER_REPO_DIR/k8s/Chart.yaml" "$INFRA_APPS_DIR/Chart.yaml"
-ok "Templates aktualizovány"
-
-check_ok "K8s manifesty v $INFRA_APPS_DIR"
-
-# ─── 5. Commit & Push do nové branch ─────────────────────────────────────────
-header "5/6  Git commit & push (infra-apps)"
-
-BRANCH_NAME="feat/ai-log-analyzer-${ENVIRONMENT}-${IMAGE_TAG}"
+# ─── 5. Commit a push ────────────────────────────────────────────────────────
+header "5/6  Git commit & push"
 
 if $DRY_RUN; then
-    info "DRY-RUN: Vytvořila by se branch: $BRANCH_NAME"
-    check_skip "Git commit (dry-run)"
+    info "DRY-RUN: výstup byl úspěšně vygenerován a ověřen v dočasném adresáři"
+    check_skip "Git commit/push (dry-run)"
 else
-    pushd "$INFRA_APPS_DIR/.." > /dev/null  # infra-apps/
-    cd "$(git rev-parse --show-toplevel)"     # root of infra-apps repo
-
-    info "Branch: $BRANCH_NAME"
-    git checkout -b "$BRANCH_NAME" 2>/dev/null || git checkout "$BRANCH_NAME"
-    git add "infra-apps/ai-log-analyzer/"
-    git commit -m "feat: ai-log-analyzer $ENVIRONMENT $IMAGE_TAG
-
-Generováno install.sh: $(date '+%Y-%m-%d %H:%M:%S')" || warn "Žádné změny k commitnutí"
-
-    git push -u origin "$BRANCH_NAME" 2>&1 || {
-        warn "Push selhal — proveď manuálně: git push -u origin $BRANCH_NAME"
-    }
-    ok "Branch $BRANCH_NAME pushed"
-    popd > /dev/null
-    check_ok "Git: $BRANCH_NAME pushed"
+    cd "$INFRA_APPS_REPO"
+    git add "infra-apps/ai-log-analyzer.yaml" "infra-apps/ai-log-analyzer/"
+    git commit -m "feat: install ai-log-analyzer in $ENVIRONMENT"
+    git push -u origin "$BRANCH_NAME"
+    ok "Branch pushnuta: $BRANCH_NAME"
+    check_ok "Git commit a push"
 fi
 
 # ─── 6. Souhrn & další kroky ─────────────────────────────────────────────────
@@ -414,7 +445,8 @@ echo ""
 echo -e "${BLUE}══════════  DALŠÍ KROKY  ═══════════════════════════════════${NC}"
 echo ""
 echo "  1. VYTVOŘIT PR z branch: $BRANCH_NAME"
-echo "     → Zkontroluj values.yaml v PR: $INFRA_APPS_DIR/values.yaml"
+echo "     → Zkontroluj: infra-apps/ai-log-analyzer.yaml"
+echo "     → Zkontroluj: infra-apps/ai-log-analyzer/values.yaml"
 echo ""
 echo "  2. MERGE PR → ArgoCD automaticky nasadí"
 echo ""
@@ -426,7 +458,7 @@ echo "     kubectl create job log-analyzer-init-manual \\"
 echo "       --from=cronjob/log-analyzer -n ai-log-analyzer \\"
 echo "       -- /bin/bash -c 'python3 /app/scripts/backfill.py --days ${INIT_BACKFILL_DAYS:-21} --force && python3 /app/scripts/core/calculate_peak_thresholds.py --weeks ${INIT_THRESHOLD_WEEKS:-3}'"
 echo "     NEBO pokud je init Job template v manifestech:"
-echo "     helm template $INFRA_APPS_DIR | kubectl apply -f - -l job-type=init"
+echo "     helm template $CHART_DIR | kubectl apply -f - -l job-type=init"
 echo ""
 echo "  5. SLEDOVAT init job:"
 echo "     kubectl logs -f job/log-analyzer-init -n ai-log-analyzer"
