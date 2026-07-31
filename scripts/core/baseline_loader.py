@@ -1,32 +1,10 @@
 #!/usr/bin/env python3
-"""
-Baseline Loader - Načítá historické baseline data z peak_investigation tabulky
-
-Účel:
-    Regular phase (15-min) potřebuje HISTORICKÉ baseline pro detekci peak.
-    Bez historické informace nemůže detekovat, že se něco změnilo.
-    
-Algoritmus:
-    1. SELECT z peak_investigation za posledních 7 dní (indexované podle timestamp)
-    2. Seskupi po error_type a timestamp
-    3. Spočítej histórii baseline rate (reference_value) v 15-min oknech
-    4. Vrať seznam rates pro každý error_type
-    
-Integrace:
-    baseline_loader = BaselineLoader(db_conn)
-    historical = baseline_loader.load_historical_rates(
-        error_types=['NullPointerException', 'TimeoutException'],
-        lookback_days=7
-    )
-    # historical = {
-    #   'NullPointerException': [0, 1, 0, 2, 1, 0, ..., 3, 2],  ← 96+ oken
-    # }
-"""
+"""Load dense fingerprint baselines from authoritative complete-run facts."""
 
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List
 from collections import defaultdict
 
 
@@ -40,137 +18,124 @@ class BaselineLoader:
         """
         self.db_conn = db_conn
     
-    def load_historical_rates(
+    def load_fingerprint_rates(
         self,
-        error_types: List[str],
+        fingerprints: List[str],
+        analysis_window_start: datetime,
         lookback_days: int = 7,
         window_minutes: int = 15,
         min_samples: int = 3
     ) -> Dict[str, List[float]]:
-        """
-        Načte historické baseline rates (reference_value) z peak_investigation.
-        
-        Vrací slovník:
-            {
-              'error_type': [rate1, rate2, ..., rateN],  # Seřazeno chronologicky
-              ...
-            }
-        
-        Args:
-            error_types: Seznam error_type k načtení (např. ['NullPointerException'])
-            lookback_days: Kolik dní historie vzít (default: 7)
-            window_minutes: Velikost okna (default: 15)
-            min_samples: Minimální počet vzorků k Return (default: 3)
-        
-        Returns:
-            {error_type -> [baseline_rates]}
-        """
-        if not error_types:
+        """Return one zero-inclusive rate per authoritative complete bucket."""
+        if not fingerprints:
             return {}
-        
-        cutoff_time = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-        
+
+        if analysis_window_start is None:
+            raise ValueError('analysis_window_start is required for as-of baseline loading')
+        if analysis_window_start.tzinfo is None or analysis_window_start.utcoffset() is None:
+            raise ValueError('analysis_window_start must be timezone-aware')
+        if window_minutes != 15:
+            raise ValueError('authoritative facts currently use fixed 15-minute buckets')
+
+        fingerprints = sorted(set(fingerprints))
+        cutoff_time = analysis_window_start - timedelta(days=lookback_days)
         try:
-            cursor = self.db_conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-            
-            # SQL: SELECT reference_value (baseline) z tabulky
-            # Načte VŠECHNA data (ne jen anomální) pro přesný baseline
+            cursor = self.db_conn.cursor()
             query = """
+            WITH complete_windows AS (
+                SELECT DISTINCT window_start
+                FROM ailog_peak.v_authoritative_run_windows
+                WHERE window_start >= %s
+                  AND window_start < %s
+            ),
+            requested_fingerprints AS (
+                SELECT UNNEST(%s::TEXT[]) AS fingerprint
+            ),
+            fingerprint_counts AS (
+                SELECT fingerprint, window_start, SUM(error_count)::BIGINT AS error_count
+                FROM ailog_peak.v_complete_error_kind_counts
+                WHERE fingerprint = ANY(%s)
+                  AND window_start >= %s
+                  AND window_start < %s
+                GROUP BY fingerprint, window_start
+            )
             SELECT
-                error_type,
-                reference_value,
-                timestamp,
-                EXTRACT(EPOCH FROM timestamp)::BIGINT as ts_epoch
-            FROM ailog_peak.peak_investigation
-            WHERE
-                error_type = ANY(%s)
-                AND timestamp > %s
-                AND reference_value IS NOT NULL
-                AND reference_value > 0
-            ORDER BY error_type, timestamp ASC
+                requested.fingerprint,
+                complete.window_start,
+                COALESCE(counts.error_count, 0)::BIGINT AS error_count
+            FROM requested_fingerprints requested
+            CROSS JOIN complete_windows complete
+            LEFT JOIN fingerprint_counts counts
+              ON counts.fingerprint = requested.fingerprint
+             AND counts.window_start = complete.window_start
+            ORDER BY requested.fingerprint, complete.window_start
             """
-            
-            cursor.execute(query, (error_types, cutoff_time))
+            cursor.execute(query, (
+                cutoff_time,
+                analysis_window_start,
+                fingerprints,
+                fingerprints,
+                cutoff_time,
+                analysis_window_start,
+            ))
             rows = cursor.fetchall()
             cursor.close()
-            
+
             if not rows:
-                print(f"⚠️ BaselineLoader: Žádná data pro error_types={error_types}")
                 return {}
-            
-            # Seskupi po error_type
-            rates_by_error: Dict[str, List[Dict]] = defaultdict(list)
-            for row in rows:
-                rates_by_error[row['error_type']].append({
-                    'reference_value': row['reference_value'],
-                    'timestamp': row['timestamp'],
-                    'ts_epoch': row['ts_epoch'],
-                })
-            
-            # Proces každý error_type
-            result = {}
-            for error_type, records in rates_by_error.items():
-                if len(records) < min_samples:
-                    # Málo vzorků - skip
-                    continue
-                
-                # Seřaď chronologicky (mělo by být, ale jistota)
-                records.sort(key=lambda x: x['ts_epoch'])
-                
-                # Extrahuj baseline rates
-                baseline_rates = [r['reference_value'] for r in records]
-                result[error_type] = baseline_rates
-                
-                print(f"✓ {error_type}: {len(baseline_rates)} historical rates")
-            
+
+            rates_by_fingerprint: Dict[str, List[float]] = defaultdict(list)
+            for fingerprint, _, error_count in rows:
+                rates_by_fingerprint[fingerprint].append(float(error_count))
+
+            result = {
+                fingerprint: rates
+                for fingerprint, rates in rates_by_fingerprint.items()
+                if len(rates) >= min_samples
+            }
+            for fingerprint, rates in result.items():
+                print(f"✓ {fingerprint}: {len(rates)} dense historical rates")
             return result
-            
+
         except Exception as e:
             print(f"❌ BaselineLoader error: {e}")
-            return {}
-    
+            raise
+
+    def load_historical_rates(
+        self,
+        fingerprints: List[str],
+        analysis_window_start: datetime,
+        lookback_days: int = 7,
+        window_minutes: int = 15,
+        min_samples: int = 3,
+    ) -> Dict[str, List[float]]:
+        """Compatibility alias for the fingerprint-grain loader."""
+        return self.load_fingerprint_rates(
+            fingerprints,
+            analysis_window_start,
+            lookback_days,
+            window_minutes,
+            min_samples,
+        )
+
     def load_baseline_for_fingerprint(
         self,
         fingerprint: str,
+        analysis_window_start: datetime,
         lookback_days: int = 7,
         min_samples: int = 3
     ) -> List[float]:
-        """
-        Načte historický baseline pro konkrétní fingerprint.
-        
-        (Alternativa k load_historical_rates pro single fingerprint)
-        """
-        try:
-            cursor = self.db_conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-            
-            cutoff_time = datetime.now(timezone.utc) - timedelta(days=lookback_days)
-            
-            query = """
-            SELECT reference_value
-            FROM ailog_peak.peak_investigation
-            WHERE
-                reference_value IS NOT NULL
-                AND timestamp > %s
-            ORDER BY timestamp ASC
-            LIMIT 1000
-            """
-            
-            cursor.execute(query, (cutoff_time,))
-            rows = cursor.fetchall()
-            cursor.close()
-            
-            if not rows or len(rows) < min_samples:
-                return []
-            
-            return [float(r['reference_value']) for r in rows]
-            
-        except Exception as e:
-            print(f"❌ load_baseline_for_fingerprint error: {e}")
-            return []
-    
+        return self.load_fingerprint_rates(
+            [fingerprint],
+            analysis_window_start,
+            lookback_days=lookback_days,
+            min_samples=min_samples,
+        ).get(fingerprint, [])
+
     def get_baseline_stats(
         self,
-        error_types: List[str],
+        fingerprints: List[str],
+        analysis_window_start: datetime,
         lookback_days: int = 7
     ) -> Dict[str, Dict]:
         """
@@ -188,7 +153,11 @@ class BaselineLoader:
               ...
             }
         """
-        rates = self.load_historical_rates(error_types, lookback_days)
+        rates = self.load_fingerprint_rates(
+            fingerprints,
+            analysis_window_start,
+            lookback_days=lookback_days,
+        )
         
         if not rates:
             return {}

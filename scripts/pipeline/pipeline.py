@@ -119,6 +119,32 @@ class Pipeline:
             print(f"✅ Loaded {len(self.phase_c.known_fixes)} known fixes")
         except Exception as e:
             print(f"⚠️  Could not load known data: {e}")
+
+    @staticmethod
+    def _populate_error_kind_facts(
+        collection: IncidentCollection,
+        fact_rows: Dict[tuple, List[Any]],
+        fingerprint_metadata: Dict[str, Dict[str, str]],
+        classifications: Dict[str, ClassificationResult],
+    ) -> None:
+        for (bucket, namespace, application, fingerprint), values in sorted(fact_rows.items()):
+            count, first_seen, last_seen = values
+            metadata = fingerprint_metadata[fingerprint]
+            classification = classifications.get(fingerprint)
+            collection.error_kind_facts.append({
+                'window_start': bucket,
+                'namespace': namespace,
+                'application': application,
+                'fingerprint': fingerprint,
+                'error_type': metadata['error_type'],
+                'category': classification.category.value if classification else 'unknown',
+                'subcategory': classification.subcategory if classification else 'unclassified',
+                'error_count': count,
+                'first_event_at': first_seen,
+                'last_event_at': last_seen,
+                'sample_message': metadata['sample_message'],
+                'metadata_quality': 'unknown',
+            })
     
     def run(
         self,
@@ -280,6 +306,35 @@ class Pipeline:
         if timestamps:
             collection.time_range_start = min(timestamps)
             collection.time_range_end = max(timestamps)
+
+        fact_rows = {}
+        for record in records:
+            if not record.timestamp:
+                continue
+            minute = (record.timestamp.minute // self.phase_b.window_minutes) * self.phase_b.window_minutes
+            bucket = record.timestamp.replace(minute=minute, second=0, microsecond=0)
+            key = (
+                bucket,
+                record.namespace or 'unknown',
+                record.app_name or 'unknown',
+                record.fingerprint,
+            )
+            fact = fact_rows.setdefault(key, [0, record.timestamp, record.timestamp])
+            fact[0] += 1
+            fact[1] = min(fact[1], record.timestamp)
+            fact[2] = max(fact[2], record.timestamp)
+        self._populate_error_kind_facts(
+            collection,
+            fact_rows,
+            {
+                fingerprint: {
+                    'error_type': group_records[0].error_type,
+                    'sample_message': group_records[0].raw_message[:500],
+                }
+                for fingerprint, group_records in groups.items()
+            },
+            classifications,
+        )
         
         # Build incidents
         incident_seq = 1
@@ -411,7 +466,312 @@ class Pipeline:
             print(f"   💾 Saved intermediate: {intermediate_path}")
         
         return collection
-    
+
+    def run_streaming(
+        self,
+        aggregator,
+        run_id: str = None,
+        input_records: int = None,
+    ) -> IncidentCollection:
+        """
+        Streaming varianta run() (r87).
+
+        Konzumuje PŘEDPOČÍTANÉ agregáty ze `StreamingAggregator` místo držení všech
+        recordů v RAM. Produkuje BIT-IDENTICKÉ výsledky jako run() nad stejnými logy
+        (viz golden regression test) — reuse Phase B math helperů, Phase C detect(),
+        Phase D/E a stejné incident-building logiky.
+        """
+        from datetime import timedelta
+
+        agg = aggregator
+        if not agg._finalized:
+            agg.finalize()
+
+        if run_id is None:
+            run_id = f"run-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+        if input_records is None:
+            input_records = agg.total_records
+
+        print(f"\n{'='*80}")
+        print(f"🚀 PIPELINE (streaming) - Run ID: {run_id}")
+        print(f"{'='*80}")
+        print(f"   Input: {input_records:,} errors | {agg.fingerprint_count} fingerprints")
+
+        wm = self.phase_b.window_minutes
+        cws = agg.current_window_start
+        global_max_idx = agg.global_max_window_idx
+        global_last_bucket = agg.global_last_bucket
+
+        # =====================================================================
+        # FÁZE B: Measure (replikace KROK 3 z phase_b_measure.py nad agregáty)
+        # =====================================================================
+        print(f"\n📊 PHASE B: Measure (streaming)")
+        measurements: Dict[str, MeasurementResult] = {}
+        for fp in agg.fp_order:
+            acc = agg.acc[fp]
+            window_counts = acc.window_counts
+            if not window_counts or cws is None:
+                continue  # bez timestampovaného recordu → žádný measurement (== Phase B)
+
+            rates = []
+            for i in range(global_max_idx + 1):
+                b = cws + timedelta(minutes=i * wm)
+                rates.append(window_counts.get(b, 0))
+
+            current_rate = rates[-1] if rates else 0
+            current_count = window_counts.get(global_last_bucket, 0)
+
+            current_window_historical = rates[:-1] if len(rates) > 1 else []
+            historical_rates = current_window_historical
+            if fp in self.phase_b.historical_baseline:
+                historical_rates = self.phase_b.historical_baseline[fp] + historical_rates
+            elif self.phase_b.error_type_baseline:
+                et = acc.error_type
+                if et and et in self.phase_b.error_type_baseline:
+                    historical_rates = self.phase_b.error_type_baseline[et] + historical_rates
+
+            if historical_rates:
+                ewma_rate = self.phase_b._calculate_ewma(historical_rates)
+                median_rate, mad = self.phase_b._calculate_mad(historical_rates)
+                has_baseline = True
+            else:
+                ewma_rate = 0
+                median_rate = 0
+                mad = 0
+                has_baseline = False
+
+            if has_baseline and ewma_rate > 0:
+                trend_ratio = current_rate / ewma_rate
+            else:
+                trend_ratio = 1.0
+
+            if trend_ratio > 1.2:
+                trend_direction = "increasing"
+            elif trend_ratio < 0.8:
+                trend_direction = "decreasing"
+            else:
+                trend_direction = "stable"
+
+            first_seen = acc.first_seen
+            last_seen = acc.last_seen
+            duration_sec = int((last_seen - first_seen).total_seconds()) if first_seen and last_seen else 0
+
+            total_count = sum(window_counts.values())
+            active_windows = sum(1 for v in window_counts.values() if v > 0)
+
+            namespaces = list(acc.ns_meas)
+            apps = list(acc.apps_meas)
+
+            measurements[fp] = MeasurementResult(
+                fingerprint=fp,
+                current_count=current_count,
+                current_rate=current_rate,
+                baseline_ewma=ewma_rate if has_baseline else 0,
+                baseline_mad=mad if has_baseline else 0,
+                baseline_median=median_rate if has_baseline else 0,
+                trend_ratio=trend_ratio,
+                trend_direction=trend_direction,
+                total_count=total_count,
+                active_windows=active_windows,
+                namespaces=namespaces,
+                namespace_count=len(namespaces),
+                apps=apps,
+                app_count=len(apps),
+                first_seen=first_seen,
+                last_seen=last_seen,
+                duration_sec=duration_sec,
+            )
+        print(f"   ✅ Measured {len(measurements)} fingerprints")
+
+        # =====================================================================
+        # FÁZE C: Detect (P93/CAP + reuse detect() + inkrementální burst)
+        # =====================================================================
+        print(f"\n🔍 PHASE C: Detect (streaming)")
+
+        self.phase_c.prepare_namespace_peak_results({
+            fingerprint: agg.acc[fingerprint].ns_bucket_counts
+            for fingerprint in measurements
+        })
+
+        # --- Per-fingerprint detekce (reuse detect(); burst inkrementálně) ---
+        detections: Dict[str, DetectionResult] = {}
+        bt = self.phase_c.burst_threshold
+        bwin_sec = self.phase_c.burst_window_sec
+        for fp in measurements.keys():
+            acc = agg.acc[fp]
+            measurement = measurements[fp]
+            result = self.phase_c.detect(
+                measurement,
+                fp_records=None,
+                current_version=self.phase_c.latest_version(acc.versions),
+                apps=list(acc.apps_meas),
+                error_type=acc.error_type,
+                normalized_message=acc.normalized_message,
+                namespaces=list(acc.ns_meas),
+            )
+            # Event timestamps (detect() je nenastaví bez fp_records)
+            result.first_event_ts = acc.first_seen
+            result.last_event_ts = acc.last_seen
+
+            # Burst z inkrementálního stavu (identická matematika jako _detect_burst)
+            if acc.burst_ts_events >= 2 and acc.burst_n > 0:
+                max_count = acc.burst_max
+                avg_count = acc.burst_sum / acc.burst_n
+                ratio = max_count / avg_count if avg_count > 0 else 0
+                if ratio > bt:
+                    result.flags.is_burst = True
+                    result.add_evidence(
+                        rule="burst",
+                        current=float(max_count),
+                        threshold=bt,
+                        message=f"max/avg ratio ({ratio:.2f}) > {bt} "
+                                f"({max_count} events in {bwin_sec}s window, avg {avg_count:.1f})",
+                    )
+            detections[fp] = result
+
+        flag_counts = {
+            'new': sum(1 for d in detections.values() if d.flags.is_new),
+            'spike': sum(1 for d in detections.values() if d.flags.is_spike),
+            'burst': sum(1 for d in detections.values() if d.flags.is_burst),
+            'cross_ns': sum(1 for d in detections.values() if d.flags.is_cross_namespace),
+        }
+        print(f"   ✅ Detected flags: new={flag_counts['new']}, spike={flag_counts['spike']}, burst={flag_counts['burst']}, cross_ns={flag_counts['cross_ns']}")
+
+        # =====================================================================
+        # FÁZE D: Score
+        # =====================================================================
+        print(f"\n📈 PHASE D: Score (streaming)")
+        scores = self.phase_d.score_batch(detections, measurements)
+
+        # =====================================================================
+        # FÁZE E: Classify
+        # =====================================================================
+        print(f"\n🏷️  PHASE E: Classify (streaming)")
+        classify_input = [
+            (fp, agg.acc[fp].normalized_message, agg.acc[fp].error_type)
+            for fp in measurements.keys()
+        ]
+        classifications = self.phase_e.classify_batch(classify_input)
+
+        # =====================================================================
+        # BUILD INCIDENTS (mirror run())
+        # =====================================================================
+        print(f"\n🔨 Building Incident Objects (streaming)")
+        collection = IncidentCollection(
+            run_id=run_id,
+            run_timestamp=datetime.utcnow(),
+            pipeline_version="1.0",
+            input_records=input_records,
+        )
+        if agg.min_ts is not None:
+            collection.time_range_start = agg.min_ts
+            collection.time_range_end = agg.max_ts
+
+        self._populate_error_kind_facts(
+            collection,
+            agg.error_kind_facts,
+            {
+                fingerprint: {
+                    'error_type': accumulator.error_type,
+                    'sample_message': accumulator.raw_samples[0] if accumulator.raw_samples else '',
+                }
+                for fingerprint, accumulator in agg.acc.items()
+            },
+            classifications,
+        )
+
+        incident_seq = 1
+        for fp in agg.fp_order:
+            measurement = measurements.get(fp)
+            detection = detections.get(fp)
+            score_result = scores.get(fp)
+            classification = classifications.get(fp)
+            if not all([measurement, detection, score_result, classification]):
+                continue
+
+            acc = agg.acc[fp]
+            inc = Incident(
+                id=generate_incident_id(collection.run_timestamp, incident_seq),
+                fingerprint=fp,
+                pipeline_version="1.0",
+            )
+            incident_seq += 1
+
+            inc.normalized_message = acc.normalized_message
+            inc.error_type = acc.error_type
+            inc.raw_samples = list(acc.raw_samples)
+
+            app_counts = acc.app_counts
+            namespace_counts = acc.ns_counts
+            trace_counts = acc.trace_counts
+            originator_counts = acc.originator_counts
+
+            inc.apps = [name for name, _ in app_counts.most_common()]
+            inc.namespaces = [name for name, _ in namespace_counts.most_common()]
+            inc.versions = sorted(acc.versions)
+            inc.trace_ids = [trace_id for trace_id, _ in trace_counts.most_common(10)]
+            inc.originator_applications = [name for name, _ in originator_counts.most_common()]
+            inc.app_event_counts = dict(app_counts)
+            inc.namespace_event_counts = dict(namespace_counts)
+            inc.trace_event_counts = dict(trace_counts)
+            inc.originator_application_counts = dict(originator_counts)
+            if hasattr(inc.trace_info, 'trace_ids'):
+                inc.trace_info.trace_ids = inc.trace_ids.copy()
+
+            inc.time.first_seen = measurement.first_seen
+            inc.time.last_seen = measurement.last_seen
+            inc.time.duration_sec = measurement.duration_sec
+
+            inc.stats.baseline_rate = measurement.baseline_ewma
+            inc.stats.baseline_median = measurement.baseline_median
+            inc.stats.baseline_mad = measurement.baseline_mad
+            inc.stats.current_rate = measurement.current_rate
+            inc.stats.current_count = measurement.total_count if measurement.total_count > 0 else measurement.current_count
+            inc.stats.namespaces = measurement.namespace_count
+            inc.stats.trend_direction = measurement.trend_direction
+            inc.stats.trend_ratio = measurement.trend_ratio
+
+            inc.flags = detection.flags
+            inc.evidence = detection.evidence
+
+            inc.score = score_result.score
+            inc.score_breakdown = score_result.breakdown
+            inc.severity = IncidentSeverity(score_to_severity(score_result.score))
+
+            inc.category = classification.category
+            inc.subcategory = classification.subcategory
+
+            collection.add_incident(inc)
+
+        print(f"   ✅ Built {collection.total_incidents} incidents")
+
+        # =====================================================================
+        # TRACE PATTERNS (rekonstrukce z SQLite jen pro relevantní/top trace)
+        # =====================================================================
+        collection.trace_patterns = []
+        collection.trace_pattern_index = {}
+        collection.trace_timelines = {}
+        if self.build_trace_patterns:
+            try:
+                from analysis.trace_timeline import (
+                    build_trace_timelines, group_traces_by_signature,
+                )
+                records_iter = list(agg.iter_top_trace_records())
+                timelines = build_trace_timelines(records_iter)
+                patterns = group_traces_by_signature(timelines)
+                index = {}
+                for pat in patterns:
+                    for tid in pat.trace_ids:
+                        index[tid] = pat
+                collection.trace_patterns = patterns
+                collection.trace_pattern_index = index
+                collection.trace_timelines = timelines
+                print(f"   ✅ Built {len(patterns)} trace patterns from {len(timelines)} traces")
+            except Exception as e:
+                print(f"   ⚠️ Trace pattern build failed (non-blocking): {e}")
+
+        return collection
+
     def replay_and_compare(
         self,
         errors: List[dict],

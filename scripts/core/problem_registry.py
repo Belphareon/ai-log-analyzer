@@ -199,6 +199,8 @@ class ProblemEntry:
     description: str = ""  # Human-readable description / root cause
     root_cause: str = ""
     behavior: str = ""
+    enriched_severity: str = ""
+    enriched_score: float = 0.0
 
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
@@ -252,6 +254,8 @@ class ProblemEntry:
             'notes': self.notes,
             'root_cause': self.root_cause,
             'behavior': self.behavior,
+            'enriched_severity': self.enriched_severity,
+            'enriched_score': self.enriched_score,
         }
     
     @classmethod
@@ -297,6 +301,11 @@ class ProblemEntry:
         entry.description = data.get('description', '')
         entry.root_cause = data.get('root_cause', '') or entry.description or ''
         entry.behavior = data.get('behavior', '')
+        entry.enriched_severity = str(data.get('enriched_severity', '') or '')
+        try:
+            entry.enriched_score = float(data.get('enriched_score', 0.0) or 0.0)
+        except (TypeError, ValueError):
+            entry.enriched_score = 0.0
         if not entry.behavior and entry.sample_messages:
             entry.behavior = entry.sample_messages[0]
         entry.affected_apps = set(data.get('affected_apps', []))
@@ -721,9 +730,19 @@ class ProblemRegistry:
     # LOAD / SAVE
     # =========================================================================
     
-    def load(self) -> bool:
-        """Načte registry z YAML souborů."""
+    def _reset_loaded_state(self) -> None:
+        self.problems.clear()
+        self.peaks.clear()
+        self.fingerprint_index.clear()
+        self._problem_counter = 0
+        self._peak_counter = 0
+        for key in self.stats:
+            self.stats[key] = 0
+
+    def _load_unlocked(self) -> bool:
+        """Load all registry files while the caller owns the transaction lock."""
         self.registry_dir.mkdir(parents=True, exist_ok=True)
+        self._reset_loaded_state()
         
         # Load problems
         problems_file = self.registry_dir / 'known_problems.yaml'
@@ -786,8 +805,23 @@ class ProblemRegistry:
                 print(f"⚠️ Error loading peaks: {e}")
         
         return True
+
+    def load(self) -> bool:
+        """Load a consistent snapshot of all registry files."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        transaction_lock = self.registry_dir / '.registry.transaction.lock'
+        try:
+            with open(transaction_lock, 'w') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_SH)
+                try:
+                    return self._load_unlocked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            print(f"⚠️ Error loading registry: {e}")
+            return False
     
-    def save(self) -> bool:
+    def _save_unlocked(self) -> bool:
         """
         Uloží registry do YAML a MD souborů.
         
@@ -853,6 +887,82 @@ class ProblemRegistry:
             print(f"⚠️ Error saving registry: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    def save(self) -> bool:
+        """Save one in-memory snapshot under the registry transaction lock."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        transaction_lock = self.registry_dir / '.registry.transaction.lock'
+        try:
+            with open(transaction_lock, 'w') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                try:
+                    return self._save_unlocked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            print(f"⚠️ Error saving registry: {e}")
+            return False
+
+    def update_and_save(
+        self,
+        incidents: List[Any],
+        event_timestamps: Dict[str, Tuple[datetime, datetime]] = None,
+    ) -> bool:
+        """Reload, mutate, and save the registry atomically under one lock."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        transaction_lock = self.registry_dir / '.registry.transaction.lock'
+        try:
+            with open(transaction_lock, 'w') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                try:
+                    if not self._load_unlocked():
+                        return False
+                    self.update_from_incidents(incidents, event_timestamps)
+                    return self._save_unlocked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            print(f"⚠️ Error updating registry: {e}")
+            return False
+
+    def merge_enrichment_and_save(
+        self,
+        problem_updates: Dict[str, Dict[str, Any]],
+        peak_updates: Dict[str, Dict[str, Any]],
+    ) -> bool:
+        """Merge derived text fields into the latest registry snapshot."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        transaction_lock = self.registry_dir / '.registry.transaction.lock'
+        try:
+            with open(transaction_lock, 'w') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                try:
+                    if not self._load_unlocked():
+                        return False
+                    for problem_key, updates in problem_updates.items():
+                        entry = self.problems.get(problem_key)
+                        if entry is None:
+                            continue
+                        entry.root_cause = updates.get('root_cause', entry.root_cause)
+                        entry.behavior = updates.get('behavior', entry.behavior)
+                        entry.enriched_severity = updates.get(
+                            'enriched_severity', entry.enriched_severity
+                        )
+                        entry.enriched_score = float(
+                            updates.get('enriched_score', entry.enriched_score)
+                        )
+                    for peak_key, updates in peak_updates.items():
+                        entry = self.peaks.get(peak_key)
+                        if entry is None:
+                            continue
+                        entry.root_cause = updates.get('root_cause', entry.root_cause)
+                        entry.behavior = updates.get('behavior', entry.behavior)
+                    return self._save_unlocked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as e:
+            print(f"⚠️ Error merging registry enrichment: {e}")
             return False
     
     def _atomic_write_yaml(self, filepath: Path, data: Any):

@@ -197,11 +197,22 @@ class PhaseC_Detect:
                 current=peak_result.get('value'),
                 threshold=threshold_value,
                 message=(
-                    f"namespace {peak_result.get('namespace')} fingerprint_count ({peak_result.get('value', 0):.0f}) exceeds "
+                    f"namespace {peak_result.get('namespace')} total ({peak_result.get('value', 0):.0f}) exceeds "
                     f"P93={peak_result.get('p93_threshold', 0):.0f} / "
                     f"CAP={peak_result.get('cap_threshold', 0):.0f} "
                     f"(triggered_by={peak_result.get('triggered_by')}, peak_id={peak_result.get('peak_identifier')})"
                 ),
+                details={
+                    'namespace': peak_result.get('namespace'),
+                    'fingerprint_contribution': peak_result.get('fingerprint_contribution'),
+                    'contributing_fingerprints': peak_result.get('contributing_fingerprints'),
+                    'p93_threshold': peak_result.get('p93_threshold'),
+                    'cap_threshold': peak_result.get('cap_threshold'),
+                    'triggered_by': peak_result.get('triggered_by'),
+                    'peak_identifier': peak_result.get('peak_identifier'),
+                    'threshold_snapshot_id': peak_result.get('threshold_snapshot_id'),
+                    'detector_version': 'namespace_p93_cap_v2',
+                },
             )
             self.stats['detected_spike'] += 1
             return True
@@ -425,6 +436,79 @@ class PhaseC_Detect:
             return parse_version(v1) >= parse_version(v2)
         except (ValueError, TypeError):
             return False
+
+    @staticmethod
+    def latest_version(versions) -> Optional[str]:
+        """Return the highest observed numeric application version."""
+        import re
+
+        parsed_versions = []
+        for version in versions:
+            if not version:
+                continue
+            numbers = tuple(int(number) for number in re.findall(r'\d+', str(version)))
+            if numbers:
+                parsed_versions.append((numbers, str(version)))
+        return max(parsed_versions)[1] if parsed_versions else None
+
+    def prepare_namespace_peak_results(
+        self,
+        fingerprint_namespace_windows: Dict[str, Dict[str, Dict[datetime, int]]],
+    ) -> None:
+        """Evaluate P93/CAP over namespace-total 15-minute buckets."""
+        self._fingerprint_peak_results = {}
+        if not self.peak_detector:
+            return
+
+        namespace_totals: Dict[str, Dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
+        contributors: Dict[Tuple[str, datetime], Dict[str, int]] = defaultdict(dict)
+        for fingerprint, namespace_windows in fingerprint_namespace_windows.items():
+            for namespace, bucket_counts in namespace_windows.items():
+                if not namespace:
+                    continue
+                for bucket, count in bucket_counts.items():
+                    namespace_totals[namespace][bucket] += count
+                    contributors[(namespace, bucket)][fingerprint] = count
+
+        for namespace, bucket_counts in namespace_totals.items():
+            for bucket, namespace_total in bucket_counts.items():
+                if namespace_total < self.min_namespace_peak_value:
+                    continue
+                try:
+                    check = self.peak_detector.is_peak(
+                        float(namespace_total), namespace, bucket.weekday()
+                    )
+                except Exception:
+                    continue
+                if not check.get('is_peak'):
+                    continue
+
+                bucket_contributors = contributors[(namespace, bucket)]
+                owner = min(
+                    bucket_contributors,
+                    key=lambda fingerprint: (-bucket_contributors[fingerprint], fingerprint),
+                )
+                trigger_score = max(
+                    namespace_total / check.get('p93_threshold', 1.0)
+                    if check.get('p93_threshold') else 0.0,
+                    namespace_total / check.get('cap_threshold', 1.0)
+                    if check.get('cap_threshold') else 0.0,
+                )
+                candidate = {
+                    **check,
+                    'namespace': namespace,
+                    'value': float(namespace_total),
+                    'fingerprint_contribution': bucket_contributors[owner],
+                    'contributing_fingerprints': len(bucket_contributors),
+                    'peak_identifier': f"SPIKE:NS:{namespace}:{bucket.isoformat()}",
+                    '_trigger_score': trigger_score,
+                }
+                current = self._fingerprint_peak_results.get(owner)
+                if current is None or trigger_score > current.get('_trigger_score', -1):
+                    self._fingerprint_peak_results[owner] = candidate
+
+        for candidate in self._fingerprint_peak_results.values():
+            candidate.pop('_trigger_score', None)
     
     def detect(
         self,
@@ -501,98 +585,23 @@ class PhaseC_Detect:
                         'error_type': getattr(r, 'error_type', ''),
                         'normalized_message': getattr(r, 'normalized_message', ''),
                         'namespaces': list(set(rec.namespace for rec in fp_records)),
+                        'current_version': self.latest_version(
+                            getattr(rec, 'app_version', None) for rec in fp_records
+                        ),
                     }
 
-        # ==================================================================
-        # P93/CAP: per-fingerprint per-namespace peak detection
-        # ==================================================================
-        self._fingerprint_peak_results = {}
-
-        if self.peak_detector:
-            # 1. Determine day_of_week from first record timestamp
-            day_of_week = 0
-            if records:
-                for r in records:
-                    if r.timestamp:
-                        day_of_week = r.timestamp.weekday()
-                        break
-            elif measurements:
-                for m in measurements.values():
-                    if m.first_seen:
-                        day_of_week = m.first_seen.weekday()
-                        break
-
-            # 2. Per-fingerprint per-namespace counts
-            window_minutes = int(os.getenv('WINDOW_MINUTES', '15'))
-
-            for fp, measurement in measurements.items():
-                fp_records = records_by_fp.get(fp, [])
-                if not fp_records:
+        window_minutes = int(os.getenv('WINDOW_MINUTES', '15'))
+        fingerprint_namespace_windows = {}
+        for fingerprint, fp_records in records_by_fp.items():
+            namespace_windows: Dict[str, Dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
+            for record in fp_records:
+                if not record.timestamp or not record.namespace:
                     continue
-
-                def _bucket(ts: datetime) -> datetime:
-                    minute = (ts.minute // window_minutes) * window_minutes
-                    return ts.replace(minute=minute, second=0, microsecond=0)
-
-                ns_window_counts: Dict[str, Dict[datetime, int]] = defaultdict(lambda: defaultdict(int))
-                latest_bucket = None
-                for rec in fp_records:
-                    if not rec.timestamp:
-                        continue
-                    bucket = _bucket(rec.timestamp)
-                    if latest_bucket is None or bucket > latest_bucket:
-                        latest_bucket = bucket
-                    if rec.namespace:
-                        ns_window_counts[rec.namespace][bucket] += 1
-
-                if not ns_window_counts:
-                    continue
-
-                peak_candidate = None
-                for ns, bucket_counts in ns_window_counts.items():
-                    if latest_bucket is None:
-                        continue
-
-                    current_ns_count = bucket_counts.get(latest_bucket, 0)
-                    if measurement.active_windows > 1:
-                        non_zero_windows = [v for v in bucket_counts.values() if v > 0]
-                        if non_zero_windows:
-                            value_for_peak = sum(non_zero_windows) / len(non_zero_windows)
-                        else:
-                            value_for_peak = float(current_ns_count)
-                    else:
-                        value_for_peak = float(current_ns_count)
-
-                    if value_for_peak < self.min_namespace_peak_value:
-                        continue
-
-                    try:
-                        check = self.peak_detector.is_peak(value_for_peak, ns, day_of_week)
-                    except Exception:
-                        continue
-
-                    if not check.get('is_peak'):
-                        continue
-
-                    trigger_score = max(
-                        value_for_peak / check.get('p93_threshold', 1.0) if check.get('p93_threshold') else 0.0,
-                        value_for_peak / check.get('cap_threshold', 1.0) if check.get('cap_threshold') else 0.0,
-                    )
-                    candidate = {
-                        **check,
-                        'namespace': ns,
-                        'value': value_for_peak,
-                        'current_ns_count': current_ns_count,
-                        'peak_identifier': f"SPIKE:{fp}:{ns}:{latest_bucket.isoformat()}",
-                        '_trigger_score': trigger_score,
-                    }
-
-                    if peak_candidate is None or candidate['_trigger_score'] > peak_candidate['_trigger_score']:
-                        peak_candidate = candidate
-
-                if peak_candidate:
-                    peak_candidate.pop('_trigger_score', None)
-                    self._fingerprint_peak_results[fp] = peak_candidate
+                minute = (record.timestamp.minute // window_minutes) * window_minutes
+                bucket = record.timestamp.replace(minute=minute, second=0, microsecond=0)
+                namespace_windows[record.namespace][bucket] += 1
+            fingerprint_namespace_windows[fingerprint] = namespace_windows
+        self.prepare_namespace_peak_results(fingerprint_namespace_windows)
 
         # ==================================================================
         # Per-fingerprint detection (O(fingerprints))
@@ -602,8 +611,8 @@ class PhaseC_Detect:
 
         for fp, measurement in progress_iter(items, desc="Phase C: Detect", total=len(items)):
             fp_records = records_by_fp.get(fp, [])
-            version = versions.get(fp) if versions else None
             meta = record_metadata.get(fp, {})
+            version = versions.get(fp) if versions else meta.get('current_version')
 
             results[fp] = self.detect(
                 measurement,

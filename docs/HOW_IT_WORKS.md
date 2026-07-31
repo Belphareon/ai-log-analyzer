@@ -49,12 +49,15 @@ Při každém spuštění proběhne tento cyklus:
 
 ## 2. Načítání logů z Elasticsearch
 
-Modul `scripts/core/fetch_unlimited.py` stáhne **všechny** logy za aktuální 15min okno.
+Modul `scripts/core/fetch_unlimited.py` načte **všechny** logy za aktuální 15min okno.
 
 - Standardní ES limit 10 000 výsledků je obejit pomocí **stránkování přes `search_after`**
 - Logy jsou filtrovány na sledované namespace (seznam z `config/namespaces.yaml`)
 - Dotaz cílí na index `ES_INDEX` (např. `cluster-app_pcb-*`) — konfigurováno v `.env`
-- Výsledek: seznam raw JSON dokumentů z ES
+- Regular phase předá každou stránku okamžitě do `StreamingAggregator`; celý seznam raw JSON dokumentů se v RAM nevytváří
+- Přesné per-fingerprint, aplikační, namespace a trace počty se agregují průběžně; detailní trace eventy se ukládají do dočasné SQLite databáze
+- Streaming režim nepoužívá fetch cap k ořezání vstupu. Paměť proto neroste s počtem opakovaných zpráv, ale s počtem unikátních fingerprintů a trace ID
+- Limity `TRACE_TIMELINE_MAX_EVENTS_PER_TRACE` a `TRACE_TIMELINE_MAX_TOTAL_EVENTS` chrání pouze volitelný detail reprezentativních trace timelines; neomezují počty ani peak detekci
 
 ---
 
@@ -289,11 +292,12 @@ Continuation: peak detekovaný v předchozím okně se považuje za pokračujíc
 
 Když jsou peaky k odeslání, `send_regular_phase_peak_digest()`:
 
-1. **Summary tabulka** — všechny peaky v cron okně (error_class, type, status, NS, trend, count)
-2. **Detail bloky** — korelované alerty (stejný trace_id + namespace set) se seskupí do jednoho bloku
-3. **Trace flow** — číslované kroky s názvem aplikace a zprávou; merged ze všech alertů ve skupině
-4. **Inferred root cause** — s confidence labelem
-5. **Propagation info** — počet services, typ propagace, délka trvání
+1. **Souhrn** — raw ERROR logy, detekované peak problémy, počet unikátních aplikací a namespaces a počet odeslaných alertů
+2. **Summary tabulka** — všechny odeslané alerty (error_class, type, status, NS, trend, count)
+3. **Detail bloky** — různé logové projevy stejné události se korelují podle trace nebo konkrétního cause + shodného scope; aliasní zprávy se nezapočítávají vícekrát
+4. **Behavior** — reprezentativní deduplikované message patterny s počtem eventů
+5. **Inferred root cause** — s confidence labelem
+6. **Propagation info** — počet services, typ propagace, délka trvání
 
 Subject: `AI Log Analyzer | HH:MM - HH:MM | D.M.YYYY`
 

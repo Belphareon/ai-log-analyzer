@@ -111,7 +111,11 @@ echo "=============================================="
 echo ""
 echo "📤 Publishing reports..."
 if [ -f "./publish_daily_reports.sh" ]; then
-    bash ./publish_daily_reports.sh
+    PUBLISH_ARGS=(--skip-teams --skip-recent-incidents)
+    if [ -n "$DRY_RUN" ]; then
+        PUBLISH_ARGS+=(--dry-run)
+    fi
+    bash ./publish_daily_reports.sh "${PUBLISH_ARGS[@]}"
 else
     echo "⚠️ publish_daily_reports.sh not found"
 fi

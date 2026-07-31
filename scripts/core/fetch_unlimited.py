@@ -13,7 +13,9 @@ import time
 import urllib3
 import argparse
 from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
+import yaml
 
 urllib3.disable_warnings()
 load_dotenv()
@@ -41,9 +43,163 @@ MAX_FETCH_RECORDS = int(os.getenv('MAX_FETCH_RECORDS', '2000000'))
 FETCH_MEMORY_BUDGET_PCT = float(os.getenv('FETCH_MEMORY_BUDGET_PCT', '50'))
 # Explicitní override v MB (0 = auto z cgroup).
 FETCH_MEMORY_BUDGET_MB = int(os.getenv('FETCH_MEMORY_BUDGET_MB', '0'))
+# Absolutní strop RSS chrání pod, i když fetch začíná s vysokou baseline.
+FETCH_MEMORY_CEILING_PCT = float(os.getenv('FETCH_MEMORY_CEILING_PCT', '90'))
 
 # Poslední výsledek (pro volající: byla data oříznuta?).
-LAST_FETCH_STATS = {'truncated': False, 'reason': None, 'fetched': 0, 'expected': None}
+LAST_FETCH_STATS = {
+    'truncated': False,
+    'failed': False,
+    'complete': False,
+    'reason': None,
+    'fetched': 0,
+    'expected': None,
+}
+
+
+def _source_value(source, *paths, default=None):
+    """Read the first non-null value from dotted or nested ES source fields."""
+    for path in paths:
+        if path in source and source[path] is not None:
+            return source[path]
+
+        current = source
+        for part in path.split('.'):
+            if not isinstance(current, dict) or part not in current:
+                current = None
+                break
+            current = current[part]
+        if current is not None:
+            return current
+    return default
+
+
+def _load_monitored_namespaces():
+    env_namespaces = os.getenv('MONITORED_NAMESPACES', '').strip()
+    if env_namespaces:
+        return list(dict.fromkeys(
+            namespace.strip()
+            for namespace in env_namespaces.split(',')
+            if namespace.strip()
+        ))
+
+    config_path = Path(__file__).resolve().parents[2] / 'config' / 'namespaces.yaml'
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding='utf-8')) or {}
+    except (OSError, yaml.YAMLError) as error:
+        print(f"   ❌ Cannot load monitored namespaces from {config_path}: {error}")
+        return []
+    return list(dict.fromkeys(
+        namespace.strip()
+        for namespace in config.get('namespaces', [])
+        if isinstance(namespace, str) and namespace.strip()
+    ))
+
+
+def _source_to_error(source, message_limit=500):
+    """Preserve fields required by Phase A for nested and dotted ES mappings."""
+    message = _source_value(source, 'message', default='')
+    if isinstance(message, dict):
+        message = json.dumps(message)
+    if not isinstance(message, str):
+        message = str(message)
+    message = message[:message_limit]
+
+    application = _source_value(
+        source, 'application.name', 'service.name', default='unknown'
+    ) or 'unknown'
+    application_version = _source_value(
+        source, 'application.version', 'app_version', 'appVersion'
+    )
+    namespace = _source_value(source, 'kubernetes.namespace', default='unknown') or 'unknown'
+    exception = _source_value(source, 'exception', default={})
+    error = _source_value(source, 'error', default={})
+    exception = exception if isinstance(exception, dict) else {}
+    error = error if isinstance(error, dict) else {}
+    trace_id = _source_value(source, 'traceId', 'trace.id', default='') or ''
+
+    return {
+        'message': message,
+        'application': application,
+        'application.name': application,
+        'application.version': application_version,
+        'app_version': application_version,
+        'cluster': _source_value(source, 'topic', default='unknown') or 'unknown',
+        'namespace': namespace,
+        'kubernetes.namespace': namespace,
+        'timestamp': _source_value(source, '@timestamp', default='') or '',
+        'trace_id': trace_id,
+        'traceId': trace_id,
+        'spanId': _source_value(source, 'spanId', 'span.id', default='') or '',
+        'parentId': _source_value(source, 'parentId', 'parent.id', default='') or '',
+        'originator_application': _source_value(
+            source, 'context.originatorApplication', default=''
+        ) or '',
+        'pcbs_master': _source_value(
+            source, 'kubernetes.labels.eamApplication', default='unknown'
+        ) or 'unknown',
+        'exception': exception,
+        'exception.type': _source_value(source, 'exception.type', default='') or '',
+        'error': error,
+        'error.type': _source_value(source, 'error.type', default='') or '',
+        'error_type': _source_value(source, 'error_type', default='') or '',
+        'errorType': _source_value(source, 'errorType', default='') or '',
+        'error.message': _source_value(source, 'error.message', default='') or '',
+        'http.status_code': _source_value(source, 'http.status_code'),
+        'stack_trace': _source_value(source, 'stack_trace', 'stackTrace', default='') or '',
+        'service.name': _source_value(source, 'service.name', default='') or '',
+    }
+
+
+def _build_error_query(date_from, date_to, batch_size, namespaces):
+    return {
+        "query": {
+            "bool": {
+                "must": [
+                    {"range": {"@timestamp": {"gte": date_from, "lt": date_to}}},
+                    {"term": {"level": "ERROR"}},
+                ],
+                "filter": [
+                    {"terms": {"kubernetes.namespace": namespaces}},
+                ],
+            }
+        },
+        "sort": [
+            {"@timestamp": {"order": "asc"}},
+            {"_shard_doc": {"order": "asc"}},
+        ],
+        "size": batch_size,
+        "_source": [
+            "message",
+            "application",
+            "application.name",
+            "application.version",
+            "app_version",
+            "appVersion",
+            "@timestamp",
+            "traceId",
+            "trace.id",
+            "spanId",
+            "span.id",
+            "parentId",
+            "parent.id",
+            "kubernetes.labels.eamApplication",
+            "kubernetes.namespace",
+            "topic",
+            "exception",
+            "exception.type",
+            "error",
+            "error.type",
+            "error_type",
+            "errorType",
+            "error.message",
+            "service.name",
+            "http.status_code",
+            "stack_trace",
+            "stackTrace",
+            "context.originatorApplication",
+        ],
+    }
 
 
 def _detect_cgroup_memory_limit_mb():
@@ -70,7 +226,24 @@ def _detect_cgroup_memory_limit_mb():
 
 
 def _process_rss_mb():
-    """Peak RSS procesu v MB (konzervativní; ru_maxrss je na Linuxu v KB)."""
+    """AKTUÁLNÍ (ne peak) RSS procesu v MB.
+
+    Dřív se používalo ru_maxrss (peak za celý život procesu) — to je ale
+    monotónní a NIKDY neklesá, takže zahrnovalo i paměť, kterou volající
+    (regular_phase.py) spotřeboval PŘED fetchem na yaml.safe_load velkého
+    known_peaks.yaml/known_problems.yaml registru (desítky MB souborů, které
+    se v čistém Pythonu nafouknou na stovky MB-1+GB objektů). To způsobovalo
+    falešně brzké OOM guard triggery i při malých regular-phase oknech.
+    Čteme proto live VmRSS z /proc/self/status (Linux); jinde fallback na
+    ru_maxrss (peak) jako konzervativní odhad.
+    """
+    try:
+        with open('/proc/self/status') as f:
+            for line in f:
+                if line.startswith('VmRSS:'):
+                    return int(line.split()[1]) / 1024.0
+    except OSError:
+        pass
     if _resource is None:
         return 0.0
     return _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss / 1024.0
@@ -86,30 +259,98 @@ def _fetch_memory_budget_mb():
     return 0.0  # nedetekovatelné a bez override → vypnuto (jen record cap chrání)
 
 
-def _should_stop_fetch(record_count, rss_mb, budget_mb, max_records=None):
-    """Čistá (testovatelná) logika OOM guardu. Vrací důvod (str) nebo None."""
+def _fetch_memory_ceiling_mb():
+    """Absolutní RSS strop jako procento cgroup limitu; 0 znamená nedetekovatelný."""
+    limit = _detect_cgroup_memory_limit_mb()
+    if limit and limit > 0:
+        return limit * (FETCH_MEMORY_CEILING_PCT / 100.0)
+    return 0.0
+
+
+def _should_stop_fetch(
+    record_count,
+    rss_mb,
+    budget_mb,
+    max_records=None,
+    baseline_mb=0.0,
+    memory_ceiling_mb=0.0,
+):
+    """Čistá (testovatelná) logika OOM guardu. Vrací důvod (str) nebo None.
+
+    budget_mb je rozpočet PRO SAMOTNÝ FETCH — porovnává se proti RŮSTU RSS
+    (rss_mb - baseline_mb), ne proti absolutní hodnotě. baseline_mb je RSS
+    naměřené TĚSNĚ PŘED spuštěním fetche (viz fetch_unlimited), takže paměť
+    už spotřebovaná voláním kódem (registry, baseline loader, ...) guard
+    nesprávně nepenalizuje.
+    """
     cap = max_records if max_records is not None else MAX_FETCH_RECORDS
     if cap and record_count >= cap:
         return f"record cap {cap:,}"
-    if budget_mb > 0 and rss_mb >= budget_mb:
-        return f"memory budget {budget_mb:.0f}MB (RSS {rss_mb:.0f}MB)"
+    if memory_ceiling_mb > 0 and rss_mb >= memory_ceiling_mb:
+        return f"memory ceiling {memory_ceiling_mb:.0f}MB (RSS {rss_mb:.0f}MB)"
+    growth_mb = rss_mb - baseline_mb
+    if budget_mb > 0 and growth_mb >= budget_mb:
+        return f"memory budget {budget_mb:.0f}MB (fetch growth {growth_mb:.0f}MB, RSS {rss_mb:.0f}MB)"
     return None
 
 
-def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
-    """Fetch all ERROR logs using search_after pagination"""
+def fetch_unlimited(
+    date_from,
+    date_to,
+    batch_size=10000,
+    retry=3,
+    page_consumer=None,
+    collect_results=True,
+    stats_out=None,
+):
+    """Fetch ERROR logs using search_after pagination.
+
+    ``page_consumer`` receives each parsed page. Set ``collect_results=False``
+    for bounded-memory callers that consume pages incrementally.
+    """
     
     all_errors = []
     batch_num = 0
     search_after = None
     expected_total = None
+    fetched_count = 0
 
-    # OOM guard: rozpočet spočítáme jednou na začátku.
+    # OOM guard: rozpočet spočítáme jednou na začátku. baseline_rss_mb = paměť,
+    # kterou volající kód (registry.load(), baseline loader, ...) spotřeboval
+    # PŘED fetchem — guard hlídá jen RŮST RSS způsobený samotným fetchem.
     mem_budget_mb = _fetch_memory_budget_mb()
+    mem_ceiling_mb = _fetch_memory_ceiling_mb()
+    baseline_rss_mb = _process_rss_mb()
     truncated_reason = None
-    LAST_FETCH_STATS.update({'truncated': False, 'reason': None, 'fetched': 0, 'expected': None})
-    if mem_budget_mb > 0:
-        print(f"   🧷 OOM guard: memory budget {mem_budget_mb:.0f}MB, record cap {MAX_FETCH_RECORDS:,}")
+    def update_stats(values):
+        LAST_FETCH_STATS.update(values)
+        if stats_out is not None:
+            stats_out.update(values)
+
+    update_stats({
+        'truncated': False,
+        'failed': False,
+        'complete': False,
+        'reason': None,
+        'fetched': 0,
+        'expected': None,
+    })
+    monitored_namespaces = _load_monitored_namespaces()
+    if not monitored_namespaces:
+        update_stats({'failed': True, 'reason': 'no monitored namespaces configured'})
+        print("   ❌ Fetch aborted: no monitored namespaces configured")
+        return None
+    if not collect_results:
+        print(
+            "   Streaming mode: pages are consumed immediately; fetch memory/record "
+            "caps do not truncate input"
+        )
+    elif mem_budget_mb > 0 or mem_ceiling_mb > 0:
+        print(
+            f"   🧷 OOM guard: memory budget {mem_budget_mb:.0f}MB for fetch growth "
+            f"(baseline RSS {baseline_rss_mb:.0f}MB excluded), absolute RSS ceiling "
+            f"{mem_ceiling_mb:.0f}MB, record cap {MAX_FETCH_RECORDS:,}"
+        )
     print("🔄 Fetcher - UNLIMITED via search_after")
     print(f"   Time range: {date_from} to {date_to}")
     print(f"   Batch size: {batch_size:,}")
@@ -126,53 +367,24 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
     try:
         pit_resp = session.post(f"{BASE_URL}/{INDICES}/_pit?keep_alive={pit_keep_alive}", timeout=120)
         if pit_resp.status_code != 200:
-            print(f"   ❌ PIT open failed ({pit_resp.status_code}), fallback to direct index search")
-        else:
-            pit_id = pit_resp.json().get('id')
+            reason = f"PIT open failed ({pit_resp.status_code})"
+            update_stats({'failed': True, 'reason': reason})
+            print(f"   ❌ {reason}; fetch aborted")
+            return None
+        pit_id = pit_resp.json().get('id')
+        if not pit_id:
+            reason = "PIT open response did not contain an id"
+            update_stats({'failed': True, 'reason': reason})
+            print(f"   ❌ {reason}; fetch aborted")
+            return None
 
         while True:
             batch_num += 1
-            
-            # Build query with search_after
-            query = {
-                "query": {
-                    "bool": {
-                        "must": [
-                            {"range": {"@timestamp": {"gte": date_from, "lte": date_to}}},
-                            {"term": {"level": "ERROR"}}
-                        ]
-                    }
-                },
-                "sort": [
-                    {"@timestamp": {"order": "asc"}},
-                    {"_shard_doc": {"order": "asc"}}
-                ],
-                "size": batch_size,
-                "track_total_hits": batch_num == 1,
-                "_source": [
-                "message", 
-                "application.name",
-                "@timestamp", 
-                "traceId",
-                "kubernetes.labels.eamApplication",
-                "kubernetes.namespace",
-                "topic",
-                # NEW: Additional fields for better error classification
-                "exception",                    # Java exception object
-                "exception.type",              # Exception class name
-                "error.type",                  # Generic error type field
-                "error_type",                  # App-specific error type
-                "errorType",                   # camelCase variant
-                "error.message",               # Structured error message
-                "service.name",                # Service that produced error
-                "http.status_code",            # HTTP status
-                "stack_trace",                 # For better analysis
-                "context.originatorApplication",
-                ]
-            }
-
-            if pit_id:
-                query["pit"] = {"id": pit_id, "keep_alive": pit_keep_alive}
+            query = _build_error_query(
+                date_from, date_to, batch_size, monitored_namespaces
+            )
+            query["track_total_hits"] = batch_num == 1
+            query["pit"] = {"id": pit_id, "keep_alive": pit_keep_alive}
 
             if search_after:
                 query["search_after"] = search_after
@@ -181,9 +393,8 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
             success = False
             for attempt in range(retry):
                 try:
-                    search_url = f"{BASE_URL}/_search" if pit_id else f"{BASE_URL}/{INDICES}/_search"
                     resp = session.post(
-                        search_url,
+                        f"{BASE_URL}/_search",
                         json=query,
                         timeout=120,
                     )
@@ -197,10 +408,15 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                             continue
                         else:
                             print(f"   ❌ Auth failed after {retry} retries")
+                            update_stats({'failed': True, 'reason': 'authentication failed'})
                             return None
                     else:
                         error_msg = resp.json().get('error', {}).get('reason', 'Unknown error')
                         print(f"   ❌ Error {resp.status_code}: {error_msg[:100]}")
+                        update_stats({
+                            'failed': True,
+                            'reason': f'Elasticsearch search failed ({resp.status_code})',
+                        })
                         return None
                 except Exception as e:
                     if attempt < retry - 1:
@@ -208,6 +424,7 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                         continue
                     else:
                         print(f"   ❌ Exception: {e}")
+                        update_stats({'failed': True, 'reason': f'Elasticsearch request failed: {e}'})
                         return None
             
             if not success:
@@ -231,43 +448,34 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
                 break
             
             # Process hits
-            for hit in hits:
-                source = hit.get('_source', {})
-                msg = source.get('message', '')
-                if isinstance(msg, dict):
-                    msg = json.dumps(msg)
-                if isinstance(msg, str):
-                    msg = msg[:500]
-                
-                context_obj = source.get('context', {}) if isinstance(source.get('context'), dict) else {}
-                originator_application = (
-                    source.get('context.originatorApplication')
-                    or context_obj.get('originatorApplication')
-                    or ''
-                )
+            page_errors = [
+                _source_to_error(hit.get('_source', {}))
+                for hit in hits
+            ]
 
-                all_errors.append({
-                    'message': msg,
-                    'application': source.get('application.name', 'unknown'),
-                    'cluster': source.get('topic', 'unknown'),
-                    'namespace': source.get('kubernetes', {}).get('namespace', 'unknown'),
-                    'timestamp': source.get('@timestamp', ''),
-                    'trace_id': source.get('traceId', ''),
-                    'originator_application': originator_application,
-                    'pcbs_master': source.get('kubernetes', {}).get('labels', {}).get('eamApplication', 'unknown'),
-                })
-            
-            print(f"🔄 Batch {batch_num:3d}... ✅ {len(hits):,} | Total: {len(all_errors):,}")
+            fetched_count += len(page_errors)
+            if page_consumer is not None:
+                page_consumer(page_errors)
+            if collect_results:
+                all_errors.extend(page_errors)
+
+            print(f"🔄 Batch {batch_num:3d}... ✅ {len(hits):,} | Total: {fetched_count:,}")
 
             # === OOM PROTECTION: zastav fetch, než nás zabije OOM killer ===
-            truncated_reason = _should_stop_fetch(
-                len(all_errors), _process_rss_mb(), mem_budget_mb
-            )
+            truncated_reason = None
+            if collect_results:
+                truncated_reason = _should_stop_fetch(
+                    fetched_count,
+                    _process_rss_mb(),
+                    mem_budget_mb,
+                    baseline_mb=baseline_rss_mb,
+                    memory_ceiling_mb=mem_ceiling_mb,
+                )
             if truncated_reason:
                 total_str = f"{expected_total:,}" if expected_total else "?"
                 print(
                     f"   ⚠️ OOM GUARD: stopping fetch early — {truncated_reason}. "
-                    f"Fetched {len(all_errors):,} of ~{total_str} total. "
+                    f"Fetched {fetched_count:,} of ~{total_str} total. "
                     f"Analysis will be PARTIAL (degraded, but pod survives)."
                 )
                 break
@@ -288,27 +496,39 @@ def fetch_unlimited(date_from, date_to, batch_size=10000, retry=3):
         session.close()
 
     print()
-    print(f"✅ Total fetched: {len(all_errors):,} errors")
-    LAST_FETCH_STATS.update({
+    print(f"✅ Total fetched: {fetched_count:,} errors")
+    update_stats({
         'truncated': bool(truncated_reason),
+        'failed': False,
+        'complete': (
+            not truncated_reason
+            and expected_total is not None
+            and fetched_count == expected_total
+        ),
         'reason': truncated_reason,
-        'fetched': len(all_errors),
+        'fetched': fetched_count,
         'expected': expected_total,
     })
     if truncated_reason:
         print(
-            f"⚠️ PARTIAL fetch ({truncated_reason}): analyzed {len(all_errors):,} "
+            f"⚠️ PARTIAL fetch ({truncated_reason}): analyzed {fetched_count:,} "
             f"of ~{expected_total or '?'} — counts/peaks are a LOWER BOUND."
         )
     if expected_total is not None:
         if truncated_reason:
             pass  # mismatch je z\u00e1m\u011brn\u00fd (OOM guard), u\u017e nahl\u00e1\u0161eno v\u00fd\u0161e
-        elif len(all_errors) == expected_total:
+        elif fetched_count == expected_total:
             print("✅ Completeness check: fetched count matches hits.total")
         else:
             print(
-                f"⚠️ Completeness check mismatch: expected {expected_total:,}, fetched {len(all_errors):,}"
+                f"⚠️ Completeness check mismatch: expected {expected_total:,}, fetched {fetched_count:,}"
             )
+            update_stats({
+                'failed': True,
+                'complete': False,
+                'reason': 'fetched count does not match hits.total',
+            })
+            return None
     return all_errors
 
 def fetch_trace_context(trace_ids, date_from, date_to, max_events=3000, retry=2):
@@ -335,18 +555,27 @@ def fetch_trace_context(trace_ids, date_from, date_to, max_events=3000, retry=2)
 
     out = {}
     try:
+        namespaces = _load_monitored_namespaces()
+        if not namespaces:
+            print("   ⚠️ trace context fetch aborted: no monitored namespaces configured")
+            return {}
         query = {
             "query": {"bool": {"must": [
-                {"range": {"@timestamp": {"gte": date_from, "lte": date_to}}},
+                {"range": {"@timestamp": {"gte": date_from, "lt": date_to}}},
                 {"terms": {"traceId": ids}},
+            ], "filter": [
+                {"terms": {"kubernetes.namespace": namespaces}},
             ]}},
             "sort": [{"@timestamp": {"order": "asc"}}],
             "size": max_events,
             "_source": [
-                "message", "application.name", "@timestamp", "traceId",
+                "message", "application", "application.name", "application.version",
+                "@timestamp", "traceId", "trace.id", "spanId", "span.id",
+                "parentId", "parent.id",
                 "level", "kubernetes.namespace",
-                "exception.type", "error.type", "error_type", "errorType",
-                "http.status_code",
+                "exception", "exception.type", "error", "error.type",
+                "error_type", "errorType", "http.status_code", "stack_trace",
+                "context.originatorApplication",
             ],
         }
         resp = None
@@ -370,25 +599,12 @@ def fetch_trace_context(trace_ids, date_from, date_to, max_events=3000, retry=2)
             return {}
         for hit in resp.json().get('hits', {}).get('hits', []):
             s = hit.get('_source', {})
-            tid = s.get('traceId', '') or ''
+            tid = _source_value(s, 'traceId', 'trace.id', default='') or ''
             if not tid:
                 continue
-            msg = s.get('message', '')
-            if isinstance(msg, dict):
-                msg = json.dumps(msg)
-            k8s = s.get('kubernetes', {}) if isinstance(s.get('kubernetes'), dict) else {}
-            out.setdefault(tid, []).append({
-                'message': (msg[:1000] if isinstance(msg, str) else str(msg)),
-                'application': s.get('application.name', 'unknown'),
-                'namespace': k8s.get('namespace', 'unknown'),
-                'timestamp': s.get('@timestamp', ''),
-                'trace_id': tid,
-                'level': s.get('level', '') or '',
-                'error_type': (
-                    s.get('exception.type') or s.get('error.type')
-                    or s.get('error_type') or s.get('errorType') or ''
-                ),
-            })
+            event = _source_to_error(s, message_limit=1000)
+            event['level'] = _source_value(s, 'level', default='') or ''
+            out.setdefault(tid, []).append(event)
     finally:
         session.close()
     return out

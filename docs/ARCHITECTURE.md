@@ -291,7 +291,7 @@ PROBLEM REGISTRY (stabilní, málo záznamů)     1:N     FINGERPRINT INDEX (tec
 
 Dvě varianty (řízeno `ALERT_DIGEST_ENABLED`):
 
-- **Digest** (`send_regular_phase_peak_digest`) — jeden email per cron okno; HTML tabulka všech aktivních peaků s NS, app counts, trace flow, inferred root cause; korelované alerty (stejný trace_id + namespace) se seskupí do jednoho detail bloku
+- **Digest** (`send_regular_phase_peak_digest`) — jeden email per cron okno; souhrn unikátních aplikací a namespaces, HTML tabulka aktivních peaků a detail s deduplikovaným behavior a inferred root cause
 - **Detail** (`send_regular_phase_peak_alert_detailed`) — jeden email per peak; fallback/specifické případy
 
 ### Confluence Export (`scripts/exports/table_exporter.py`)

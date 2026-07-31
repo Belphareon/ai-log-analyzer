@@ -4,6 +4,22 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r88 (2026-07-31) — Streaming pipeline a deduplikovaný peak digest
+
+### Přidáno
+
+- **Ohraničené streaming zpracování ES výsledků** — regular phase agreguje každou ES stránku okamžitě a nedrží raw logy v RAM. Fetch memory/record cap v tomto režimu vstup neořezává; agregované počty zahrnují všechny načtené zprávy.
+- Detailní trace eventy se spillují do job-scoped SQLite. Volitelné sestavení reprezentativních trace timelines má per-trace i globální limit; tyto limity neovlivňují počty, fingerprinty ani peak detekci.
+- Regresní testy batch/streaming parity, trace detailu a peak digest korelace. Stress test zpracoval 2 000 000 zpráv / 200 fingerprintů při stabilním RSS 55 MB; výsledky byly shodné nezávisle na ES page size.
+- Paměť streaming agregátoru roste s kardinalitou fingerprintů a trace ID, ne s počtem opakovaných zpráv. Produkční regular pod má limit 2 GiB; syntetická kontrola 100 000 unikátních fingerprintů použila 369 MB. Patologický vstup s miliony unikátních fingerprintů vyžaduje vyšší limit nebo disk-backed fingerprint state.
+
+### Opraveno
+
+- Různé logové zprávy stejné business události se korelují podle shodného objemu, překryvu aplikací/namespaces a konkrétního cause textu. Aliasní zprávy už nenavyšují počet eventů opakovaně.
+- Behavior už neopakuje podobné řádky typu `bl-pcb-v1 (127)` a nezobrazuje zavádějící procento počítané vůči jinému scope.
+- Digest odstranil počet interních clusterů. Nově ukazuje počet unikátních aplikací a namespaces z úplných, nefiltrovaných count map.
+- Obnovena kompatibilita helperů `dominant_count_entry()` a `is_test_peak_counts()`, které používá regular phase a exportér.
+
 ## r86 (2026-07-21) — Hotfix: opravená DB role pro granty init jobu
 
 ### Opraveno

@@ -20,7 +20,7 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from zoneinfo import ZoneInfo
 
@@ -36,10 +36,28 @@ class EmailNotifier:
         self.webhook_url = os.getenv('TEAMS_WEBHOOK_URL', '').strip()
         self.master_enabled = os.getenv('TEAMS_ENABLED', 'false').lower() in ('true', '1', 'yes')
         self.enabled = self.master_enabled and (bool(self.teams_email) or bool(self.webhook_url))
+        self.last_delivery_results: List[Dict[str, Any]] = []
     
     def is_enabled(self) -> bool:
         """Check if at least one notification channel (email or webhook) is configured and enabled."""
         return self.enabled
+
+    def get_last_delivery_results(self) -> List[Dict[str, Any]]:
+        """Return a copy of per-destination outcomes from the latest send."""
+        return [dict(result) for result in self.last_delivery_results]
+
+    def _record_delivery(
+        self,
+        destination: str,
+        delivered: bool,
+        provider_message: str,
+    ) -> None:
+        self.last_delivery_results.append({
+            'destination': destination,
+            'status': 'delivered' if delivered else 'failed',
+            'provider_message': provider_message[:4000],
+            'attempted_at': datetime.now(timezone.utc),
+        })
     
     def _send_webhook(self, subject: str, body: str) -> bool:
         """Send message to Microsoft Teams incoming webhook."""
@@ -62,14 +80,25 @@ class EmailNotifier:
         try:
             response = requests.post(self.webhook_url, json=message, timeout=10)
             response.raise_for_status()
+            self._record_delivery(
+                'teams_webhook', True, f'HTTP {response.status_code}'
+            )
             print("✅ Teams webhook accepted message")
             return True
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ Failed to send Teams webhook message: {e}")
+            status_code = getattr(getattr(e, 'response', None), 'status_code', None)
+            provider_message = (
+                f'HTTP {status_code}'
+                if status_code
+                else e.__class__.__name__
+            )
+            self._record_delivery('teams_webhook', False, provider_message)
+            print(f"⚠️ Failed to send Teams webhook message: {provider_message}")
             return False
 
     def _send_email(self, subject: str, body: str, html_body: Optional[str] = None) -> bool:
         """Send notification via whichever channel(s) are configured (email and/or webhook)."""
+        self.last_delivery_results = []
         if not self.is_enabled():
             return False
 
@@ -105,13 +134,19 @@ class EmailNotifier:
                 refused = smtp.send_message(msg)
 
             if refused:
+                self._record_delivery(
+                    'teams_email', False,
+                    f'SMTP refused {len(refused)} recipient(s)',
+                )
                 print(f"⚠️ SMTP refused recipients: {refused}")
                 return False
 
+            self._record_delivery('teams_email', True, 'SMTP accepted message')
             print(f"✅ SMTP accepted message to {self.teams_email}")
             
             return True
         except Exception as e:
+            self._record_delivery('teams_email', False, str(e))
             print(f"⚠️ Failed to send email: {e}")
             return False
     
@@ -506,10 +541,23 @@ Results:
         total_errors = sum(int(a.get('error_count', 0) or 0) for a in alerts)
         raw_window_errors = int(summary.get('raw_window_errors', 0) or 0)
         detected_peak_problems = int(summary.get('detected_peak_problems', 0) or 0)
-        detected_clusters = int(summary.get('detected_clusters', 0) or 0)
-        suppressed_count = int(summary.get('suppressed_clusters', 0) or 0)
-        omitted_clusters = int(summary.get('omitted_clusters', 0) or 0)
+        suppressed_count = int(summary.get('suppressed_alerts', 0) or 0)
+        omitted_alerts = int(summary.get('omitted_alerts', 0) or 0)
         max_alerts = int(summary.get('max_alerts', 0) or 0)
+        affected_apps = set(summary.get('affected_apps') or ())
+        if not affected_apps:
+            affected_apps = {
+                app
+                for alert in alerts
+                for app in (alert.get('all_app_counts') or alert.get('app_counts') or {})
+            }
+        affected_namespaces = set(summary.get('affected_namespaces') or ())
+        if not affected_namespaces:
+            affected_namespaces = {
+                namespace
+                for alert in alerts
+                for namespace in (alert.get('all_namespace_counts') or alert.get('namespace_counts') or {})
+            }
         subject = f"AI Log Analyzer | {local_time_range} | {local_date}"
 
         lines = [
@@ -518,18 +566,19 @@ Results:
             "Window Summary:",
             f"  Raw ERROR logs in window: {raw_window_errors:,}" if raw_window_errors else "  Raw ERROR logs in window: n/a",
             f"  Peak problems detected: {detected_peak_problems:,}" if detected_peak_problems else "  Peak problems detected: n/a",
-            f"  Clusters detected: {detected_clusters:,}" if detected_clusters else "  Clusters detected: n/a",
-            f"  Alert clusters sent: {len(alerts):,}",
-            f"  Errors covered by sent alerts: {total_errors:,}",
+            f"  Applications affected: {len(affected_apps):,}",
+            f"  Namespaces affected: {len(affected_namespaces):,}",
+            f"  Alerts sent: {len(alerts):,}",
+            f"  Error events represented by alerts: {total_errors:,}",
         ]
 
         if suppressed_count > 0:
-            lines.append(f"  Suppressed clusters: {suppressed_count:,}")
-        if omitted_clusters > 0:
+            lines.append(f"  Suppressed alerts: {suppressed_count:,}")
+        if omitted_alerts > 0:
             if max_alerts > 0:
-                lines.append(f"  Clusters outside top-{max_alerts} limit: {omitted_clusters:,}")
+                lines.append(f"  Alerts outside top-{max_alerts} limit: {omitted_alerts:,}")
             else:
-                lines.append(f"  Clusters outside send limit: {omitted_clusters:,}")
+                lines.append(f"  Alerts outside send limit: {omitted_alerts:,}")
 
         lines.extend([
             "",
@@ -661,9 +710,10 @@ Results:
                 <div style="padding:20px;">
                     <div style="font-size:16px;margin-bottom:8px;"><strong>Raw ERROR logs in window:</strong> {raw_window_errors:,}</div>
                     <div style="font-size:16px;margin-bottom:8px;"><strong>Peak problems detected:</strong> {detected_peak_problems:,}</div>
-                    <div style="font-size:16px;margin-bottom:8px;"><strong>Clusters detected:</strong> {detected_clusters:,}</div>
-                    <div style="font-size:16px;margin-bottom:8px;"><strong>Alert clusters sent:</strong> {len(alerts):,}</div>
-                    <div style="font-size:16px;margin-bottom:14px;"><strong>Errors covered by sent alerts:</strong> {total_errors:,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Applications affected:</strong> {len(affected_apps):,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Namespaces affected:</strong> {len(affected_namespaces):,}</div>
+                    <div style="font-size:16px;margin-bottom:8px;"><strong>Alerts sent:</strong> {len(alerts):,}</div>
+                    <div style="font-size:16px;margin-bottom:14px;"><strong>Error events represented by alerts:</strong> {total_errors:,}</div>
                     <table style="margin-top:12px;border-collapse:collapse;width:100%;font-size:14px;">
                         <thead>
                             <tr style="background:#2c5aa0;color:white;">
@@ -681,9 +731,9 @@ Results:
                     </table>
 
                     <div style="margin-top:12px;font-size:14px;color:#475569;">
-                        {'Suppressed clusters: ' + format(suppressed_count, ',') if suppressed_count > 0 else ''}
-                        {'<br>' if suppressed_count > 0 and omitted_clusters > 0 else ''}
-                        {('Clusters outside top-' + str(max_alerts) + ' limit: ' + format(omitted_clusters, ',')) if omitted_clusters > 0 and max_alerts > 0 else ('Clusters outside send limit: ' + format(omitted_clusters, ',')) if omitted_clusters > 0 else ''}
+                        {'Suppressed alerts: ' + format(suppressed_count, ',') if suppressed_count > 0 else ''}
+                        {'<br>' if suppressed_count > 0 and omitted_alerts > 0 else ''}
+                        {('Alerts outside top-' + str(max_alerts) + ' limit: ' + format(omitted_alerts, ',')) if omitted_alerts > 0 and max_alerts > 0 else ('Alerts outside send limit: ' + format(omitted_alerts, ',')) if omitted_alerts > 0 else ''}
                     </div>
 
                     <div style="margin-top:18px;font-size:17px;font-weight:700;color:#2c5aa0;">Details</div>

@@ -180,6 +180,80 @@ spec:
 
 ---
 # =============================================================================
+# CronJob 4: Daily rollup and fine-grained fact retention
+# =============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.app.name }}-maintenance
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    job-type: maintenance
+spec:
+  schedule: "30 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: {{ .Values.app.name }}
+        job-type: maintenance
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app: {{ .Values.app.name }}
+            job-type: maintenance
+        spec:
+          serviceAccountName: log-analyzer
+          restartPolicy: Never
+
+          containers:
+            - name: {{ .Values.app.name }}-maintenance
+              image: {{ .Values.app.image }}
+              imagePullPolicy: {{ .Values.app.imagePullPolicy }}
+              workingDir: /app
+              command:
+                - python3
+                - /app/scripts/core/run_data_maintenance.py
+
+              env:
+                - name: DB_HOST
+                  value: {{ .Values.env.DB_HOST | quote }}
+                - name: DB_PORT
+                  value: {{ .Values.env.DB_PORT | quote }}
+                - name: DB_NAME
+                  value: {{ .Values.env.DB_NAME | quote }}
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.app.secretName }}
+                      key: DB_PASSWORD
+                - name: FACT_RETENTION_DAYS
+                  value: {{ .Values.env.FACT_RETENTION_DAYS | default "90" | quote }}
+
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+
+          imagePullSecrets:
+            - name: dockerhub
+
+---
+# =============================================================================
 # CronJob 2: Backfill Phase (denně v 09:00 UTC = 11:00 CET)
 # =============================================================================
 apiVersion: batch/v1
@@ -226,12 +300,11 @@ spec:
                   python3 /app/scripts/backfill.py --days 1 --force --output /app/scripts/reports
 
                   echo ""
-                  echo "📋 Publishing to Confluence..."
-                  python3 /app/scripts/recent_incidents_publisher.py || echo "⚠️ Recent Incidents publish failed (non-critical)"
-                  python3 /app/scripts/confluence_csv_uploader.py || echo "⚠️ CSV upload failed (non-critical)"
+                  echo "📋 Publishing registry tables to Confluence..."
+                  python3 /app/scripts/confluence_csv_uploader.py
 
                   echo ""
-                  echo "✅ Confluence published successfully"
+                  echo "✅ Backfill delivery complete"
 
               env:
                 # === Application Config ===

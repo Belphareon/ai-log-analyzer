@@ -15,8 +15,20 @@ import json
 import urllib.request
 import urllib.error
 import ssl
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict
+
+try:
+    from core.delivery_persistence import (
+        connect_from_env,
+        persist_notification_deliveries,
+    )
+except ModuleNotFoundError:
+    from scripts.core.delivery_persistence import (
+        connect_from_env,
+        persist_notification_deliveries,
+    )
 
 # Configuration
 CONFLUENCE_URL = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
@@ -273,6 +285,9 @@ def main():
     
     success_count = 0
     total_count = 0
+    publication_outcomes = []
+    attempted_at = datetime.now(timezone.utc)
+    publication_date = attempted_at.date().isoformat()
     
     # Upload Known Errors
     errors_csv = EXPORTS_DIR / 'errors_table.csv'
@@ -284,15 +299,54 @@ def main():
         
         try:
             html = csv_to_html_table(errors_csv)
-            if upload_to_confluence(
+            success = upload_to_confluence(
                 CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
                 'Known Errors',
                 html
-            ):
+            )
+            publication_outcomes.append({
+                'dedup_key': f'known-errors:{publication_date}',
+                'destination': 'confluence_known_errors',
+                'status': 'delivered' if success else 'failed',
+                'provider_message': (
+                    'Confluence page updated'
+                    if success
+                    else 'Uploader returned unsuccessful status'
+                ),
+                'metadata': {
+                    'page_id': CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
+                    'csv_file': str(errors_csv),
+                },
+                'attempted_at': attempted_at,
+            })
+            if success:
                 success_count += 1
         except Exception as e:
+            publication_outcomes.append({
+                'dedup_key': f'known-errors:{publication_date}',
+                'destination': 'confluence_known_errors',
+                'status': 'failed',
+                'provider_message': str(e),
+                'metadata': {
+                    'page_id': CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
+                    'csv_file': str(errors_csv),
+                },
+                'attempted_at': attempted_at,
+            })
             print(f"❌ Error processing errors CSV: {e}")
     else:
+        total_count += 1
+        publication_outcomes.append({
+            'dedup_key': f'known-errors:{publication_date}',
+            'destination': 'confluence_known_errors',
+            'status': 'failed',
+            'provider_message': 'Expected CSV file is missing',
+            'metadata': {
+                'page_id': CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
+                'csv_file': str(errors_csv),
+            },
+            'attempted_at': attempted_at,
+        })
         print(f"\n⚠️ Known Errors CSV not found: {errors_csv}")
     
     # Upload Known Peaks
@@ -305,21 +359,71 @@ def main():
         
         try:
             html = csv_to_html_table(peaks_csv)
-            if upload_to_confluence(
+            success = upload_to_confluence(
                 CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
                 'Known Peaks',
                 html
-            ):
+            )
+            publication_outcomes.append({
+                'dedup_key': f'known-peaks:{publication_date}',
+                'destination': 'confluence_known_peaks',
+                'status': 'delivered' if success else 'failed',
+                'provider_message': (
+                    'Confluence page updated'
+                    if success
+                    else 'Uploader returned unsuccessful status'
+                ),
+                'metadata': {
+                    'page_id': CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
+                    'csv_file': str(peaks_csv),
+                },
+                'attempted_at': attempted_at,
+            })
+            if success:
                 success_count += 1
         except Exception as e:
+            publication_outcomes.append({
+                'dedup_key': f'known-peaks:{publication_date}',
+                'destination': 'confluence_known_peaks',
+                'status': 'failed',
+                'provider_message': str(e),
+                'metadata': {
+                    'page_id': CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
+                    'csv_file': str(peaks_csv),
+                },
+                'attempted_at': attempted_at,
+            })
             print(f"❌ Error processing peaks CSV: {e}")
     else:
+        total_count += 1
+        publication_outcomes.append({
+            'dedup_key': f'known-peaks:{publication_date}',
+            'destination': 'confluence_known_peaks',
+            'status': 'failed',
+            'provider_message': 'Expected CSV file is missing',
+            'metadata': {
+                'page_id': CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
+                'csv_file': str(peaks_csv),
+            },
+            'attempted_at': attempted_at,
+        })
         print(f"\n⚠️ Known Peaks CSV not found: {peaks_csv}")
     
     print("\n" + "=" * 70)
     print(f"📋 Summary: {success_count}/{total_count} tables uploaded successfully")
-    
-    return success_count == total_count
+
+    try:
+        persist_notification_deliveries(
+            connect_from_env,
+            publication_outcomes,
+            notification_type='backfill_registry_publication',
+            window_start=attempted_at.replace(hour=0, minute=0, second=0, microsecond=0),
+        )
+    except Exception as e:
+        print(f"❌ Failed to persist publication outcomes: {e}")
+        return False
+
+    return total_count == 2 and success_count == total_count
 
 
 if __name__ == '__main__':

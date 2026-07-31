@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import os
 import re
+import hashlib
+import time
 from pathlib import Path
 
 import psycopg2
@@ -93,6 +95,22 @@ def is_effectively_empty(statement: str) -> bool:
     return True
 
 
+def migration_checksum(migration_file: Path) -> str:
+    return hashlib.sha256(migration_file.read_bytes()).hexdigest()
+
+
+def ensure_migration_ledger(cursor) -> None:
+    cursor.execute("CREATE SCHEMA IF NOT EXISTS ailog_peak")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ailog_peak.schema_migrations (
+            migration_name TEXT PRIMARY KEY,
+            checksum CHAR(64) NOT NULL,
+            applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            execution_ms INTEGER NOT NULL CHECK (execution_ms >= 0)
+        )
+    """)
+
+
 def run_migrations() -> None:
     migration_files = sorted(MIGRATIONS_DIR.glob("[0-9]*.sql"))
     if not migration_files:
@@ -107,32 +125,49 @@ def run_migrations() -> None:
             if ddl_role:
                 cursor.execute(f"SET ROLE {quote_identifier(ddl_role)}")
 
+            ensure_migration_ledger(cursor)
+            connection.commit()
+
             for migration_file in migration_files:
-                print(f"Running migration: {migration_file.name}", flush=True)
-                statements = split_sql_statements(migration_file.read_text(encoding="utf-8"))
-                for index, statement in enumerate(statements):
-                    if is_effectively_empty(statement):
-                        continue
-                    savepoint = f"migration_stmt_{index}"
-                    cursor.execute(f"SAVEPOINT {savepoint}")
-                    try:
-                        cursor.execute(statement)
-                    except psycopg2.Error as exc:
-                        # Some environments have pre-existing tables with a
-                        # legacy schema (older column names). CREATE TABLE
-                        # IF NOT EXISTS is then a no-op, and a later
-                        # statement referencing a "new" column (e.g. an
-                        # index) can fail. Don't abort the whole migration
-                        # for that - log it and move on.
-                        cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-                        preview = " ".join(statement.split())[:150]
-                        print(
-                            f"⚠️  Skipped statement in {migration_file.name} "
-                            f"({exc.__class__.__name__}: {exc}): {preview}",
-                            flush=True,
+                checksum = migration_checksum(migration_file)
+                cursor.execute(
+                    "SELECT checksum FROM ailog_peak.schema_migrations WHERE migration_name = %s",
+                    (migration_file.name,),
+                )
+                applied = cursor.fetchone()
+                if applied:
+                    if applied[0].strip() != checksum:
+                        raise RuntimeError(
+                            f"Applied migration changed: {migration_file.name} "
+                            f"(database={applied[0].strip()}, file={checksum})"
                         )
-                    else:
-                        cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    print(f"Skipping migration: {migration_file.name} (checksum verified)", flush=True)
+                    continue
+
+                print(f"Running migration: {migration_file.name}", flush=True)
+                started = time.monotonic()
+                try:
+                    statements = split_sql_statements(migration_file.read_text(encoding="utf-8"))
+                    for statement in statements:
+                        if is_effectively_empty(statement):
+                            continue
+                        cursor.execute(statement)
+
+                    execution_ms = max(0, round((time.monotonic() - started) * 1000))
+                    cursor.execute(
+                        """
+                        INSERT INTO ailog_peak.schema_migrations
+                            (migration_name, checksum, execution_ms)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (migration_file.name, checksum, execution_ms),
+                    )
+                    connection.commit()
+                except Exception as exc:
+                    connection.rollback()
+                    raise RuntimeError(
+                        f"Migration failed and was rolled back: {migration_file.name}: {exc}"
+                    ) from exc
 
             app_role_identifier = quote_identifier(app_role)
             cursor.execute(f"GRANT USAGE ON SCHEMA ailog_peak TO {app_role_identifier}")

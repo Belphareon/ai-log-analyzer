@@ -17,10 +17,12 @@ Použití:
 import os
 import sys
 import argparse
+import fcntl
 import json
 import atexit
 import signal
 import re
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Tuple, Optional, Any, List
@@ -34,10 +36,19 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
-from core.fetch_unlimited import fetch_unlimited, fetch_trace_context, LAST_FETCH_STATS
+from core.fetch_unlimited import (
+    INDICES,
+    LAST_FETCH_STATS,
+    _load_monitored_namespaces,
+    fetch_trace_context,
+    fetch_unlimited,
+)
 from core.problem_registry import ProblemRegistry
 from core.problem_registry import dominant_count_entry, extract_flow, is_test_peak_counts
+from core.streaming_aggregator import StreamingAggregator
 from core.baseline_loader import BaselineLoader
+from core.delivery_persistence import persist_notification_deliveries
+from core.run_persistence import persist_analysis_run
 from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
 
@@ -51,7 +62,6 @@ except ImportError:
 # DB
 try:
     import psycopg2
-    from psycopg2.extras import execute_values
     HAS_DB = True
 except ImportError:
     HAS_DB = False
@@ -261,12 +271,33 @@ def _format_behavior_step(step: Dict[str, Any], index: int = 0) -> str:
         message = raw_message[:200]
 
     count = step.get('count')
-    share_pct = step.get('share_pct')
-    count_text = f" ({count:,}×)" if isinstance(count, int) and count > 1 else ""
-    share_text = f" [{share_pct:.0f}%]" if isinstance(share_pct, (int, float)) and share_pct > 0 else ""
+    count_text = f" ({count:,} events)" if isinstance(count, int) and count > 1 else ""
 
     prefix = f"{index}. " if index > 0 else ""
-    return f"{prefix}{app}{count_text}{share_text}: {message}"
+    return f"{prefix}{app}{count_text}: {message}"
+
+
+def _behavior_steps_match(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+    """Return true when two behavior rows are duplicate views of one event set."""
+    from analysis.trace_analysis import normalize_message
+
+    if str(left.get('app', '') or '') != str(right.get('app', '') or ''):
+        return False
+    if int(left.get('count', 0) or 0) != int(right.get('count', 0) or 0):
+        return False
+
+    def _tokens(step: Dict[str, Any]) -> set:
+        message = normalize_message(str(step.get('message', '') or '')).lower()
+        return {
+            token for token in re.findall(r'[a-z0-9]+', message)
+            if len(token) > 2 and token not in {'error', 'occurred', 'during'}
+        }
+
+    left_tokens = _tokens(left)
+    right_tokens = _tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    return len(left_tokens & right_tokens) / min(len(left_tokens), len(right_tokens)) >= 0.75
 
 
 def _pattern_behavior_text(pattern: Any) -> str:
@@ -296,6 +327,7 @@ def _summarize_behavior_steps(steps: List[Dict[str, Any]], limit: int = 3) -> st
     from analysis.trace_analysis import _extract_useful_content, normalize_message
     parts = []
     seen = set()
+    selected: List[Dict[str, Any]] = []
     idx = 0
     for step in (steps or []):
         if idx >= limit:
@@ -305,7 +337,10 @@ def _summarize_behavior_steps(steps: List[Dict[str, Any]], limit: int = 3) -> st
         dedup_key = normalize_message(extracted or raw_msg)[:80].lower()
         if dedup_key in seen:
             continue
+        if any(_behavior_steps_match(step, previous) for previous in selected):
+            continue
         seen.add(dedup_key)
+        selected.append(step)
         idx += 1
         parts.append(_format_behavior_step(step, index=idx))
     return "\n".join(parts)[:600]
@@ -344,6 +379,91 @@ def _select_peak_problems(problems: Dict[str, Any], limit: int = 3) -> List[Any]
     return peak_problems[:limit]
 
 
+def _problem_cause_token_sequences(problem: Any) -> List[List[str]]:
+    """Extract stable cause tokens used to correlate alternate log messages."""
+    from analysis.trace_analysis import _extract_useful_content, normalize_message
+
+    messages = [
+        str(getattr(problem, 'normalized_message', '') or ''),
+        *(str(message or '') for message in (getattr(problem, 'sample_messages', []) or [])),
+    ]
+    ignored = {
+        'called', 'case', 'code', 'description', 'during', 'error', 'failed',
+        'failure', 'operation', 'processing', 'service', 'step', 'unexpected',
+    }
+    sequences = []
+    for message in messages:
+        useful = _extract_useful_content(message) or message
+        normalized = normalize_message(useful).lower()
+        tokens = [
+            token for token in re.findall(r'[a-z0-9]+', normalized)
+            if len(token) > 2 and token not in ignored
+        ]
+        if tokens:
+            sequences.append(tokens)
+    return sequences
+
+
+def _longest_shared_token_run(left: List[str], right: List[str]) -> int:
+    previous = [0] * (len(right) + 1)
+    longest = 0
+    for left_token in left:
+        current = [0] * (len(right) + 1)
+        for index, right_token in enumerate(right, start=1):
+            if left_token == right_token:
+                current[index] = previous[index - 1] + 1
+                longest = max(longest, current[index])
+        previous = current
+    return longest
+
+
+def _problem_traces(problem: Any) -> set:
+    traces = set()
+    for incident in (getattr(problem, 'incidents', []) or []):
+        traces.update((getattr(incident, 'trace_event_counts', {}) or {}).keys())
+        traces.update(
+            trace_id for trace_id in (getattr(incident, 'trace_ids', []) or [])
+            if trace_id
+        )
+    return traces
+
+
+def _problems_share_event_traces(
+    left: Any,
+    right: Any,
+    overlap_threshold: float = 0.50,
+) -> bool:
+    left_traces = _problem_traces(left)
+    right_traces = _problem_traces(right)
+    if not left_traces or not right_traces:
+        return False
+    overlap = len(left_traces & right_traces)
+    return overlap / min(len(left_traces), len(right_traces)) >= overlap_threshold
+
+
+def _problems_represent_same_events(left: Any, right: Any) -> bool:
+    """Detect alternate log messages emitted for the same set of events."""
+    left_count = int(getattr(left, 'total_occurrences', 0) or 0)
+    right_count = int(getattr(right, 'total_occurrences', 0) or 0)
+    if left_count <= 0 or left_count != right_count:
+        return False
+
+    left_apps = set(getattr(left, 'apps', set()) or set())
+    right_apps = set(getattr(right, 'apps', set()) or set())
+    left_namespaces = set(getattr(left, 'namespaces', set()) or set())
+    right_namespaces = set(getattr(right, 'namespaces', set()) or set())
+    if not left_apps.intersection(right_apps) or not left_namespaces.intersection(right_namespaces):
+        return False
+
+    left_sequences = _problem_cause_token_sequences(left)
+    right_sequences = _problem_cause_token_sequences(right)
+    return any(
+        _longest_shared_token_run(left_sequence, right_sequence) >= 5
+        for left_sequence in left_sequences
+        for right_sequence in right_sequences
+    )
+
+
 def _merge_peak_clusters(
     peak_problems: List[Any],
     trace_overlap_threshold: float = 0.50,
@@ -353,7 +473,7 @@ def _merge_peak_clusters(
 
     Merge criteria (any one is sufficient):
     1. Shared dominant trace: >50% trace ID overlap (same causal chain)
-    2. Same error_class AND same dominant namespace
+    2. Alternate log messages representing the same event set
 
     Returns list of clusters. Each cluster is a list of problems, first = highest score.
     """
@@ -361,17 +481,6 @@ def _merge_peak_clusters(
         return []
     if len(peak_problems) == 1:
         return [peak_problems]
-
-    def _problem_traces(p: Any) -> set:
-        """Get set of trace IDs from a problem's incidents."""
-        traces = set()
-        for inc in (getattr(p, 'incidents', []) or []):
-            tc = getattr(inc, 'trace_event_counts', {}) or {}
-            traces.update(tc.keys())
-            for tid in (getattr(inc, 'trace_ids', []) or []):
-                if tid:
-                    traces.add(tid)
-        return traces
 
     def _problem_dominant_ns(p: Any) -> str:
         """Get the dominant namespace for a problem."""
@@ -420,19 +529,18 @@ def _merge_peak_clusters(
     for i in range(n):
         for j in range(i + 1, n):
             # Criterion 1: trace overlap
-            ti, tj = problem_data[i]['traces'], problem_data[j]['traces']
-            if ti and tj:
-                overlap = len(ti & tj)
-                smaller = min(len(ti), len(tj))
-                if smaller > 0 and (overlap / smaller) >= trace_overlap_threshold:
-                    _union(i, j)
-                    continue
+            if _problems_share_event_traces(
+                problem_data[i]['problem'],
+                problem_data[j]['problem'],
+                trace_overlap_threshold,
+            ):
+                _union(i, j)
+                continue
 
-            # Criterion 2: same error_class + same dominant namespace
-            if (problem_data[i]['error_class'] and
-                problem_data[i]['error_class'] == problem_data[j]['error_class'] and
-                problem_data[i]['dominant_ns'] and
-                problem_data[i]['dominant_ns'] == problem_data[j]['dominant_ns']):
+            # Criterion 2: same volume and scope with a shared concrete cause.
+            if _problems_represent_same_events(
+                problem_data[i]['problem'], problem_data[j]['problem']
+            ):
                 _union(i, j)
 
     # Build clusters
@@ -448,7 +556,7 @@ def _alert_state_path(registry: ProblemRegistry) -> Path:
     return Path(registry.registry_dir) / 'alert_state_regular_phase.json'
 
 
-def _load_alert_state(registry: ProblemRegistry) -> Dict[str, Any]:
+def _load_alert_state_unlocked(registry: ProblemRegistry) -> Dict[str, Any]:
     path = _alert_state_path(registry)
     if not path.exists():
         return {'peaks': {}}
@@ -463,12 +571,60 @@ def _load_alert_state(registry: ProblemRegistry) -> Dict[str, Any]:
     return {'peaks': {}}
 
 
-def _save_alert_state(registry: ProblemRegistry, state: Dict[str, Any]) -> None:
+def _load_alert_state(registry: ProblemRegistry) -> Dict[str, Any]:
+    path = _alert_state_path(registry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix('.json.lock')
+    with open(lock_path, 'w') as lock_fd:
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_SH)
+        try:
+            return _load_alert_state_unlocked(registry)
+        finally:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+
+
+def _save_alert_state_unlocked(registry: ProblemRegistry, state: Dict[str, Any]) -> None:
     path = _alert_state_path(registry)
     tmp_path = path.with_suffix('.json.tmp')
     with open(tmp_path, 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
     tmp_path.replace(path)
+
+
+def _record_delivered_peak_alerts(
+    registry: ProblemRegistry,
+    delivered_payloads: List[Dict[str, Any]],
+    now_utc: datetime,
+    cooldown_min: int,
+) -> None:
+    if not delivered_payloads:
+        return
+
+    path = _alert_state_path(registry)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix('.json.lock')
+    with open(lock_path, 'w') as lock_fd:
+        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        try:
+            alert_state = _load_alert_state_unlocked(registry)
+            alert_peaks = alert_state.setdefault('peaks', {})
+            for payload in delivered_payloads:
+                peak_key = payload.get('peak_key', '')
+                if not peak_key:
+                    continue
+                alert_peaks[peak_key] = {
+                    'last_sent_at': now_utc.isoformat(),
+                    'last_sent_window': payload.get('window_key', ''),
+                    'last_trend': payload.get('trend', ''),
+                    'last_error_count': int(payload.get('error_count', 0) or 0),
+                    'cooldown_until': (
+                        now_utc + timedelta(minutes=max(cooldown_min, 0))
+                    ).isoformat(),
+                    'last_reason': payload.get('send_reason', ''),
+                }
+            _save_alert_state_unlocked(registry, alert_state)
+        finally:
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
@@ -889,6 +1045,8 @@ def _build_peak_alert_payload(
         'affected_namespaces': affected_namespaces[:5],
         'app_counts': dict(list(app_counts.items())[:5]),
         'namespace_counts': namespace_counts_display,
+        'all_app_counts': app_counts,
+        'all_namespace_counts': namespace_counts,
         'originator_application_counts': originator_application_counts,
         'originator_display': originator_display,
         'trace_steps': trace_steps_for_email,
@@ -938,6 +1096,8 @@ def _build_cluster_payload(
     if len(cluster) == 1:
         return payload
 
+    merged_behavior_steps = list(payload.get('trace_steps', []) or [])
+
     # Merge counts from other problems in cluster
     for secondary in cluster[1:]:
         sec_payload = _build_peak_alert_payload(
@@ -947,29 +1107,51 @@ def _build_cluster_payload(
         if not sec_payload:
             continue
         
-        # Sum error count
-        payload['error_count'] = int(payload.get('error_count', 0)) + int(sec_payload.get('error_count', 0))
+        same_events = (
+            _problems_share_event_traces(primary, secondary)
+            or _problems_represent_same_events(primary, secondary)
+        )
+        if same_events:
+            payload['error_count'] = max(
+                int(payload.get('error_count', 0)), int(sec_payload.get('error_count', 0))
+            )
+        else:
+            payload['error_count'] = int(payload.get('error_count', 0)) + int(sec_payload.get('error_count', 0))
         
-        # Merge app_counts
-        for app, cnt in (sec_payload.get('app_counts', {}) or {}).items():
-            payload['app_counts'][app] = payload['app_counts'].get(app, 0) + int(cnt or 0)
+        # Use max for alias messages from one event set; sum independent signals.
+        for app, cnt in (sec_payload.get('all_app_counts', {}) or {}).items():
+            current = payload['all_app_counts'].get(app, 0)
+            payload['all_app_counts'][app] = max(current, int(cnt or 0)) if same_events else current + int(cnt or 0)
         
-        # Merge namespace_counts
-        for ns, cnt in (sec_payload.get('namespace_counts', {}) or {}).items():
-            payload['namespace_counts'][ns] = payload['namespace_counts'].get(ns, 0) + int(cnt or 0)
+        for ns, cnt in (sec_payload.get('all_namespace_counts', {}) or {}).items():
+            current = payload['all_namespace_counts'].get(ns, 0)
+            payload['all_namespace_counts'][ns] = max(current, int(cnt or 0)) if same_events else current + int(cnt or 0)
         
         # Merge originator_application_counts
         for orig, cnt in (sec_payload.get('originator_application_counts', {}) or {}).items():
-            payload['originator_application_counts'][orig] = payload['originator_application_counts'].get(orig, 0) + int(cnt or 0)
+            current = payload['originator_application_counts'].get(orig, 0)
+            payload['originator_application_counts'][orig] = (
+                max(current, int(cnt or 0)) if same_events else current + int(cnt or 0)
+            )
+
+        if not same_events:
+            merged_behavior_steps.extend(sec_payload.get('trace_steps', []) or [])
 
     # Re-sort and limit app_counts to top 5
-    sorted_apps = dict(sorted(payload['app_counts'].items(), key=lambda kv: -kv[1])[:5])
+    payload['all_app_counts'] = _sorted_count_map(payload['all_app_counts'])
+    sorted_apps = dict(list(payload['all_app_counts'].items())[:5])
     payload['app_counts'] = sorted_apps
     payload['affected_apps'] = list(sorted_apps.keys())
     
     # Re-sort namespace_counts
-    payload['namespace_counts'] = dict(sorted(payload['namespace_counts'].items(), key=lambda kv: -kv[1]))
+    payload['all_namespace_counts'] = _sorted_count_map(payload['all_namespace_counts'])
+    payload['namespace_counts'] = payload['all_namespace_counts']
     payload['affected_namespaces'] = list(payload['namespace_counts'].keys())[:5]
+
+    if merged_behavior_steps:
+        payload['trace_steps'] = merged_behavior_steps
+        payload['behavior_text'] = _summarize_behavior_steps(merged_behavior_steps, limit=3)
+        payload['detail_message'] = payload['behavior_text']
 
     # Re-evaluate test peak with merged originator counts
     merged_errors = int(payload.get('error_count', 0))
@@ -986,9 +1168,95 @@ def _build_cluster_payload(
     return payload
 
 
-def _send_peak_alert_email(payload: Dict[str, Any]) -> bool:
+def _notification_destinations() -> List[str]:
+    if os.getenv('TEAMS_ENABLED', 'false').strip().lower() not in {'true', '1', 'yes'}:
+        return ['notification_disabled']
+    destinations = []
+    if os.getenv('TEAMS_WEBHOOK_URL', '').strip():
+        destinations.append('teams_webhook')
+    if os.getenv('TEAMS_EMAIL', '').strip():
+        destinations.append('teams_email')
+    return destinations or ['notification_unconfigured']
+
+
+def _delivery_dedup_key(payload: Dict[str, Any]) -> str:
+    peak_key = str(
+        payload.get('peak_key') or payload.get('peak_identifier') or 'unknown-peak'
+    )
+    window_key = str(
+        payload.get('window_key')
+        or payload.get('window_start')
+        or 'unknown-window'
+    )
+    return f'{peak_key}:{window_key}'[:500]
+
+
+def _policy_delivery_outcomes(
+    payload: Dict[str, Any],
+    status: str,
+    provider_message: str,
+) -> List[Dict[str, Any]]:
+    peak_key = str(payload.get('peak_key', '') or '')
+    return [
+        {
+            'dedup_key': _delivery_dedup_key(payload),
+            'destination': destination,
+            'status': status,
+            'provider_message': provider_message,
+            'metadata': {
+                'attempt_kind': 'policy',
+                'peak_key': peak_key,
+                'window_key': payload.get('window_key', ''),
+                'error_count': int(payload.get('error_count', 0) or 0),
+            },
+        }
+        for destination in _notification_destinations()
+    ]
+
+
+def _normalize_send_result(send_result: Any) -> Tuple[bool, List[Dict[str, Any]]]:
+    if (
+        isinstance(send_result, tuple)
+        and len(send_result) == 2
+        and isinstance(send_result[1], list)
+    ):
+        return bool(send_result[0]), send_result[1]
+    return bool(send_result), []
+
+
+def _payload_delivery_outcomes(
+    payload: Dict[str, Any],
+    outcomes: List[Dict[str, Any]],
+    attempt_kind: str,
+) -> List[Dict[str, Any]]:
+    return [{
+        **outcome,
+        'dedup_key': _delivery_dedup_key(payload),
+        'metadata': {
+            'attempt_kind': attempt_kind,
+            'peak_key': payload.get('peak_key', ''),
+            'window_key': payload.get('window_key', ''),
+            'send_reason': payload.get('send_reason', ''),
+            'error_count': int(payload.get('error_count', 0) or 0),
+        },
+    } for outcome in outcomes]
+
+
+class PeakDispatchResult(list):
+    def __init__(
+        self,
+        delivered_payloads: List[Dict[str, Any]],
+        delivery_outcomes: List[Dict[str, Any]],
+    ) -> None:
+        super().__init__(delivered_payloads)
+        self.delivery_outcomes = delivery_outcomes
+
+
+def _send_peak_alert_email(
+    payload: Dict[str, Any],
+) -> Tuple[bool, List[Dict[str, Any]]]:
     if not payload:
-        return False
+        return False, []
 
     try:
         from core.email_notifier import EmailNotifier
@@ -996,7 +1264,11 @@ def _send_peak_alert_email(payload: Dict[str, Any]) -> bool:
         email_notifier = EmailNotifier()
         if not email_notifier.is_enabled():
             print("⚠️ Email notifier not enabled")
-            return False
+            return False, [{
+                'destination': destination,
+                'status': 'skipped',
+                'provider_message': 'Notification delivery is disabled or unconfigured',
+            } for destination in _notification_destinations()]
 
         success = email_notifier.send_regular_phase_peak_alert_detailed(
             peak_error_class=payload.get('error_class', 'unknown'),
@@ -1023,13 +1295,17 @@ def _send_peak_alert_email(payload: Dict[str, Any]) -> bool:
 
         if success:
             print("✅ Peak alert email sent")
-            return True
+            return True, email_notifier.get_last_delivery_results()
         print("⚠️ Peak alert email failed")
-        return False
+        return False, email_notifier.get_last_delivery_results()
 
     except Exception as e:
         print(f"⚠️ Error sending peak alert email: {e}")
-        return False
+        return False, [{
+            'destination': 'notification_runtime',
+            'status': 'failed',
+            'provider_message': _one_line_error(e),
+        }]
 
 
 def _send_peak_alert_digest(
@@ -1037,9 +1313,9 @@ def _send_peak_alert_digest(
     window_end: datetime,
     alerts: List[Dict[str, Any]],
     summary: Dict[str, Any],
-) -> bool:
+) -> Tuple[bool, List[Dict[str, Any]]]:
     if not alerts:
-        return False
+        return False, []
 
     try:
         from core.email_notifier import EmailNotifier
@@ -1047,17 +1323,66 @@ def _send_peak_alert_digest(
         email_notifier = EmailNotifier()
         if not email_notifier.is_enabled():
             print("⚠️ Email notifier not enabled")
-            return False
+            return False, [{
+                'destination': destination,
+                'status': 'skipped',
+                'provider_message': 'Notification delivery is disabled or unconfigured',
+            } for destination in _notification_destinations()]
 
-        return email_notifier.send_regular_phase_peak_digest(
+        success = email_notifier.send_regular_phase_peak_digest(
             window_start=window_start,
             window_end=window_end,
             alerts=alerts,
             summary=summary,
         )
+        return success, email_notifier.get_last_delivery_results()
     except Exception as e:
         print(f"⚠️ Error sending peak digest email: {e}")
-        return False
+        return False, [{
+            'destination': 'notification_runtime',
+            'status': 'failed',
+            'provider_message': _one_line_error(e),
+        }]
+
+
+def _dispatch_peak_alerts(
+    window_start: datetime,
+    window_end: datetime,
+    payloads: List[Dict[str, Any]],
+    digest_enabled: bool,
+    digest_summary: Dict[str, Any],
+) -> PeakDispatchResult:
+    if not payloads:
+        return PeakDispatchResult([], [])
+
+    delivery_outcomes: List[Dict[str, Any]] = []
+    if digest_enabled:
+        digest_success, digest_results = _normalize_send_result(
+            _send_peak_alert_digest(
+                window_start, window_end, payloads, digest_summary
+            )
+        )
+        for payload in payloads:
+            delivery_outcomes.extend(
+                _payload_delivery_outcomes(payload, digest_results, 'digest')
+            )
+        if digest_success:
+            return PeakDispatchResult(list(payloads), delivery_outcomes)
+
+    if digest_enabled:
+        print("⚠️ Digest send failed, falling back to individual alerts")
+
+    delivered = []
+    for payload in payloads:
+        success, individual_results = _normalize_send_result(
+            _send_peak_alert_email(payload)
+        )
+        delivery_outcomes.extend(
+            _payload_delivery_outcomes(payload, individual_results, 'individual')
+        )
+        if success:
+            delivered.append(payload)
+    return PeakDispatchResult(delivered, delivery_outcomes)
 
 
 def _build_peak_notification(
@@ -1230,148 +1555,6 @@ def set_db_role(cursor) -> None:
         # Continue anyway - user may have direct permissions
 
 
-def save_incidents_to_db(collection: IncidentCollection) -> int:
-    """Save incidents to database"""
-    if not HAS_DB:
-        print(" ⚠️ No DB driver available")
-        return 0
-    
-    if not collection or not collection.incidents:
-        return 0
-    
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        data = []
-        for incident in collection.incidents:
-            ts = incident.time.first_seen or datetime.now(timezone.utc)
-            namespace_event_counts = getattr(incident, 'namespace_event_counts', {}) or {}
-            top_namespace = ''
-            if namespace_event_counts:
-                top_namespace = max(namespace_event_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
-            # reference_value: store actual count (for BaselineLoader to use as historical data)
-            # For regular phase: current_count = total_count = per-window count (correct granularity)
-            ref_value = incident.stats.current_count if incident.stats.current_count > 0 else None
-            # baseline_mean: use EWMA baseline rate (not median which is 0 for sparse windows)
-            baseline_mean = round(incident.stats.baseline_rate, 2) if incident.stats.baseline_rate > 0 else None
-            data.append((
-                ts,
-                ts.weekday(),
-                ts.hour,
-                ts.minute // 15,
-                top_namespace or (incident.namespaces[0] if incident.namespaces else 'unknown'),
-                incident.stats.current_count,                         # original_value
-                ref_value,                                            # reference_value
-                baseline_mean,                                        # baseline_mean
-                incident.flags.is_new,
-                incident.flags.is_spike,
-                incident.flags.is_burst,
-                incident.flags.is_cross_namespace,
-                incident.error_type or '',
-                (incident.normalized_message or '')[:500],
-                'regular',
-                incident.score,
-                incident.severity.value
-            ))
-        
-        execute_values(cursor, """
-            INSERT INTO ailog_peak.peak_investigation
-            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-             original_value, reference_value, baseline_mean,
-             is_new, is_spike, is_burst, is_cross_namespace,
-             error_type, error_message, detection_method, score, severity)
-            VALUES %s
-        """, data, page_size=1000)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return len(data)
-        
-    except Exception as e:
-        print(f" ⚠️ DB error: {e}")
-        if conn:
-            conn.close()
-        return 0
-
-
-def save_namespace_totals_to_raw_data(collection: IncidentCollection) -> int:
-    """
-    Save namespace-level error totals to peak_raw_data.
-
-    This feeds the P93/CAP threshold calculation (calculate_peak_thresholds.py).
-    Each regular phase run adds one row per namespace with the total error count
-    for that 15-min window. Over time this builds the dataset from which P93
-    percentiles are calculated, making the system self-improving.
-    """
-    if not HAS_DB:
-        return 0
-    if not collection or not collection.incidents:
-        return 0
-
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        set_db_role(cursor)
-
-        # Aggregate total error count per namespace
-        ns_totals = {}
-        ts = None
-        for incident in collection.incidents:
-            inc_ts = incident.time.first_seen or datetime.now(timezone.utc)
-            if ts is None:
-                ts = inc_ts
-            namespace_event_counts = getattr(incident, 'namespace_event_counts', {}) or {}
-            if namespace_event_counts:
-                for ns, count in namespace_event_counts.items():
-                    if ns:
-                        ns_totals[ns] = ns_totals.get(ns, 0) + int(count or 0)
-            else:
-                ns = incident.namespaces[0] if incident.namespaces else 'unknown'
-                ns_totals[ns] = ns_totals.get(ns, 0) + incident.stats.current_count
-
-        if not ns_totals or ts is None:
-            if conn:
-                conn.close()
-            return 0
-
-        data = []
-        for ns, total_count in ns_totals.items():
-            data.append((
-                ts,
-                ts.weekday(),
-                ts.hour,
-                ts.minute // 15,
-                ns,
-                total_count,      # error_count (current, possibly replaced)
-                total_count,      # original_value (raw count for P93 calculation)
-            ))
-
-        execute_values(cursor, """
-            INSERT INTO ailog_peak.peak_raw_data
-            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-             error_count, original_value)
-            VALUES %s
-            ON CONFLICT (timestamp, day_of_week, hour_of_day, quarter_hour, namespace)
-            DO UPDATE SET error_count = EXCLUDED.error_count,
-                          original_value = EXCLUDED.original_value
-        """, data, page_size=100)
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return len(data)
-
-    except Exception as e:
-        print(f"   peak_raw_data save failed (non-blocking): {e}")
-        if conn:
-            conn.close()
-        return 0
-
-
 # =============================================================================
 # REGISTRY
 # =============================================================================
@@ -1387,14 +1570,6 @@ def init_registry() -> Optional[ProblemRegistry]:
     _registry.load()
     
     return _registry
-
-
-def save_registry():
-    """Save registry"""
-    global _registry
-    
-    if _registry is not None:
-        _registry.save()
 
 
 # =============================================================================
@@ -1510,24 +1685,74 @@ def run_regular_phase(
     # ==========================================================================
     # FETCH DATA
     # ==========================================================================
-    errors = fetch_unlimited(
-        window_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        window_end.strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    aggregator = StreamingAggregator()
+    try:
+        errors = fetch_unlimited(
+            window_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            window_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            page_consumer=aggregator.ingest_page,
+            collect_results=False,
+        )
+    except Exception:
+        aggregator.close()
+        raise
     
     if errors is None:
+        aggregator.close()
         print("❌ Fetch failed")
         result['status'] = 'error'
         result['error'] = 'Fetch returned None'
         return result
+
+    if not LAST_FETCH_STATS.get('complete'):
+        aggregator.close()
+        reason = LAST_FETCH_STATS.get('reason') or 'source count did not reconcile'
+        print(f"❌ Fetch incomplete: {reason}")
+        result['status'] = 'error'
+        result['error'] = f'Fetch incomplete: {reason}'
+        return result
+
+    monitored_namespaces = _load_monitored_namespaces()
+    run_id = (
+        f"regular-{window_start.strftime('%Y%m%d-%H%M')}-"
+        f"{uuid.uuid4().hex[:8]}"
+    )
     
-    if len(errors) == 0:
-        print("⚪ No errors in window")
+    if aggregator.total_records == 0:
+        aggregator.close()
+        collection = IncidentCollection(
+            run_id=run_id,
+            run_timestamp=now,
+            pipeline_version=os.getenv('IMAGE_TAG', '1.0'),
+            input_records=0,
+            time_range_start=window_start,
+            time_range_end=window_end,
+        )
+        if not dry_run:
+            try:
+                persistence = persist_analysis_run(
+                    connection_factory=get_db_connection,
+                    collection=collection,
+                    run_type='regular',
+                    window_start=window_start,
+                    window_end=window_end,
+                    monitored_namespaces=monitored_namespaces,
+                    expected_count=LAST_FETCH_STATS.get('expected'),
+                    fetched_count=0,
+                    source_index=INDICES,
+                )
+                result.update(persistence)
+            except Exception as e:
+                print(f"❌ No-data run persistence failed: {_one_line_error(e)}")
+                result['status'] = 'error'
+                result['error'] = str(e)
+                return result
+        print("⚪ No errors in window; complete zero facts persisted")
         result['status'] = 'no_data'
         return result
     
-    result['error_count'] = len(errors)
-    print(f"   📥 Fetched {len(errors):,} errors")
+    result['error_count'] = aggregator.total_records
+    print(f"   📥 Fetched {aggregator.total_records:,} errors")
     # OOM guard: když fetch ořízl data (extrémní okno), report to dolů.
     if LAST_FETCH_STATS.get('truncated'):
         result['truncated'] = True
@@ -1545,27 +1770,16 @@ def run_regular_phase(
         db_conn = get_db_connection(read_only=True)
         baseline_loader = BaselineLoader(db_conn)
         
-        # Zjisti jaké error_types jsou v aktuálním okně
-        if errors:
-            # Zjisti error_type z normalizace - VŠECHNY, ne jen prvních 1000!
-            from pipeline.phase_a_parse import PhaseA_Parser
-            parser = PhaseA_Parser()
-            all_error_types = set()
-            for error in errors:
-                # Use extract_error_type_rich() to match Phase A pipeline behavior
-                # (checks exception.type, error.type, stack_trace, then message)
-                error_type = parser.extract_error_type_rich(error)
-                if error_type and error_type != 'Unknown':
-                    all_error_types.add(error_type)
-            
-            # Načti baseline pro ALL error_types
-            if all_error_types:
-                historical_baseline = baseline_loader.load_historical_rates(
-                    error_types=list(all_error_types),
+        if aggregator.total_records:
+            fingerprints = list(aggregator.acc)
+            if fingerprints:
+                historical_baseline = baseline_loader.load_fingerprint_rates(
+                    fingerprints=fingerprints,
+                    analysis_window_start=window_start,
                     lookback_days=7,
                     min_samples=3
                 )
-                print(f"   📊 Loaded baseline for {len(historical_baseline)}/{len(all_error_types)} error types")
+                print(f"   📊 Loaded baseline for {len(historical_baseline)}/{len(fingerprints)} fingerprints")
         
         db_conn.close()
     except Exception as e:
@@ -1585,23 +1799,49 @@ def run_regular_phase(
     except Exception as e:
         print(f"   P93/CAP peak detector unavailable (falling back to EWMA): {_one_line_error(e)}")
 
-    pipeline = Pipeline(
-        ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
-        peak_detector=peak_detector,
-        build_trace_patterns=True,
-    )
-    
-    # ← NOVÉ: Injektuj historické baseline do Phase B
-    # POZOR: BaselineLoader vrací data keyed by error_type, ne fingerprint!
-    # Použij error_type_baseline pro správný lookup v Phase B.
-    pipeline.phase_b.error_type_baseline = historical_baseline
-    
-    # ← KRITICKÉ: Inject registry do Phase C (aby mohl dělat is_problem_key_known lookup!)
-    pipeline.phase_c.registry = registry
-    pipeline.phase_c.known_fingerprints = registry.get_all_known_fingerprints().copy()
-    
-    run_id = f"regular-{now.strftime('%Y%m%d')}-{window_start.strftime('%H%M')}"
-    collection = pipeline.run(errors, run_id=run_id)
+    try:
+        pipeline = Pipeline(
+            ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
+            peak_detector=peak_detector,
+            build_trace_patterns=True,
+        )
+
+        pipeline.phase_b.historical_baseline = historical_baseline
+
+        # ← KRITICKÉ: Inject registry do Phase C (aby mohl dělat is_problem_key_known lookup!)
+        pipeline.phase_c.registry = registry
+        pipeline.phase_c.known_fingerprints = registry.get_all_known_fingerprints().copy()
+
+        collection = pipeline.run_streaming(aggregator, run_id=run_id)
+    finally:
+        aggregator.close()
+
+    if not dry_run:
+        try:
+            persistence = persist_analysis_run(
+                connection_factory=get_db_connection,
+                collection=collection,
+                run_type='regular',
+                window_start=window_start,
+                window_end=window_end,
+                monitored_namespaces=monitored_namespaces,
+                expected_count=LAST_FETCH_STATS.get('expected'),
+                fetched_count=result['error_count'],
+                source_index=INDICES,
+            )
+            result.update(persistence)
+            result['saved'] = persistence['incident_rows']
+            print(
+                f"\n💾 Committed complete run: {persistence['persisted_events']:,} events, "
+                f"{persistence['fact_rows']:,} facts, "
+                f"{persistence['namespace_rows']:,} namespace rows, "
+                f"{persistence['incident_rows']:,} incidents"
+            )
+        except Exception as e:
+            print(f"❌ Run persistence failed: {_one_line_error(e)}")
+            result['status'] = 'error'
+            result['error'] = str(e)
+            return result
 
     # #3: pro reprezentativní trace top problémů dotáhni VŠECHNY levely (WARN/INFO
     # před ERROR) a přepočítej root cause/propagaci z bohatší časové osy. Opt-in
@@ -1646,24 +1886,14 @@ def run_regular_phase(
     print(f"   By severity: {collection.by_severity}")
     
     # ==========================================================================
-    # SAVE TO DB
-    # ==========================================================================
-    if not dry_run and collection.incidents:
-        saved = save_incidents_to_db(collection)
-        result['saved'] = saved
-        print(f"\n💾 Saved {saved} incidents to DB")
-
-        # Save namespace totals to peak_raw_data (feeds P93/CAP threshold calculation)
-        raw_saved = save_namespace_totals_to_raw_data(collection)
-        if raw_saved > 0:
-            print(f"   Saved {raw_saved} namespace totals to peak_raw_data")
-
-    # ==========================================================================
     # UPDATE REGISTRY
     # ==========================================================================
-    if collection.incidents:
-        registry.update_from_incidents(collection.incidents, event_timestamps)
-        save_registry()
+    if collection.incidents and not dry_run:
+        if not registry.update_and_save(collection.incidents, event_timestamps):
+            print("❌ Registry update failed after database commit")
+            result['status'] = 'error'
+            result['error'] = 'Registry update failed after database commit'
+            return result
         
         stats = registry.get_stats()
         print(f"\n📝 Registry updated:")
@@ -1722,7 +1952,7 @@ def run_regular_phase(
             print(line)
 
         # Ulož reporty
-        if output_dir:
+        if output_dir and not dry_run:
             report_files = generator.save_reports(output_dir, prefix="problem_report_15min")
             print(f"\n📄 Problem reports saved:")
             print(f"   Text: {report_files.get('text')}")
@@ -1733,7 +1963,10 @@ def run_regular_phase(
         print("\n🔍 Running Incident Analysis (legacy)...")
 
         report_dir = output_dir or (SCRIPT_DIR / 'reports')
-        report = run_incident_analysis(collection, window_start, window_end, str(report_dir))
+        report_output_dir = None if dry_run else str(report_dir)
+        report = run_incident_analysis(
+            collection, window_start, window_end, report_output_dir
+        )
 
         # Print summary only (not full report for 15min runs)
         lines = report.split('\n')[:30]
@@ -1745,12 +1978,13 @@ def run_regular_phase(
     # ==========================================================================
     # WRITE-BACK ENRICHMENT TO REGISTRY
     # ==========================================================================
-    if enriched_problems and _registry is not None:
-        write_back_count = 0
+    if enriched_problems and _registry is not None and not dry_run:
+        problem_enrichment_updates: Dict[str, Dict[str, Any]] = {}
         for pkey, aggregate in enriched_problems.items():
             if pkey not in _registry.problems:
                 continue
             entry = _registry.problems[pkey]
+            updates: Dict[str, Any] = {}
 
             # Write-back root_cause from trace analysis (highest priority)
             rc = getattr(aggregate, 'root_cause', None)
@@ -1760,13 +1994,11 @@ def run_regular_phase(
                 msg = trc.get('message', '')
                 new_rc = f"{svc}: {msg}" if svc else msg
                 if new_rc and new_rc != entry.root_cause:
-                    entry.root_cause = new_rc[:500]
-                    write_back_count += 1
+                    updates['root_cause'] = new_rc[:500]
             elif rc and hasattr(rc, 'message') and rc.message:
                 new_rc = f"{rc.service}: {rc.message}" if rc.service else rc.message
                 if new_rc and new_rc != entry.root_cause:
-                    entry.root_cause = new_rc[:500]
-                    write_back_count += 1
+                    updates['root_cause'] = new_rc[:500]
 
             # Write-back behavior from problem-level behavior summary
             if aggregate.trace_flow_summary:
@@ -1774,29 +2006,36 @@ def run_regular_phase(
                 if behavior_msg and behavior_msg != entry.behavior:
                     # Strip stack frames before storing (operator-friendly).
                     from core.problem_registry import _strip_stack_trace_for_storage
-                    entry.behavior = _strip_stack_trace_for_storage(behavior_msg)[:500]
-                    write_back_count += 1
+                    updates['behavior'] = _strip_stack_trace_for_storage(behavior_msg)[:500]
 
             # Write-back severity and score
             if aggregate.max_severity and aggregate.max_severity != 'info':
-                entry_sev = getattr(entry, '_enriched_severity', None)
-                if entry_sev != aggregate.max_severity:
-                    entry._enriched_severity = aggregate.max_severity
+                if entry.enriched_severity != aggregate.max_severity:
+                    updates['enriched_severity'] = aggregate.max_severity
             if aggregate.max_score > 0:
-                entry._enriched_score = aggregate.max_score
+                if entry.enriched_score != aggregate.max_score:
+                    updates['enriched_score'] = aggregate.max_score
 
-        if write_back_count > 0:
-            print(f"\n📝 Write-back: updated enriched fields for {write_back_count} problems")
-            try:
-                _registry.save()
-                print(f"   ✅ Registry saved with enriched data")
-            except Exception as e:
-                print(f"   ⚠️ Registry save failed: {e}")
+            if updates:
+                problem_enrichment_updates[pkey] = updates
+
+        if problem_enrichment_updates:
+            if not _registry.merge_enrichment_and_save(
+                problem_enrichment_updates, {}
+            ):
+                print("❌ Registry enrichment merge failed")
+                result['status'] = 'error'
+                result['error'] = 'Registry enrichment merge failed'
+                return result
+            print(
+                f"\n📝 Registry enrichment merged for "
+                f"{len(problem_enrichment_updates)} problems"
+            )
 
     # ==========================================================================
     # EXPORT TABLES (CSV, MD, JSON)
     # ==========================================================================
-    if HAS_EXPORTS and _registry is not None:
+    if HAS_EXPORTS and _registry is not None and not dry_run:
         exports_dir = output_dir or (SCRIPT_DIR / 'exports')
         print(f"\n📊 Exporting tables to {exports_dir}...")
 
@@ -1815,7 +2054,7 @@ def run_regular_phase(
     # ==========================================================================
     # SEND PEAKS NOTIFICATION (EMAIL ONLY)
     # ==========================================================================
-    if collection.incidents:
+    if collection.incidents and not dry_run:
         try:
             # Detect peaks: spike OR burst OR high-score anomalies
             peaks_detected = sum(
@@ -1840,19 +2079,32 @@ def run_regular_phase(
                 
                 # Select ALL peak problems (no limit), then cluster
                 peak_problems = _select_peak_problems(enriched_problems, limit=0)
+                all_peak_apps = sorted({
+                    app
+                    for problem in peak_problems
+                    for app in (getattr(problem, 'apps', None) or [])
+                    if app
+                })
+                all_peak_namespaces = sorted({
+                    namespace
+                    for problem in peak_problems
+                    for namespace in (getattr(problem, 'namespaces', None) or [])
+                    if namespace
+                })
                 clusters = _merge_peak_clusters(peak_problems)
-                print(f"ℹ️ Peak problems: {len(peak_problems)} → {len(clusters)} cluster(s)")
-                omitted_clusters = max(len(clusters) - max_alerts, 0)
+                print(f"ℹ️ Peak problems: {len(peak_problems)} → {len(clusters)} correlated alert(s)")
+                omitted_alerts = max(len(clusters) - max_alerts, 0)
                 
                 sent_alerts = 0
                 suppressed_alerts = 0
+                delivery_outcomes: List[Dict[str, Any]] = []
                 alert_state = _load_alert_state(registry)
                 alert_peaks = alert_state.get('peaks', {})
                 now_utc = datetime.now(timezone.utc)
                 cooldown_min = int(os.getenv('ALERT_COOLDOWN_MIN', '45'))
                 dispatch_payloads: List[Dict[str, Any]] = []
 
-                for cluster in clusters[:max_alerts]:
+                for cluster_index, cluster in enumerate(clusters):
                     payload = _build_cluster_payload(
                         cluster,
                         peak_trace_flows or {},
@@ -1865,11 +2117,24 @@ def run_regular_phase(
                         continue
 
                     peak_key = payload.get('peak_key', '')
+                    if cluster_index >= max_alerts:
+                        delivery_outcomes.extend(
+                            _policy_delivery_outcomes(
+                                payload,
+                                'skipped',
+                                f'MAX_PEAK_ALERTS_PER_WINDOW limit ({max_alerts})',
+                            )
+                        )
+                        continue
+
                     state_entry = alert_peaks.get(peak_key, {}) if peak_key else {}
                     should_send, reason = _should_send_peak_alert(payload, state_entry, now_utc)
 
                     if not should_send:
                         suppressed_alerts += 1
+                        delivery_outcomes.extend(
+                            _policy_delivery_outcomes(payload, 'suppressed', reason)
+                        )
                         if peak_key:
                             print(f"ℹ️ Peak alert suppressed for {peak_key}: {reason}")
                         continue
@@ -1885,67 +2150,98 @@ def run_regular_phase(
                     payload['send_reason'] = reason
                     dispatch_payloads.append(payload)
 
-                if digest_enabled:
-                    digest_summary = {
-                        'raw_window_errors': int(result.get('error_count', 0) or 0),
-                        'detected_peak_problems': len(peak_problems),
-                        'detected_clusters': len(clusters),
-                        'suppressed_clusters': suppressed_alerts,
-                        'omitted_clusters': omitted_clusters,
-                        'max_alerts': max_alerts,
-                    }
-                    if dispatch_payloads and _send_peak_alert_digest(window_start, window_end, dispatch_payloads, digest_summary):
-                        sent_alerts = len(dispatch_payloads)
-                    elif dispatch_payloads:
-                        print("⚠️ Digest send failed, falling back to individual alerts")
-                        for payload in dispatch_payloads:
-                            if _send_peak_alert_email(payload):
-                                sent_alerts += 1
-                else:
-                    for payload in dispatch_payloads:
-                        if _send_peak_alert_email(payload):
-                            sent_alerts += 1
+                digest_summary = {
+                    'raw_window_errors': int(result.get('error_count', 0) or 0),
+                    'detected_peak_problems': len(peak_problems),
+                    'suppressed_alerts': suppressed_alerts,
+                    'omitted_alerts': omitted_alerts,
+                    'max_alerts': max_alerts,
+                    'affected_apps': all_peak_apps,
+                    'affected_namespaces': all_peak_namespaces,
+                }
 
-                if sent_alerts > 0:
-                    for payload in dispatch_payloads:
-                        peak_key = payload.get('peak_key', '')
-                        if not peak_key:
-                            continue
-                        alert_peaks[peak_key] = {
-                            'last_sent_at': now_utc.isoformat(),
-                            'last_sent_window': payload.get('window_key', ''),
-                            'last_trend': payload.get('trend', ''),
-                            'last_error_count': int(payload.get('error_count', 0) or 0),
-                            'cooldown_until': (now_utc + timedelta(minutes=max(cooldown_min, 0))).isoformat(),
-                            'last_reason': payload.get('send_reason', ''),
-                        }
-
-                alert_state['peaks'] = alert_peaks
-                _save_alert_state(registry, alert_state)
-
-                # Write-back enriched root_cause and behavior to PeakEntry
-                peak_wb_count = 0
+                peak_enrichment_updates: Dict[str, Dict[str, Any]] = {}
                 for payload in dispatch_payloads:
-                    pk = payload.get('peak_key', '')
-                    if not pk or pk not in registry.peaks:
+                    peak_key = payload.get('peak_key', '')
+                    if not peak_key or peak_key not in registry.peaks:
                         continue
-                    peak_entry = registry.peaks[pk]
-                    rc_text = str(payload.get('root_cause_text', '') or '')
-                    bh_text = str(payload.get('behavior_text', '') or '')
-                    if rc_text and rc_text != peak_entry.root_cause:
-                        peak_entry.root_cause = rc_text[:500]
-                        peak_wb_count += 1
-                    if bh_text and bh_text != peak_entry.behavior:
-                        peak_entry.behavior = bh_text[:500]
-                        peak_wb_count += 1
-                    # NOTE: r69 fields (behavior_steps, root_cause_service,
-                    # root_cause_confidence, total_messages) replaced by
-                    # PeakEntry.contributing_problems which is populated
-                    # organically during _update_peak. Render-time formatters
-                    # in TableExporter resolve the contributing problem keys
-                    # against ProblemEntry to produce per-pattern peak detail.
-                if peak_wb_count > 0:
-                    print(f"   📝 Peak write-back: enriched {peak_wb_count} fields")
+                    peak_entry = registry.peaks[peak_key]
+                    updates: Dict[str, Any] = {}
+                    root_cause = str(payload.get('root_cause_text', '') or '')
+                    behavior = str(payload.get('behavior_text', '') or '')
+                    if root_cause and root_cause != peak_entry.root_cause:
+                        updates['root_cause'] = root_cause[:500]
+                    if behavior and behavior != peak_entry.behavior:
+                        updates['behavior'] = behavior[:500]
+                    if updates:
+                        peak_enrichment_updates[peak_key] = updates
+
+                if peak_enrichment_updates and not registry.merge_enrichment_and_save(
+                    {}, peak_enrichment_updates
+                ):
+                    print("❌ Peak registry enrichment merge failed")
+                    result['status'] = 'error'
+                    result['error'] = 'Peak registry enrichment merge failed'
+                    return result
+
+                delivered_payloads = _dispatch_peak_alerts(
+                    window_start,
+                    window_end,
+                    dispatch_payloads,
+                    digest_enabled,
+                    digest_summary,
+                )
+                delivery_outcomes.extend(delivered_payloads.delivery_outcomes)
+                if delivery_outcomes:
+                    try:
+                        persist_notification_deliveries(
+                            get_db_connection,
+                            delivery_outcomes,
+                            notification_type='regular_peak',
+                            run_id=run_id,
+                            window_start=window_start,
+                        )
+                    except Exception as e:
+                        result['status'] = 'error'
+                        result['error'] = f'Delivery audit persistence failed: {_one_line_error(e)}'
+                        print(f"❌ {result['error']}")
+                        return result
+
+                sent_alerts = len(delivered_payloads)
+                _record_delivered_peak_alerts(
+                    registry,
+                    delivered_payloads,
+                    now_utc,
+                    cooldown_min,
+                )
+
+                delivered_keys = {
+                    outcome['dedup_key']
+                    for outcome in delivery_outcomes
+                    if outcome.get('status') == 'delivered'
+                }
+                failed_keys = {
+                    outcome['dedup_key']
+                    for outcome in delivery_outcomes
+                    if outcome.get('status') == 'failed'
+                } - delivered_keys
+                if failed_keys:
+                    result['status'] = 'error'
+                    result['error'] = (
+                        f'{len(failed_keys)} peak alert payload(s) had no successful destination'
+                    )
+                    result['delivery_status'] = 'failed'
+                elif any(
+                    outcome.get('status') == 'failed'
+                    for outcome in delivery_outcomes
+                ):
+                    result['delivery_status'] = 'partial'
+                elif sent_alerts:
+                    result['delivery_status'] = 'complete'
+                elif suppressed_alerts:
+                    result['delivery_status'] = 'suppressed'
+                else:
+                    result['delivery_status'] = 'skipped'
 
                 print(f"✅ Peak alerts dispatched: {sent_alerts}/{len(peak_problems)} (suppressed: {suppressed_alerts})")
 
@@ -1967,15 +2263,7 @@ def run_regular_phase(
 # =============================================================================
 
 def cleanup():
-    """Ensure registry is saved on exit"""
-    global _registry
-    
-    if _registry is not None:
-        try:
-            save_registry()
-            print("\n✅ Cleanup: registry saved")
-        except Exception as e:
-            print(f"\n⚠️ Cleanup error: {e}")
+    """Registry writes happen only in the post-commit transaction."""
 
 
 atexit.register(cleanup)
@@ -1985,7 +2273,7 @@ def signal_handler(signum, frame):
     """Handle termination signals"""
     print(f"\n⚠️ Received signal {signum}, cleaning up...")
     cleanup()
-    sys.exit(0)
+    sys.exit(1)
 
 
 signal.signal(signal.SIGINT, signal_handler)

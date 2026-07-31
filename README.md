@@ -14,7 +14,7 @@ Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespac
 2. **Identifikuje** — každá chyba dostane `fingerprint` (hash), je zařazena do kategorie a přiřazena k business flow
 3. **Určí, co je nové vs. známé** — registry drží historii všech dříve viděných problémů
 4. **Vyhodnotí závažnost** — deterministické bodování 0–100
-5. **Clusteruje** — problémy se stejným trace flow nebo error class se sloučí do jednoho alertu
+5. **Koreluje** — různé logové projevy stejné události se sloučí do jednoho alertu
 6. **Notifikuje** — při peaku odešle digest email; do Teams kanálu se doručuje e-mailem na jeho adresu (`TEAMS_EMAIL`), webhook je v aplikaci vypnutý
 7. **Aktualizuje Confluence** — Known Errors, Known Peaks a Recent Incidents tabulky
 8. **Sbírá historická data** — ukládá surové počty chyb pro zpětný přepočet P93/CAP prahů
@@ -44,7 +44,7 @@ Kompletní postup založení → [docs/INSTALLATION.md](docs/INSTALLATION.md)
 # 1. Vyplnit konfiguraci
 cp config/install.conf.example .env && vi .env
 
-# 2. Instalační skript — validuje → DB migrace → Docker build+push → K8s manifesty → git branch+push
+# 2. Instalační skript — validuje konfiguraci → vygeneruje kompletní infra-apps strukturu → commitne instalační branch
 ./install.sh
 
 # 3. Po merge PR → ArgoCD sync → spustit init job

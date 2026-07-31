@@ -123,6 +123,7 @@ env:
   ALERT_HEARTBEAT_MIN: "120"
   ALERT_MIN_DELTA_PCT: "30"
   ALERT_CONTINUATION_LOOKBACK_MIN: "60"
+  FACT_RETENTION_DAYS: "90"
 
 # -----------------------------------------------------------------------------
 # Init Job (one-shot bootstrap)

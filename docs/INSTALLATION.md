@@ -23,7 +23,7 @@ Tyto kroky je třeba provést **manuálně** před spuštěním `install.sh`.
 
 ### 1.1 PostgreSQL databáze
 
-Požádat DBA o vytvoření:
+Vytvo5it v MIQ nebo požádat DBA o vytvoření:
 
 | Položka | Popis |
 |---------|-------|

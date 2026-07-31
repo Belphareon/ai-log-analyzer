@@ -14,7 +14,7 @@ Environment Variables:
 """
 
 import os
-from typing import Optional, Dict
+from typing import Any, List, Optional, Dict
 
 try:
     from core.email_notifier import EmailNotifier
@@ -35,6 +35,23 @@ class TeamsNotifier:
     def is_enabled(self) -> bool:
         """Check if notifications are enabled."""
         return self.enabled and self.email_notifier is not None and self.email_notifier.is_enabled()
+
+    def get_configured_destinations(self) -> List[str]:
+        """Return stable destination names for delivery audit rows."""
+        if self.email_notifier is None:
+            return ['notification_unavailable']
+        destinations = []
+        if self.email_notifier.webhook_url:
+            destinations.append('teams_webhook')
+        if self.email_notifier.teams_email:
+            destinations.append('teams_email')
+        return destinations or ['notification_unconfigured']
+
+    def get_last_delivery_results(self) -> List[Dict[str, Any]]:
+        """Return per-destination outcomes from the latest notification."""
+        if self.email_notifier is None:
+            return []
+        return self.email_notifier.get_last_delivery_results()
 
     def _build_report_snippet(
         self,

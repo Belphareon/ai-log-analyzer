@@ -36,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -46,10 +47,21 @@ sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / 'core'))
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 
-from core.fetch_unlimited import fetch_unlimited
+from core.fetch_unlimited import (
+    INDICES,
+    _load_monitored_namespaces,
+    fetch_unlimited,
+)
 from core.problem_registry import ProblemRegistry, compute_problem_key
 from core.baseline_loader import BaselineLoader
+from core.delivery_persistence import (
+    persist_notification_deliveries,
+    summarize_delivery_outcomes,
+)
+from core.run_persistence import build_query_hash, persist_analysis_run
+from core.streaming_aggregator import StreamingAggregator
 from pipeline import Pipeline
+from pipeline.incident import IncidentCollection
 from pipeline.phase_f_report import PhaseF_Report
 
 # Table exports
@@ -62,7 +74,6 @@ except ImportError:
 # DB
 try:
     import psycopg2
-    from psycopg2.extras import execute_values
     HAS_DB = True
 except ImportError:
     HAS_DB = False
@@ -141,6 +152,25 @@ def safe_print(*args, **kwargs):
         print(*args, **kwargs, flush=True)
 
 
+def _contextualize_delivery_results(
+    results: List[Dict[str, Any]],
+    dedup_key: str,
+    metadata: Dict[str, Any],
+    success: bool,
+) -> List[Dict[str, Any]]:
+    if not results:
+        results = [{
+            'destination': 'notification_aggregate',
+            'status': 'delivered' if success else 'failed',
+            'provider_message': 'Notifier returned aggregate result only',
+        }]
+    return [{
+        **result,
+        'dedup_key': dedup_key,
+        'metadata': metadata,
+    } for result in results]
+
+
 # Global registry (shared between workers)
 _global_registry: Optional[ProblemRegistry] = None
 _global_registry_lock = threading.Lock()
@@ -196,200 +226,39 @@ def set_db_role(cursor) -> None:
 
 
 def check_day_processed(date: datetime) -> bool:
-    """
-    Kontroluje zda byl den již zpracován v DB.
-    
-    FIX pro bod 1a: Neduplikovat data.
-    """
+    """Return True only for an authoritative complete backfill run."""
     if not HAS_DB:
         return False
-    
+
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        # NOTE: set_db_role is now called in get_db_connection() before transaction starts
-        
         date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
-        date_end = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-        
+        date_end = date_start + timedelta(days=1)
+        query_hash = build_query_hash(INDICES, _load_monitored_namespaces())
+
         cursor.execute("""
-            SELECT COUNT(*) FROM ailog_peak.peak_investigation
-            WHERE timestamp >= %s AND timestamp <= %s
-              AND detection_method = 'backfill'
-        """, (date_start, date_end))
-        
-        count = cursor.fetchone()[0]
+            SELECT EXISTS (
+                SELECT 1
+                FROM ailog_peak.analysis_runs
+                WHERE run_type = 'backfill'
+                  AND window_start = %s
+                  AND window_end = %s
+                  AND query_hash = %s
+                  AND status = 'complete'
+                  AND superseded_by_run_id IS NULL
+            )
+        """, (date_start, date_end, query_hash))
+
+        complete = cursor.fetchone()[0]
         cursor.close()
         conn.close()
-        
-        return count > 0
-        
+
+        return bool(complete)
+
     except Exception as e:
         safe_print(f"⚠️ Error checking day {date.strftime('%Y-%m-%d')}: {e}")
         return False
-
-
-def save_incidents_to_db(collection, date_str: str) -> int:
-    """Save incidents to database"""
-    if not HAS_DB:
-        safe_print(f" ⚠️ {date_str} - No DB driver")
-        return 0
-    
-    if not collection or not collection.incidents:
-        return 0
-    
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        # NOTE: set_db_role is now called in get_db_connection() before transaction starts
-        
-        data = []
-        for incident in collection.incidents:
-            ts = incident.time.first_seen or datetime.now(timezone.utc)
-            total_count = incident.stats.current_count  # = total_count from pipeline (sum of ALL windows)
-
-            # reference_value for backfill: per-window average rate
-            # Backfill processes 24h = 96 windows, but total_count is sum across all.
-            # Normalize to per-15-min-window average so BaselineLoader gets comparable
-            # values to regular phase (which stores per-window count).
-            duration = incident.time.duration_sec if incident.time.duration_sec else 0
-            if duration > 0 and total_count > 0:
-                num_windows = max(1, duration / (15 * 60))
-                ref_value = max(1, round(total_count / num_windows))
-            elif total_count > 0:
-                ref_value = total_count
-            else:
-                ref_value = None
-
-            # baseline_mean: use per-window average (same as ref_value) for backfill
-            # EWMA baseline_rate is ~0 in backfill (sparse 96-window array), so use ref_value
-            baseline_mean = ref_value
-
-            data.append((
-                ts,
-                ts.weekday(),
-                ts.hour,
-                ts.minute // 15,
-                incident.namespaces[0] if incident.namespaces else 'unknown',
-                total_count,                                          # original_value
-                ref_value,                                            # reference_value
-                baseline_mean,                                        # baseline_mean
-                incident.flags.is_new,
-                incident.flags.is_spike,
-                incident.flags.is_burst,
-                incident.flags.is_cross_namespace,
-                incident.error_type or '',
-                (incident.normalized_message or '')[:500],
-                'backfill',
-                incident.score,
-                incident.severity.value
-            ))
-        
-        execute_values(cursor, """
-            INSERT INTO ailog_peak.peak_investigation
-            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-             original_value, reference_value, baseline_mean,
-             is_new, is_spike, is_burst, is_cross_namespace,
-             error_type, error_message, detection_method, score, severity)
-            VALUES %s
-        """, data, page_size=1000)
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return len(data)
-        
-    except Exception as e:
-        safe_print(f" ⚠️ {date_str} - DB error: {e}")
-        if conn:
-            try:
-                conn.rollback()
-            except:
-                pass
-            conn.close()
-        return 0
-
-
-# =============================================================================
-# PEAK RAW DATA (feeds P93/CAP threshold calculation)
-# =============================================================================
-
-def save_raw_data_for_day(errors: list, date_str: str) -> int:
-    """
-    Save 15-min namespace error totals to peak_raw_data from raw ES errors.
-
-    Preserves 15-min granularity needed for P93/CAP threshold calculation.
-    Each regular phase run normally saves one row per namespace per 15-min window.
-    This function does the same from backfill data — grouping raw errors by
-    (namespace, 15-min window) to produce equivalent rows.
-    """
-    if not HAS_DB or not errors:
-        return 0
-
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        set_db_role(cursor)
-
-        # Group raw errors by (namespace, 15-min window)
-        window_counts: Dict[Tuple[str, datetime], int] = {}
-
-        for error in errors:
-            ts_str = error.get('timestamp', '')
-            ns = error.get('namespace', 'unknown')
-            if not ts_str or not ns:
-                continue
-
-            try:
-                ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-            except (ValueError, TypeError):
-                continue
-
-            # Round to 15-min window boundary
-            minute = (ts.minute // 15) * 15
-            ts_rounded = ts.replace(minute=minute, second=0, microsecond=0)
-            key = (ns, ts_rounded)
-            window_counts[key] = window_counts.get(key, 0) + 1
-
-        if not window_counts:
-            if conn:
-                conn.close()
-            return 0
-
-        data = []
-        for (ns, ts), count in window_counts.items():
-            data.append((
-                ts,
-                ts.weekday(),
-                ts.hour,
-                ts.minute // 15,
-                ns,
-                count,
-                count,
-            ))
-
-        execute_values(cursor, """
-            INSERT INTO ailog_peak.peak_raw_data
-            (timestamp, day_of_week, hour_of_day, quarter_hour, namespace,
-             error_count, original_value)
-            VALUES %s
-            ON CONFLICT (timestamp, day_of_week, hour_of_day, quarter_hour, namespace)
-            DO UPDATE SET error_count = EXCLUDED.error_count,
-                          original_value = EXCLUDED.original_value
-        """, data, page_size=100)
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return len(data)
-
-    except Exception as e:
-        safe_print(f"   ⚠️ {date_str} peak_raw_data save failed (non-blocking): {e}")
-        if conn:
-            conn.close()
-        return 0
 
 
 # =============================================================================
@@ -425,7 +294,7 @@ def get_registry() -> Optional[ProblemRegistry]:
 def update_registry_from_incidents(
     incidents: List[Any],
     event_timestamps: Dict[str, Tuple[datetime, datetime]]
-):
+) -> bool:
     """
     Aktualizuje registry z incidentů.
     
@@ -434,35 +303,10 @@ def update_registry_from_incidents(
     global _global_registry
     
     if _global_registry is None:
-        return
+        return False
     
     with _global_registry_lock:
-        _global_registry.update_from_incidents(incidents, event_timestamps)
-
-
-def save_registry():
-    """
-    Uloží registry na disk.
-    
-    KRITICKÉ: Po save(), znova načteme registry z disku aby jsme se ujistil,
-    že máme nejnovější data (v případě concurrent regular phase updates).
-    """
-    global _global_registry
-    
-    if _global_registry is None:
-        return
-    
-    with _global_registry_lock:
-        _global_registry.save()
-        safe_print(f"\n📝 Registry saved:")
-        stats = _global_registry.get_stats()
-        safe_print(f"   Problems: {stats['total_problems']} ({stats['new_problems_added']} new)")
-        safe_print(f"   Peaks: {stats['total_peaks']} ({stats['new_peaks_added']} new)")
-        
-        # CRITICAL: Reload from disk to pick up any concurrent updates from regular_phase
-        # This ensures we don't lose data due to race conditions
-        safe_print(f"   Reloading from disk to sync concurrent updates...")
-        _global_registry.load()
+        return _global_registry.update_and_save(incidents, event_timestamps)
 
 
 # =============================================================================
@@ -487,6 +331,10 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
         'collection': None,
         'incidents': 0,
         'event_timestamps': {},
+        'window_start': None,
+        'window_end': None,
+        'expected_count': None,
+        'fetched_count': 0,
         'error': None,
         'skipped': False,
     }
@@ -503,21 +351,44 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
         safe_print(f" 📅 [{thread_name}] {date_str} - Fetching...")
         
         date_from = date.replace(hour=0, minute=0, second=0, microsecond=0)
-        date_to = date.replace(hour=23, minute=59, second=59, microsecond=0)
-        
+        date_to = date_from + timedelta(days=1)
+        result['window_start'] = date_from
+        result['window_end'] = date_to
+        fetch_stats = {}
+        aggregator = StreamingAggregator()
         errors = fetch_unlimited(
             date_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            date_to.strftime("%Y-%m-%dT%H:%M:%SZ")
+            date_to.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            page_consumer=aggregator.ingest_page,
+            collect_results=False,
+            stats_out=fetch_stats,
         )
+        result['expected_count'] = fetch_stats.get('expected')
+        result['fetched_count'] = fetch_stats.get('fetched', aggregator.total_records)
         
         if errors is None:
+            aggregator.close()
             result['status'] = 'error'
             result['error'] = 'Fetch returned None'
-        elif len(errors) == 0:
+        elif not fetch_stats.get('complete'):
+            aggregator.close()
+            result['status'] = 'error'
+            result['error'] = fetch_stats.get('reason') or 'Fetch incomplete'
+        elif aggregator.total_records == 0:
+            aggregator.close()
+            collection = IncidentCollection(
+                run_id=f"backfill-{date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}",
+                run_timestamp=datetime.now(timezone.utc),
+                pipeline_version=os.getenv('IMAGE_TAG', '1.0'),
+                input_records=0,
+                time_range_start=date_from,
+                time_range_end=date_to,
+            )
+            result['collection'] = collection
             result['status'] = 'no_data'
         else:
-            result['error_count'] = len(errors)
-            safe_print(f" 📥 [{thread_name}] {date_str} - {len(errors):,} errors, running pipeline...")
+            result['error_count'] = aggregator.total_records
+            safe_print(f" 📥 [{thread_name}] {date_str} - {aggregator.total_records:,} errors, running pipeline...")
             
             # 2. Pipeline with registry
             registry = get_registry()
@@ -548,33 +419,31 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 db_conn = get_db_connection()
                 baseline_loader = BaselineLoader(db_conn)
 
-                from pipeline.phase_a_parse import PhaseA_Parser
-                parser = PhaseA_Parser()
-                
-                # Extract ALL error types using rich extraction (same as Phase A pipeline)
-                # extract_error_type_rich() checks exception.type, error.type, stack_trace, then message
-                all_error_types = set()
-                for error in errors:
-                    error_type = parser.extract_error_type_rich(error)
-                    if error_type and error_type != 'Unknown':
-                        all_error_types.add(error_type)
+                fingerprints = list(aggregator.acc)
 
-                if all_error_types:
-                    historical_baseline = baseline_loader.load_historical_rates(
-                        error_types=list(all_error_types),
+                if fingerprints:
+                    historical_baseline = baseline_loader.load_fingerprint_rates(
+                        fingerprints=fingerprints,
+                        analysis_window_start=date_from,
                         lookback_days=7,
                         min_samples=3
                     )
-                    safe_print(f"   📊 [{thread_name}] Loaded baseline for {len(historical_baseline)}/{len(all_error_types)} error types")
+                    safe_print(f"   📊 [{thread_name}] Loaded baseline for {len(historical_baseline)}/{len(fingerprints)} fingerprints")
 
                 db_conn.close()
             except Exception as e:
                 safe_print(f"   ⚠️ [{thread_name}] Baseline loading failed (non-blocking): {e}")
                 historical_baseline = {}
 
-            pipeline.phase_b.error_type_baseline = historical_baseline
+            pipeline.phase_b.historical_baseline = historical_baseline
 
-            collection = pipeline.run(errors, run_id=f"backfill-{date.strftime('%Y%m%d')}")
+            try:
+                collection = pipeline.run_streaming(
+                    aggregator,
+                    run_id=f"backfill-{date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}",
+                )
+            finally:
+                aggregator.close()
             
             # 3. Extract event timestamps
             event_timestamps = {}
@@ -586,12 +455,6 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 if first_ts and last_ts:
                     event_timestamps[fp] = (first_ts, last_ts)
             
-            # 4. Save namespace totals to peak_raw_data (feeds P93/CAP threshold calculation)
-            if not dry_run:
-                raw_saved = save_raw_data_for_day(errors, date_str)
-                if raw_saved > 0:
-                    safe_print(f"   📊 [{thread_name}] {date_str} - Saved {raw_saved} rows to peak_raw_data")
-
             result['collection'] = collection
             result['incidents'] = collection.total_incidents
             result['event_timestamps'] = event_timestamps
@@ -781,9 +644,8 @@ def run_backfill(
                     result = future.result(timeout=WORKER_TIMEOUT)
                     results.append(result)
                     
-                    if result['status'] == 'success' and result.get('collection'):
+                    if result['status'] in {'success', 'no_data'} and result.get('collection'):
                         collections_to_save.append((date_str, result['collection']))
-                        all_event_timestamps.update(result.get('event_timestamps', {}))
                     
                     safe_print(f" ✓ [{completed}/{len(dates)}] {date_str} - {result['status']}")
                     
@@ -813,43 +675,76 @@ def run_backfill(
             result = process_day_worker(date, dry_run, skip_processed)
             results.append(result)
             
-            if result['status'] == 'success' and result.get('collection'):
+            if result['status'] in {'success', 'no_data'} and result.get('collection'):
                 collections_to_save.append((date_str, result['collection']))
-                all_event_timestamps.update(result.get('event_timestamps', {}))
     
     # ==========================================================================
     # DB INSERT (MAIN THREAD)
     # ==========================================================================
     total_saved = 0
     
+    committed_collections = []
     if not dry_run and collections_to_save:
-        safe_print(f"\n💾 Saving {len(collections_to_save)} collections to DB (main thread)...")
-        
+        safe_print(f"\n💾 Persisting {len(collections_to_save)} complete runs (main thread)...")
+        monitored_namespaces = _load_monitored_namespaces()
+
         for date_str, collection in collections_to_save:
-            saved = save_incidents_to_db(collection, date_str)
-            total_saved += saved
-            
-            for r in results:
-                if r['date'] == date_str:
-                    r['saved'] = saved
-                    break
-            
-            safe_print(f" 💾 {date_str}: {saved} saved")
-        
-        safe_print(f" ✅ Total saved: {total_saved}")
+            result = next(item for item in results if item['date'] == date_str)
+            try:
+                persistence = persist_analysis_run(
+                    connection_factory=get_db_connection,
+                    collection=collection,
+                    run_type='backfill',
+                    window_start=result['window_start'],
+                    window_end=result['window_end'],
+                    monitored_namespaces=monitored_namespaces,
+                    expected_count=result['expected_count'],
+                    fetched_count=result['fetched_count'],
+                    source_index=INDICES,
+                )
+            except Exception as e:
+                result['status'] = 'error'
+                result['error'] = str(e)
+                safe_print(f" ❌ {date_str}: persistence failed: {e}")
+                continue
+
+            result.update(persistence)
+            result['saved'] = persistence['incident_rows']
+            total_saved += persistence['incident_rows']
+            committed_collections.append((date_str, collection))
+            all_event_timestamps.update(result.get('event_timestamps', {}))
+            safe_print(
+                f" ✅ {date_str}: {persistence['persisted_events']:,} events, "
+                f"{persistence['fact_rows']:,} facts, "
+                f"{persistence['namespace_rows']:,} namespace rows, "
+                f"{persistence['incident_rows']:,} incidents"
+            )
+
+        safe_print(f" ✅ Total incident rows committed: {total_saved}")
+    elif dry_run:
+        committed_collections = list(collections_to_save)
+
+    collections_to_save = committed_collections
     
     # ==========================================================================
     # UPDATE REGISTRY (CRITICAL!)
     # ==========================================================================
-    if collections_to_save:
+    if collections_to_save and not dry_run:
         safe_print(f"\n📝 Updating registry with event timestamps...")
         
         all_incidents = []
         for date_str, collection in collections_to_save:
             all_incidents.extend(collection.incidents)
         
-        update_registry_from_incidents(all_incidents, all_event_timestamps)
-        save_registry()
+        if not update_registry_from_incidents(all_incidents, all_event_timestamps):
+            error = 'Registry update failed after database commit'
+            safe_print(f" ❌ {error}")
+            return {
+                'status': 'error',
+                'delivery_error': error,
+                'days_processed': len(results),
+                'total_saved': total_saved,
+            }
     
     # ==========================================================================
     # AGGREGATE FOR REPORT
@@ -944,23 +839,22 @@ def run_backfill(
         global _global_problem_report
         _global_problem_report = problem_report
 
-        # Ulož reporty
-        report_files = generator.save_reports(reports_dir, prefix="problem_report")
-        last_report_path = report_files.get('text')
-        safe_print(f"\n📄 Problem reports saved:")
-        safe_print(f"   Text: {report_files.get('text')}")
-        safe_print(f"   JSON: {report_files.get('json')}")
+        if not dry_run:
+            report_files = generator.save_reports(reports_dir, prefix="problem_report")
+            last_report_path = report_files.get('text')
+            safe_print(f"\n📄 Problem reports saved:")
+            safe_print(f"   Text: {report_files.get('text')}")
+            safe_print(f"   JSON: {report_files.get('json')}")
 
-        # CSV exporty
-        exporter = ProblemExporter(
-            problems=problems,
-            run_id=all_incidents_collection.run_id,
-            analysis_date=datetime.now(timezone.utc),
-        )
-        csv_files = exporter.export_all(reports_dir)
-        safe_print(f"\n📊 CSV exports saved:")
-        for name, path in csv_files.items():
-            safe_print(f"   {name}: {path}")
+            exporter = ProblemExporter(
+                problems=problems,
+                run_id=all_incidents_collection.run_id,
+                analysis_date=datetime.now(timezone.utc),
+            )
+            csv_files = exporter.export_all(reports_dir)
+            safe_print(f"\n📊 CSV exports saved:")
+            for name, path in csv_files.items():
+                safe_print(f"   {name}: {path}")
 
     elif all_incidents_collection.total_incidents > 0:
         # Fallback: Legacy incident report
@@ -968,14 +862,14 @@ def run_backfill(
         safe_print("\n")
         safe_print(reporter.to_console(all_incidents_collection))
 
-        if output_dir:
+        if output_dir and not dry_run:
             report_files = reporter.save_snapshot(all_incidents_collection, output_dir)
             safe_print(f"\n📄 Detailed reports saved:")
             safe_print(f"   JSON: {report_files.get('json')}")
             safe_print(f"   Markdown: {report_files.get('markdown')}")
     
     # Save summary JSON
-    if output_dir:
+    if output_dir and not dry_run:
         summary_path = Path(output_dir) / f"backfill_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -1010,7 +904,7 @@ def run_backfill(
     # ==========================================================================
     # EXPORT TABLES (CSV, MD, JSON)
     # ==========================================================================
-    if HAS_EXPORTS and _global_registry is not None:
+    if HAS_EXPORTS and _global_registry is not None and not dry_run:
         # CRITICAL: Always export to SCRIPT_DIR/exports, NOT to --output dir
         # CSV uploader expects files in /app/scripts/exports/latest/
         exports_dir = SCRIPT_DIR / 'exports'
@@ -1028,10 +922,16 @@ def run_backfill(
     safe_print("✅ BACKFILL COMPLETE")
     safe_print("=" * 70)
     
+    publication_outcomes: List[Dict[str, Any]] = []
+    notification_outcomes: List[Dict[str, Any]] = []
+    date_range_key = (
+        f'{start_date.date().isoformat()}:{end_date.date().isoformat()}'
+    )
+
     # ==========================================================================
     # PUBLISH TO CONFLUENCE
     # ==========================================================================
-    if _global_problem_report:
+    if _global_problem_report and not dry_run:
         try:
             safe_print("\n📋 Publishing to Confluence...")
             # Dynamic import to avoid requiring recent_incidents_publisher at startup
@@ -1041,17 +941,47 @@ def run_backfill(
             pub_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(pub_module)
             
-            if pub_module.main(report_path=last_report_path):
+            confluence_success = bool(pub_module.main(report_path=last_report_path))
+            publication_outcomes.append({
+                'dedup_key': f'backfill-recent-incidents:{date_range_key}',
+                'destination': 'confluence_recent_incidents',
+                'status': 'delivered' if confluence_success else 'failed',
+                'provider_message': (
+                    'Confluence page updated'
+                    if confluence_success
+                    else 'Publisher returned unsuccessful status'
+                ),
+                'metadata': {
+                    'report_path': str(last_report_path or ''),
+                    'date_range': date_range_key,
+                },
+            })
+            if confluence_success:
                 safe_print("✅ Confluence published successfully")
             else:
                 safe_print("⚠️ Confluence publication skipped or failed")
         except Exception as e:
+            publication_outcomes.append({
+                'dedup_key': f'backfill-recent-incidents:{date_range_key}',
+                'destination': 'confluence_recent_incidents',
+                'status': 'failed',
+                'provider_message': str(e),
+                'metadata': {'date_range': date_range_key},
+            })
             safe_print(f"⚠️ Confluence publication failed: {e}")
+    elif not dry_run:
+        publication_outcomes.append({
+            'dedup_key': f'backfill-recent-incidents:{date_range_key}',
+            'destination': 'confluence_recent_incidents',
+            'status': 'skipped',
+            'provider_message': 'No problem report generated',
+            'metadata': {'date_range': date_range_key},
+        })
     
     # ==========================================================================
     # SEND TEAMS NOTIFICATION
     # ==========================================================================
-    if HAS_TEAMS:
+    if HAS_TEAMS and not dry_run:
         try:
             notifier = TeamsNotifier()
             if notifier.is_enabled():
@@ -1092,6 +1022,16 @@ def run_backfill(
                         duration_minutes=(now_utc - now).total_seconds() / 60.0,
                         problem_report=_global_problem_report
                     )
+                    notification_outcomes.extend(_contextualize_delivery_results(
+                        notifier.get_last_delivery_results(),
+                        f'backfill-summary:{date_range_key}',
+                        {
+                            'date_range': date_range_key,
+                            'failed_days': error_count,
+                            'total_incidents': total_incidents,
+                        },
+                        success,
+                    ))
                     if success:
                         if error_count == 0:
                             marker_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1100,12 +1040,75 @@ def run_backfill(
                     else:
                         safe_print("⚠️ Notification failed")
                 else:
+                    for destination in notifier.get_configured_destinations():
+                        notification_outcomes.append({
+                            'dedup_key': f'backfill-summary:{date_range_key}',
+                            'destination': destination,
+                            'status': 'suppressed',
+                            'provider_message': 'Daily success-report cadence',
+                            'metadata': {'date_range': date_range_key},
+                        })
                     safe_print("ℹ️ Backfill success report suppressed (daily cadence)")
             else:
+                for destination in notifier.get_configured_destinations():
+                    notification_outcomes.append({
+                        'dedup_key': f'backfill-summary:{date_range_key}',
+                        'destination': destination,
+                        'status': 'skipped',
+                        'provider_message': 'Notifier disabled or unconfigured',
+                        'metadata': {'date_range': date_range_key},
+                    })
                 safe_print("⚠️ Teams notifier not enabled (check TEAMS_ENABLED and TEAMS_WEBHOOK_URL)")
         except Exception as e:
+            notification_outcomes.append({
+                'dedup_key': f'backfill-summary:{date_range_key}',
+                'destination': 'notification_runtime',
+                'status': 'failed',
+                'provider_message': str(e),
+                'metadata': {'date_range': date_range_key},
+            })
             safe_print(f"⚠️ Teams notification failed: {e}")
-    
+    elif not dry_run:
+        notification_outcomes.append({
+            'dedup_key': f'backfill-summary:{date_range_key}',
+            'destination': 'notification_unavailable',
+            'status': 'skipped',
+            'provider_message': 'Teams notifier module unavailable',
+            'metadata': {'date_range': date_range_key},
+        })
+
+    delivery_outcomes = publication_outcomes + notification_outcomes
+    delivery_summary = summarize_delivery_outcomes(delivery_outcomes)
+    if not dry_run and delivery_outcomes:
+        try:
+            if publication_outcomes:
+                persist_notification_deliveries(
+                    get_db_connection,
+                    publication_outcomes,
+                    notification_type='backfill_publication',
+                    window_start=start_date,
+                )
+            if notification_outcomes:
+                persist_notification_deliveries(
+                    get_db_connection,
+                    notification_outcomes,
+                    notification_type='backfill_summary',
+                    window_start=start_date,
+                )
+        except Exception as e:
+            delivery_summary = {
+                **delivery_summary,
+                'status': 'failed',
+                'audit_error': str(e),
+            }
+            safe_print(f"❌ Delivery audit persistence failed: {e}")
+
+    if delivery_summary['status'] == 'failed':
+        safe_print(
+            f"❌ Delivery failed for {len(delivery_summary['failed_dedup_keys'])} "
+            "payload(s)"
+        )
+
     return {
         'days_processed': len(results),
         'success_count': success_count,
@@ -1114,6 +1117,10 @@ def run_backfill(
         'total_errors': total_errors,
         'total_incidents': total_incidents,
         'total_saved': total_saved,
+        'delivery_status': delivery_summary['status'],
+        'delivery_error_count': len(delivery_summary['failed_dedup_keys']) + int(
+            bool(delivery_summary.get('audit_error'))
+        ),
     }
 
 
@@ -1122,15 +1129,7 @@ def run_backfill(
 # =============================================================================
 
 def cleanup():
-    """Zajistí uložení registry při ukončení."""
-    global _global_registry
-    
-    if _global_registry is not None:
-        try:
-            save_registry()
-            print("\n✅ Cleanup complete: registry saved")
-        except Exception as e:
-            print(f"\n⚠️ Cleanup error: {e}")
+    """Registry writes happen only in the post-commit transaction."""
 
 
 # Register cleanup
@@ -1174,7 +1173,10 @@ def main():
         skip_processed=not args.force,
     )
     
-    return 0 if result['error_count'] == 0 else 1
+    return 0 if (
+        result['error_count'] == 0
+        and result.get('delivery_status') != 'failed'
+    ) else 1
 
 
 if __name__ == '__main__':

@@ -62,6 +62,7 @@ class PeakDetector:
         self._conn = conn
         self._thresholds_cache = None
         self._caps_cache = None
+        self._threshold_snapshot_id = None
         self._cache_loaded_at = None
         self._cache_ttl_seconds = 300  # 5 minutes cache
 
@@ -94,7 +95,12 @@ class PeakDetector:
         self._conn = conn
         self._invalidate_cache()
     
-    def load_thresholds_direct(self, thresholds: Dict[tuple, dict], caps: Dict[str, dict]):
+    def load_thresholds_direct(
+        self,
+        thresholds: Dict[tuple, dict],
+        caps: Dict[str, dict],
+        snapshot_id: str = None,
+    ):
         """
         Load thresholds directly from dicts (for standalone/testing without DB).
 
@@ -104,12 +110,14 @@ class PeakDetector:
         """
         self._thresholds_cache = thresholds
         self._caps_cache = caps
+        self._threshold_snapshot_id = snapshot_id
         self._cache_loaded_at = datetime.now()
 
     def _invalidate_cache(self):
         """Invalidate threshold cache"""
         self._thresholds_cache = None
         self._caps_cache = None
+        self._threshold_snapshot_id = None
         self._cache_loaded_at = None
     
     def _is_cache_valid(self) -> bool:
@@ -126,32 +134,29 @@ class PeakDetector:
         
         cur = self._conn.cursor()
         
-        # Load percentile thresholds
         cur.execute("""
-            SELECT namespace, day_of_week, percentile_value, sample_count
-            FROM ailog_peak.peak_thresholds
+            SELECT snapshot_id, namespace, day_of_week, percentile_value,
+                   cap_value, sample_count
+            FROM ailog_peak.v_latest_threshold_values
         """)
-        
+
         self._thresholds_cache = {}
-        for ns, dow, value, samples in cur.fetchall():
+        self._caps_cache = {}
+        snapshot_ids = set()
+        for snapshot_id, ns, dow, value, cap, samples in cur.fetchall():
+            snapshot_ids.add(str(snapshot_id))
             self._thresholds_cache[(ns, dow)] = {
                 'value': float(value),
                 'samples': samples
             }
-        
-        # Load CAP values
-        cur.execute("""
-            SELECT namespace, cap_value, total_samples
-            FROM ailog_peak.peak_threshold_caps
-        """)
-        
-        self._caps_cache = {}
-        for ns, cap, samples in cur.fetchall():
             self._caps_cache[ns] = {
                 'value': float(cap),
-                'samples': samples
+                'samples': samples,
             }
-        
+        cur.close()
+        if len(snapshot_ids) > 1:
+            raise RuntimeError(f'latest threshold view mixed snapshots: {sorted(snapshot_ids)}')
+        self._threshold_snapshot_id = next(iter(snapshot_ids), None)
         self._cache_loaded_at = datetime.now()
     
     def _ensure_cache_loaded(self):
@@ -235,6 +240,7 @@ class PeakDetector:
             'triggered_by': triggered_by,
             'namespace': namespace,
             'day_of_week': day_of_week,
+            'threshold_snapshot_id': self._threshold_snapshot_id,
         }
     
     def detect_peak_for_row(self, day: int, hour: int, quarter: int, namespace: str, 

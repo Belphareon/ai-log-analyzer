@@ -80,6 +80,7 @@ class Evidence:
     threshold: Optional[float] = None
     message: str = ""
     timestamp: Optional[datetime] = None
+    details: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> dict:
         return {
@@ -89,6 +90,7 @@ class Evidence:
             "threshold": self.threshold,
             "message": self.message,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "details": self.details,
         }
 
 
@@ -405,6 +407,22 @@ class Incident:
         inc.flags.is_regression = flags_data.get("regression", False)
         inc.flags.is_cascade = flags_data.get("cascade", False)
         inc.flags.is_cross_namespace = flags_data.get("cross_namespace", False)
+
+        inc.evidence = [
+            Evidence(
+                rule=evidence_data.get("rule", ""),
+                baseline=evidence_data.get("baseline"),
+                current=evidence_data.get("current"),
+                threshold=evidence_data.get("threshold"),
+                message=evidence_data.get("message", ""),
+                timestamp=(
+                    datetime.fromisoformat(evidence_data["timestamp"])
+                    if evidence_data.get("timestamp") else None
+                ),
+                details=evidence_data.get("details", {}),
+            )
+            for evidence_data in data.get("evidence", [])
+        ]
         
         # Score
         inc.score = data.get("score", 0)
@@ -434,6 +452,9 @@ class IncidentCollection:
     
     # Incidents
     incidents: List[Incident] = field(default_factory=list)
+
+    # Exact observed facts at (15m, namespace, application, fingerprint) grain
+    error_kind_facts: List[Dict[str, Any]] = field(default_factory=list)
     
     # Summary
     total_incidents: int = 0
@@ -469,6 +490,7 @@ class IncidentCollection:
                 "by_severity": self.by_severity,
                 "by_category": self.by_category,
             },
+            "error_kind_facts": self.error_kind_facts,
             "incidents": [inc.to_dict() for inc in self.incidents],
         }
     
@@ -491,6 +513,7 @@ class IncidentCollection:
         collection.pipeline_version = data.get("pipeline_version", "")
         collection.input_file = data.get("input_file", "")
         collection.input_records = data.get("input_records", 0)
+        collection.error_kind_facts = data.get("error_kind_facts", [])
         
         for inc_data in data.get("incidents", []):
             collection.add_incident(Incident.from_dict(inc_data))

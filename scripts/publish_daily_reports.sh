@@ -14,6 +14,7 @@
 # Použití:
 #   ./publish_daily_reports.sh
 #   ./publish_daily_reports.sh --dry-run
+#   ./publish_daily_reports.sh --skip-teams --skip-recent-incidents
 #
 
 set -e
@@ -26,7 +27,28 @@ if [ -f "$REPO_DIR/.env" ]; then
     export $(grep -v '^#' "$REPO_DIR/.env" | xargs)
 fi
 
-DRY_RUN=${1:-}
+DRY_RUN=""
+SKIP_TEAMS=false
+SKIP_RECENT_INCIDENTS=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN="--dry-run"
+            ;;
+        --skip-teams)
+            SKIP_TEAMS=true
+            ;;
+        --skip-recent-incidents)
+            SKIP_RECENT_INCIDENTS=true
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 # Cesta k ito-upload
 ITO_UPLOAD="/root/git/toolbox/ITO-sync-v4/ito-upload"
@@ -66,7 +88,9 @@ fi
 echo ""
 echo "📢 Step 2: Send to Teams..."
 
-if [ -z "$TEAMS_WEBHOOK_URL" ]; then
+if [ "$SKIP_TEAMS" = true ]; then
+    echo "   Teams delivery owned by backfill.py, skipping"
+elif [ -z "$TEAMS_WEBHOOK_URL" ]; then
     echo "   ⚠️ TEAMS_WEBHOOK_URL not configured, skipping"
 else
     python3 "$SCRIPT_DIR/daily_report_generator.py" \
@@ -138,7 +162,9 @@ fi
 
 # Upload Recent Incidents (from daily incident analysis report)
 echo "   Publishing Recent Incidents (Daily Analysis)..."
-if [ -z "$DRY_RUN" ]; then
+if [ "$SKIP_RECENT_INCIDENTS" = true ]; then
+    echo "   Recent Incidents delivery owned by backfill.py, skipping"
+elif [ -z "$DRY_RUN" ]; then
     if python3 "$SCRIPT_DIR/recent_incidents_publisher.py"; then
         echo "   ✅ Recent Incidents published"
     else

@@ -870,7 +870,10 @@ class TableExporter:
         flooding operators with non-prod noise.
         """
         # Priority 1: write-back from enrichment
-        enriched = getattr(problem, '_enriched_severity', None)
+        enriched = (
+            getattr(problem, 'enriched_severity', None)
+            or getattr(problem, '_enriched_severity', None)
+        )
         if enriched and enriched not in ('info', 'unknown'):
             sev = enriched
         else:
@@ -895,7 +898,10 @@ class TableExporter:
 
     def _derive_score(self, problem: ProblemEntry, occurrence_24h: int) -> float:
         """Derive detection score: log-normalized daily rate (0-100)."""
-        enriched = getattr(problem, '_enriched_score', 0.0)
+        enriched = (
+            getattr(problem, 'enriched_score', 0.0)
+            or getattr(problem, '_enriched_score', 0.0)
+        )
         if enriched > 0:
             return round(enriched, 1)
         import math

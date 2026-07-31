@@ -23,7 +23,8 @@ Usage:
 import os
 import sys
 import argparse
-from datetime import datetime, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 try:
@@ -62,9 +63,9 @@ def percentile(values: list, p: float) -> float:
     return float(s[idx])
 
 
-def fetch_raw_data(conn, weeks: int = None) -> dict:
+def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
     """
-    Fetch raw data from peak_raw_data, grouped by (namespace, day_of_week)
+    Fetch dense authoritative namespace facts, grouped by (namespace, weekday).
     
     Args:
         conn: database connection
@@ -75,21 +76,29 @@ def fetch_raw_data(conn, weeks: int = None) -> dict:
     """
     cur = conn.cursor()
     
+    as_of = as_of or datetime.now(timezone.utc)
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError('as_of must be timezone-aware')
+
     query = """
-        SELECT namespace, day_of_week, original_value, timestamp
-        FROM ailog_peak.peak_raw_data
-        WHERE original_value IS NOT NULL
+        SELECT
+            namespace,
+            EXTRACT(ISODOW FROM window_start)::INTEGER - 1 AS day_of_week,
+            error_count,
+            window_start
+        FROM ailog_peak.v_complete_namespace_error_counts
+        WHERE window_start < %s
     """
-    params = []
+    params = [as_of]
     
     if weeks:
-        start_date = datetime.now() - timedelta(weeks=weeks)
-        query += " AND timestamp >= %s"
+        start_date = as_of - timedelta(weeks=weeks)
+        query += " AND window_start >= %s"
         params.append(start_date)
     
     query += " ORDER BY namespace, day_of_week"
     
-    print(f"📊 Fetching data from peak_raw_data...")
+    print(f"📊 Fetching dense data from v_complete_namespace_error_counts...")
     cur.execute(query, params)
     rows = cur.fetchall()
     
@@ -178,38 +187,37 @@ def calculate_cap_values(thresholds: dict) -> dict:
     return caps
 
 
-def save_thresholds_to_db(conn, thresholds: dict, caps: dict, date_range: dict, 
-                          percentile_level: float = 0.93, dry_run: bool = False):
+def save_thresholds_to_db(
+    conn,
+    thresholds: dict,
+    caps: dict,
+    date_range: dict,
+    percentile_level: float = 0.93,
+    dry_run: bool = False,
+    as_of: datetime = None,
+):
     """
     Save calculated thresholds to database
     """
-    cur = conn.cursor()
-    
-    start_date = date_range['min'].date() if date_range['min'] else None
+    as_of = as_of or datetime.now(timezone.utc)
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError('as_of must be timezone-aware')
+    training_start = date_range['min']
+    training_end = as_of
+    start_date = training_start.date() if training_start else None
     end_date = date_range['max'].date() if date_range['max'] else None
+    sample_count = sum(stats['count'] for stats in thresholds.values())
     
     if dry_run:
         print("\n🔍 DRY RUN - would save:")
         print(f"\n   Percentile thresholds: {len(thresholds)} rows")
         print(f"   CAP values: {len(caps)} rows")
-        return
-    
-    # Clear existing data
-    print("\n🗑️  Clearing existing thresholds...")
-    cur.execute("DELETE FROM ailog_peak.peak_thresholds;")
-    cur.execute("DELETE FROM ailog_peak.peak_threshold_caps;")
-    conn.commit()
-    
-    # Insert percentile thresholds
-    print(f"\n📥 Inserting {len(thresholds)} percentile thresholds...")
-    
-    sql_p93 = """
-        INSERT INTO ailog_peak.peak_thresholds 
-        (namespace, day_of_week, percentile_value, percentile_level, sample_count, 
-         median_value, mean_value, max_value, calculated_at, data_start_date, data_end_date)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
-    """
-    
+        return None
+
+    if not training_start or training_end <= training_start:
+        raise ValueError('threshold training interval is empty')
+
+    snapshot_id = str(uuid.uuid4())
     p93_rows = []
     for (ns, dow), stats in thresholds.items():
         p93_rows.append((
@@ -217,31 +225,92 @@ def save_thresholds_to_db(conn, thresholds: dict, caps: dict, date_range: dict,
             stats['median'], stats['mean'], stats['max'],
             start_date, end_date
         ))
-    
-    execute_batch(cur, sql_p93, p93_rows)
-    print(f"   ✅ Inserted {len(p93_rows)} percentile threshold rows")
-    
-    # Insert CAP values
-    print(f"\n📥 Inserting {len(caps)} CAP values...")
-    
-    sql_cap = """
-        INSERT INTO ailog_peak.peak_threshold_caps 
-        (namespace, cap_value, median_percentile, avg_percentile, min_percentile, max_percentile, 
-         percentile_level, total_samples, calculated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-    """
-    
     cap_rows = []
     for ns, stats in caps.items():
         cap_rows.append((
             ns, stats['cap'], stats['median_p93'], stats['avg_p93'],
             stats['min_p93'], stats['max_p93'], percentile_level, stats['total_samples']
         ))
-    
-    execute_batch(cur, sql_cap, cap_rows)
-    print(f"   ✅ Inserted {len(cap_rows)} CAP value rows")
-    
-    conn.commit()
+
+    snapshot_rows = [
+        (
+            snapshot_id,
+            ns,
+            dow,
+            stats['p93'],
+            caps[ns]['cap'],
+            stats['count'],
+            stats['median'],
+            stats['mean'],
+            stats['max'],
+        )
+        for (ns, dow), stats in thresholds.items()
+    ]
+    cur = conn.cursor()
+    running_committed = False
+    try:
+        cur.execute("""
+            INSERT INTO ailog_peak.threshold_snapshot_runs
+                (snapshot_id, percentile_level, population_grain,
+                 training_start, training_end, sample_count,
+                 percentile_method, calculation_version, status)
+            VALUES (%s, %s, 'namespace/15m/day_of_week', %s, %s, %s,
+                    'sorted_floor_n_times_p', '2.0', 'running')
+        """, (
+            snapshot_id,
+            percentile_level,
+            training_start,
+            training_end,
+            sample_count,
+        ))
+        conn.commit()
+        running_committed = True
+
+        execute_batch(cur, """
+            INSERT INTO ailog_peak.threshold_snapshot_values
+                (snapshot_id, namespace, day_of_week, percentile_value,
+                 cap_value, sample_count, median_value, mean_value, max_value)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, snapshot_rows)
+
+        cur.execute("DELETE FROM ailog_peak.peak_thresholds")
+        cur.execute("DELETE FROM ailog_peak.peak_threshold_caps")
+        execute_batch(cur, """
+            INSERT INTO ailog_peak.peak_thresholds
+                (namespace, day_of_week, percentile_value, percentile_level,
+                 sample_count, median_value, mean_value, max_value,
+                 calculated_at, data_start_date, data_end_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
+        """, p93_rows)
+        execute_batch(cur, """
+            INSERT INTO ailog_peak.peak_threshold_caps
+                (namespace, cap_value, median_percentile, avg_percentile,
+                 min_percentile, max_percentile, percentile_level,
+                 total_samples, calculated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """, cap_rows)
+        cur.execute("""
+            UPDATE ailog_peak.threshold_snapshot_runs
+            SET status = 'complete', completed_at = NOW()
+            WHERE snapshot_id = %s AND status = 'running'
+        """, (snapshot_id,))
+        if cur.rowcount != 1:
+            raise RuntimeError('threshold snapshot was not completed exactly once')
+        conn.commit()
+        print(f"   ✅ Stored complete threshold snapshot {snapshot_id}")
+        return snapshot_id
+    except Exception:
+        conn.rollback()
+        if running_committed:
+            cur.execute("""
+                UPDATE ailog_peak.threshold_snapshot_runs
+                SET status = 'failed', completed_at = NOW()
+                WHERE snapshot_id = %s AND status = 'running'
+            """, (snapshot_id,))
+            conn.commit()
+        raise
+    finally:
+        cur.close()
 
 
 def print_summary(thresholds: dict, caps: dict, percentile_level: float = 0.93):
@@ -291,12 +360,16 @@ def main():
     # Percentile default: env var PERCENTILE_LEVEL (from K8s values.yaml) > hardcoded 0.93
     default_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.93'))
 
-    parser = argparse.ArgumentParser(description='Calculate Peak Thresholds from peak_raw_data')
+    parser = argparse.ArgumentParser(description='Calculate Peak Thresholds from complete namespace facts')
     parser.add_argument('--weeks', type=int, help='Only use last N weeks of data')
     parser.add_argument('--percentile', type=float, default=default_percentile,
                         help=f'Percentile level (default: {default_percentile} from env PERCENTILE_LEVEL)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be calculated without saving')
     parser.add_argument('--verbose', action='store_true', help='Show detailed output')
+    parser.add_argument(
+        '--as-of',
+        help='Exclusive UTC training cutoff (ISO-8601); defaults to current UTC time',
+    )
 
     args = parser.parse_args()
     
@@ -328,11 +401,17 @@ def main():
         return 1
 
     try:
-        # Fetch data
-        data, date_range = fetch_raw_data(conn, args.weeks)
+        as_of = (
+            datetime.fromisoformat(args.as_of.replace('Z', '+00:00'))
+            if args.as_of else datetime.now(timezone.utc)
+        )
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError('--as-of must include a timezone')
+
+        data, date_range = fetch_raw_data(conn, args.weeks, as_of=as_of)
         
         if not data:
-            print("\n⚠️  No data found in peak_raw_data!")
+            print("\n⚠️  No complete namespace facts found!")
             return 1
         
         # Calculate P93 thresholds
@@ -347,7 +426,15 @@ def main():
         print_summary(thresholds, caps, args.percentile)
         
         # Save to DB
-        save_thresholds_to_db(conn, thresholds, caps, date_range, args.percentile, args.dry_run)
+        save_thresholds_to_db(
+            conn,
+            thresholds,
+            caps,
+            date_range,
+            args.percentile,
+            args.dry_run,
+            as_of=as_of,
+        )
         
         print("\n" + "=" * 80)
         print("✅ Peak thresholds calculation complete!")
