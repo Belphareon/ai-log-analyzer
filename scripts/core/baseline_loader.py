@@ -93,8 +93,6 @@ class BaselineLoader:
                 for fingerprint, rates in rates_by_fingerprint.items()
                 if len(rates) >= min_samples
             }
-            for fingerprint, rates in result.items():
-                print(f"✓ {fingerprint}: {len(rates)} dense historical rates")
             return result
 
         except Exception as e:

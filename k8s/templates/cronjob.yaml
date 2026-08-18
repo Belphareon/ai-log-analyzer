@@ -549,6 +549,8 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.app.secretName }}
                       key: DB_DDL_PASSWORD
+                - name: MONITORED_NAMESPACES
+                  value: {{ required "env.MONITORED_NAMESPACES is required" .Values.env.MONITORED_NAMESPACES | quote }}
 
                 # === Peak Detection Config ===
                 - name: PERCENTILE_LEVEL
