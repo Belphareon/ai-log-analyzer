@@ -4,12 +4,6 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
-## r88 (2026-08-18) — Nenulové P93/CAP trénování
-
-### Opraveno
-
-- P93/CAP snapshoty už netrénují percentily nad nulovými 15min intervaly. Nuly zůstávají v kompletních facts pro audit, ale do percentilové populace vstupují pouze intervaly s chybovou aktivitou, takže nízkofrekvenční namespace nedostávají nefunkční CAP `0`.
-
 ## r87 (2026-08-18) — Idempotentní persistence incidentů
 
 ### Opraveno

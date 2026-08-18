@@ -132,19 +132,18 @@ def calculate_p93_thresholds(data: dict, percentile_level: float = 0.93) -> dict
     thresholds = {}
     
     for (ns, dow), values in data.items():
-        active_values = [value for value in values if value > 0]
-        if not active_values:
+        if not values:
             continue
         
-        s = sorted(active_values)
+        s = sorted(values)
         n = len(s)
         
         thresholds[(ns, dow)] = {
-            'p93': percentile(active_values, percentile_level),
+            'p93': percentile(values, percentile_level),
             'count': n,
             'median': s[n // 2],
-            'mean': sum(active_values) / n,
-            'max': max(active_values),
+            'mean': sum(values) / n,
+            'max': max(values),
         }
     
     return thresholds
