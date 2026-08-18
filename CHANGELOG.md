@@ -4,6 +4,12 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r87 (2026-08-18) — Idempotentní persistence incidentů
+
+### Opraveno
+
+- Init backfill už nepadá na historickém unikátním klíči `peak_investigation(timestamp, namespace)`. Migrace `004_analysis_run_facts.sql` starý klíč odstraní a transactional persistence ukládá incidenty idempotentně podle běhu, časového okna, namespace a fingerprintu.
+
 ## r88 (2026-07-31) — Streaming pipeline a deduplikovaný peak digest
 
 ### Přidáno
