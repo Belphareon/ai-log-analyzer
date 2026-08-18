@@ -59,7 +59,7 @@ class SnapshotConnection:
         self.rollbacks += 1
 
 
-def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
+def test_threshold_training_reads_dense_complete_facts_with_as_of_bound(monkeypatch):
     as_of = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
     rows = [
         ('ns-a', 4, 0, datetime(2026, 7, 31, 7, 30, tzinfo=timezone.utc)),
@@ -67,6 +67,7 @@ def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
     ]
     connection = FetchConnection(rows)
 
+    monkeypatch.setenv('MONITORED_NAMESPACES', 'ns-a')
     data, date_range = thresholds_module.fetch_raw_data(
         connection,
         weeks=4,
@@ -78,6 +79,8 @@ def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
     assert 'FROM ailog_peak.v_complete_namespace_error_counts' in connection.cursor_instance.query
     assert 'window_start < %s' in connection.cursor_instance.query
     assert connection.cursor_instance.params[0] == as_of
+    assert 'namespace = ANY(%s)' in connection.cursor_instance.query
+    assert connection.cursor_instance.params[1] == ['ns-a']
 
 
 def test_threshold_snapshot_failure_rolls_back_cache_and_marks_snapshot_failed(monkeypatch):

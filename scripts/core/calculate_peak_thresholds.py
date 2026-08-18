@@ -52,6 +52,14 @@ DB_CONFIG = {
 # Day names for display
 DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
+def load_monitored_namespaces() -> list[str]:
+    return [
+        namespace.strip()
+        for namespace in os.getenv('MONITORED_NAMESPACES', '').split(',')
+        if namespace.strip()
+    ]
+
+
 
 def percentile(values: list, p: float) -> float:
     """Calculate percentile from list of values"""
@@ -80,6 +88,10 @@ def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
     if as_of.tzinfo is None or as_of.utcoffset() is None:
         raise ValueError('as_of must be timezone-aware')
 
+    monitored_namespaces = load_monitored_namespaces()
+    if not monitored_namespaces:
+        raise ValueError('MONITORED_NAMESPACES is required for threshold training')
+
     query = """
         SELECT
             namespace,
@@ -88,8 +100,9 @@ def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
             window_start
         FROM ailog_peak.v_complete_namespace_error_counts
         WHERE window_start < %s
+          AND namespace = ANY(%s)
     """
-    params = [as_of]
+    params = [as_of, monitored_namespaces]
     
     if weeks:
         start_date = as_of - timedelta(weeks=weeks)

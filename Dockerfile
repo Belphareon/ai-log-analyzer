@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r87 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r88 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r87 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r88 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r87"
-LABEL description="AI Log Analyzer - r87: transactional incident persistence and legacy constraint migration"
+LABEL version="r88"
+LABEL description="AI Log Analyzer - r88: scoped threshold training and quieter baselines"
 
 # Set working directory
 WORKDIR /app

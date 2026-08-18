@@ -4,6 +4,13 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r88 (2026-08-18) — Scope thresholdů a tiché baseline logy
+
+### Opraveno
+
+- P93/CAP snapshoty se trénují pouze z namespaces v `MONITORED_NAMESPACES`; prod a nprod tak nepoužijí historické facts druhého prostředí.
+- Baseline loader už nevypisuje samostatný `dense historical rates` řádek pro každý fingerprint; zůstává pouze souhrnný počet načtených baseline.
+
 ## r87 (2026-08-18) — Idempotentní persistence incidentů
 
 ### Opraveno
