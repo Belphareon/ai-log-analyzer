@@ -112,9 +112,9 @@ spec:
             - name: DB_NAME
               value: {{ .Values.env.DB_NAME | quote }}
             - name: DB_DDL_ROLE
-              value: {{ .Values.env.DB_DDL_ROLE | quote }}
+              value: {{ required "env.DB_DDL_ROLE is required" .Values.env.DB_DDL_ROLE | quote }}
             - name: DB_APP_ROLE
-              value: {{ .Values.env.DB_APP_ROLE | default "role_ailog_analyzer_app" | quote }}
+              value: {{ required "env.DB_APP_ROLE is required" .Values.env.DB_APP_ROLE | quote }}
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -141,6 +141,8 @@ spec:
               value: {{ .Values.env.ES_HOST | quote }}
             - name: ES_INDEX
               value: {{ .Values.env.ES_INDEX | quote }}
+            - name: MONITORED_NAMESPACES
+              value: {{ required "env.MONITORED_NAMESPACES is required" .Values.env.MONITORED_NAMESPACES | quote }}
             - name: ES_USER
               valueFrom:
                 secretKeyRef:

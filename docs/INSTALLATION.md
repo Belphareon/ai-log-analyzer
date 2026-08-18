@@ -23,7 +23,7 @@ Tyto kroky je třeba provést **manuálně** před spuštěním `install.sh`.
 
 ### 1.1 PostgreSQL databáze
 
-Vytvo5it v MIQ nebo požádat DBA o vytvoření:
+Vytvorit v MIQ nebo požádat DBA o vytvoření:
 
 | Položka | Popis |
 |---------|-------|
@@ -87,11 +87,19 @@ Page ID je číslo na konci URL stránky. Zapsat do `.env`.
 
 Aplikace umí posílat notifikace přes Teams Incoming Webhook, e-mail (na adresu Teams kanálu nebo distribuční schránku), nebo oba kanály zároveň — každý zapnutý kanál dostane notifikaci nezávisle.
 
+- `TEAMS_ENABLED` — master switch, musí být `true`, jinak se neposílá nic.
+- `TEAMS_WEBHOOK_URL` — nastav pro doručení přes Teams Incoming Webhook.
+- `TEAMS_EMAIL` — nastav pro doručení e-mailem (vyžaduje i `SMTP_HOST`/`SMTP_PORT`/`EMAIL_FROM`).
+- Musí být vyplněný alespoň jeden z `TEAMS_WEBHOOK_URL`/`TEAMS_EMAIL` — `install.sh` to validuje.
 
 ### 1.5 Elasticsearch
 
 ES cluster musí být dostupný z K8s. Ověřit:
+- ES URL (liší se nprod/prod)
+- ES index pattern (např. `cluster-app_pcb-*,cluster-app_pca-*`)
+- Read-only technický účet (viz 1.2)
 
+---
 
 ## 2. Konfigurace
 
@@ -127,7 +135,12 @@ Klíčové sekce:
 
 Vygenerovaný `values.yaml` je autoritativní konfigurace pro K8s prostředí. Na konci instalace skript vypíše cestu — zkontroluj hlavně:
 
+- `conjur.applicationId`, `conjur.lobUser`, `conjur.safeName`
+- `conjur.accounts.database.d1/d2`, `database_ddl.d1/d2`, `elastic`, `confluence`
+- `env.DB_HOST`, `env.ES_HOST`, `env.ES_INDEX`, Confluence page IDs
+- `teams.email`, `teams.enabled`, `email.smtpHost`
 
+---
 
 ## 3. Instalace — install.sh
 
@@ -163,6 +176,7 @@ Skript na konci vypíše přesné kroky — v souhrnu:
 2. **Review a merge PR**
 3. **ArgoCD sync** — po merge ArgoCD automaticky nasadí CronJoby, PVC, ServiceAccount, Secret
 
+---
 
 ## 4. Init joby — bootstrap po ArgoCD sync
 
@@ -187,6 +201,7 @@ Init job provede:
 
 Po dokončení init jobu systém běží autonomně přes CronJoby.
 
+---
 
 ## 5. Ověření
 
@@ -206,8 +221,10 @@ kubectl logs job/<job-name> -n ai-log-analyzer
 ### DB data
 
 ```sql
+-- Počet raw dat (po init jobu)
 SELECT COUNT(*) FROM ailog_peak.peak_raw_data;
 
+-- Thresholdy per namespace
 SELECT namespace, COUNT(*) FROM ailog_peak.peak_thresholds GROUP BY namespace;
 ```
 
@@ -215,12 +232,31 @@ SELECT namespace, COUNT(*) FROM ailog_peak.peak_thresholds GROUP BY namespace;
 
 Po prvním backfill jobu by měly být aktualizované stránky Known Errors, Known Peaks, Recent Incidents.
 
+---
 
 ## 6. Deployment checklist
 
 `install.sh` vypíše checklist automaticky. Kompletní seznam:
 
+- [ ] **Prerekvizity:** DB existuje, uživatelé založeni
+- [ ] **Prerekvizity:** CyberArk safe vytvořen, účty uloženy
+- [ ] **Prerekvizity:** Confluence stránky vytvořeny, Page IDs zaznamenány
+- [ ] **Prerekvizity:** Email cíle pro notifikace ověřený
+- [ ] **Prerekvizity:** ES účet založen a v CyberArk
+- [ ] `.env` vyplněn bez runtime hesel a validován (`install.sh` krok 1)
+- [ ] CyberArk account names zapsané do `values.yaml`
+- [ ] Použitá publikovaná image `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest`
+- [ ] Kompletní K8s struktura vygenerována v infra-apps (`install.sh` krok 3)
+- [ ] YAML a Helm chart validovány (`install.sh` krok 4)
+- [ ] Branch pushnuta (`install.sh` krok 5)
+- [ ] PR vytvořen a mergnut
+- [ ] ArgoCD sync proběhl — Synced & Healthy
+- [ ] Init job dokončen (DB migrations + backfill + thresholds)
+- [ ] CronJoby běží (regular, backfill, thresholds)
+- [ ] Email/Teams notifikace ověřena
+- [ ] Confluence stránky aktualizovány
 
+---
 
 ## 7. Lokální testování (volitelné)
 

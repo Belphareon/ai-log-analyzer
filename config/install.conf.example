@@ -23,13 +23,6 @@ CONFLUENCE_PROXY=http://cntlm.speed-default:3128
 SMTP_PORT=25
 TEAMS_ENABLED=true
 TEAMS_WEBHOOK_URL=
-MONITORED_NAMESPACES=pcb-dev-01-app,pcb-sit-01-app,pcb-uat-01-app,pca-dev-01-app,pca-sit-01-app,pca-uat-01-app
-
-# Databazove role jsou nazvy opravneni, nikoli uzivatelske ucty.
-# DDL role: tvorba a zmeny schematu pri initu/migracich.
-DB_DDL_ROLE=role_ailog_analyzer_ddl
-# App role: cteni a zapis dat bez zmen databazoveho schematu.
-DB_APP_ROLE=role_ailog_analyzer_app
 
 # =============================================================================
 # PROD PROFIL
@@ -49,9 +42,12 @@ PROD_DB_DDL_USER_D1=ai_log_analyzer_ddl_user_d1
 PROD_DB_DDL_USER_D2=ai_log_analyzer_ddl_user_d2
 PROD_DB_USER_D1=ai_log_analyzer_user_d1
 PROD_DB_USER_D2=ai_log_analyzer_user_d2
+PROD_DB_DDL_ROLE=role_ai_log_analyzer_ddl
+PROD_DB_APP_ROLE=role_ai_log_analyzer_user
 
 PROD_ES_HOST=https://elasticsearch.kb.cz:9500
 PROD_ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*
+PROD_MONITORED_NAMESPACES=pca-prod-01-app,pcb-prod-01-app,pcb-ch-prod-01-app
 PROD_CONJUR_LOB_USER=CAR_TA_LOBUser_PROD
 PROD_CONJUR_SAFE_NAME=DAP_AI-LOG-ANALYZER
 PROD_CONJUR_ACCOUNT_ES=XX_PCBS_ES_READ
@@ -74,8 +70,11 @@ NPROD_DB_DDL_USER_D1=ailog_analyzer_ddl_user_d1
 NPROD_DB_DDL_USER_D2=ailog_analyzer_ddl_user_d2
 NPROD_DB_USER_D1=ailog_analyzer_user_d1
 NPROD_DB_USER_D2=ailog_analyzer_user_d2
+NPROD_DB_DDL_ROLE=role_ailog_analyzer_ddl
+NPROD_DB_APP_ROLE=role_ailog_analyzer_user
 NPROD_ES_HOST=https://elasticsearch-test.kb.cz:9500
 NPROD_ES_INDEX=cluster-app_pcb-*,cluster-app_pca-*,cluster-app_pcb_ch-*
+NPROD_MONITORED_NAMESPACES=pca-dev-01-app,pca-fat-01-app,pca-sit-01-app,pca-uat-01-app,pcb-dev-01-app,pcb-fat-01-app,pcb-sit-01-app,pcb-uat-01-app,pcb-ch-dev-01-app,pcb-ch-fat-01-app,pcb-ch-sit-01-app,pcb-ch-uat-01-app
 NPROD_CONJUR_LOB_USER=CAR_TA_LOBUser_TEST
 NPROD_CONJUR_SAFE_NAME=DAN_AI-LOG-ANALYZER
 NPROD_CONJUR_ACCOUNT_ES=XX_PCBS_ES_READ

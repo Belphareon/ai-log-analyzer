@@ -65,16 +65,12 @@ conjur:
   lobUser: CAR_TA_LOBUser_<ENV>          # TEST pro nprod, PROD pro prod
   safeName: DAN_<SAFE_NAME>             # Název safe v CyberArk
 
-  # Nazvy vsech DB uctu v safe. D1 je aktualne aktivni, D2 je pripraveny.
+  # Aktivni DB ucty v safe. Pro stridani D1/D2 se zmeni tento odkaz.
   accounts:
     confluence: <CONFLUENCE_USER>        # Confluence service account
     elastic: <ES_READ_USER>              # Elasticsearch read-only user
-    database:
-      d1: <DB_USER_D1>
-      d2: <DB_USER_D2>
-    database_ddl:
-      d1: <DB_DDL_USER_D1>
-      d2: <DB_DDL_USER_D2>
+    database: <DB_USER_D1>
+    database_ddl: <DB_DDL_USER_D1>
 
 # -----------------------------------------------------------------------------
 # Environment Variables
@@ -90,20 +86,22 @@ env:
 
   # === PostgreSQL Database ===
   DB_HOST: <db_hostname>                 # nprod: P050TD01.DEV.KB.CZ | prod: <prod_host>
-  DB_NAME: ailog_analyzer
+  DB_NAME: <db_name>
   DB_PORT: "5432"
-  DB_DDL_ROLE: role_ailog_analyzer_ddl
-  DB_APP_ROLE: role_ailog_analyzer_app
+  DB_DDL_ROLE: <ddl_role>
+  DB_APP_ROLE: <app_role>
 
   # === Elasticsearch ===
   ES_HOST: <es_url>                      # nprod: https://elasticsearch-test.kb.cz:9500
   ES_INDEX: "cluster-app_<prefix>-*"   # Vzor pro vaše namespace
+  MONITORED_NAMESPACES: "<comma_separated_application_namespaces>"
 
   # === Confluence ===
   CONFLUENCE_URL: "https://wiki.kb.cz"
   CONFLUENCE_PROXY: "http://cntlm.speed-default:3128"
   HTTP_PROXY: "http://cntlm.speed-default:3128"
   HTTPS_PROXY: "http://cntlm.speed-default:3128"
+  NO_PROXY: "elasticsearch.kb.cz"
   CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "<page_id>"
   CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "<page_id>"
   CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "<page_id>"
