@@ -80,6 +80,21 @@ def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
     assert connection.cursor_instance.params[0] == as_of
 
 
+def test_threshold_training_excludes_zero_windows_from_percentile_population():
+    thresholds = thresholds_module.calculate_p93_thresholds({
+        ('ns-a', 0): [0.0] * 20 + [4.0, 8.0, 12.0],
+        ('ns-zero', 0): [0.0] * 24,
+    })
+
+    assert thresholds[('ns-a', 0)]['p93'] == 12.0
+    assert thresholds[('ns-a', 0)]['count'] == 3
+    assert ('ns-zero', 0) not in thresholds
+
+    caps = thresholds_module.calculate_cap_values(thresholds)
+    assert caps['ns-a']['cap'] == 12.0
+    assert 'ns-zero' not in caps
+
+
 def test_threshold_snapshot_failure_rolls_back_cache_and_marks_snapshot_failed(monkeypatch):
     connection = SnapshotConnection()
     as_of = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
