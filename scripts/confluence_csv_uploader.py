@@ -201,7 +201,7 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
     return '\n'.join(html_parts)
 
 
-def upload_to_confluence(page_id: str, title: str, html_content: str) -> bool:
+def upload_to_confluence(page_id: str, html_content: str) -> bool:
     """Upload HTML content to Confluence page."""
     if not CONFLUENCE_TOKEN:
         print("❌ Missing CONFLUENCE_TOKEN")
@@ -236,6 +236,7 @@ def upload_to_confluence(page_id: str, title: str, html_content: str) -> bool:
         with opener.open(req) as response:
             page_data = json.loads(response.read().decode())
         current_version = page_data['version']['number']
+        current_title = page_data['title']
     except Exception as e:
         print(f"❌ Failed to get page version: {e}")
         return False
@@ -243,7 +244,7 @@ def upload_to_confluence(page_id: str, title: str, html_content: str) -> bool:
     # Update page
     update_data = {
         'version': {'number': current_version + 1},
-        'title': title,
+        'title': current_title,
         'type': 'page',
         'body': {
             'storage': {
@@ -301,7 +302,6 @@ def main():
             html = csv_to_html_table(errors_csv)
             success = upload_to_confluence(
                 CONFLUENCE_KNOWN_ERRORS_PAGE_ID,
-                'Known Errors',
                 html
             )
             publication_outcomes.append({
@@ -361,7 +361,6 @@ def main():
             html = csv_to_html_table(peaks_csv)
             success = upload_to_confluence(
                 CONFLUENCE_KNOWN_PEAKS_PAGE_ID,
-                'Known Peaks',
                 html
             )
             publication_outcomes.append({

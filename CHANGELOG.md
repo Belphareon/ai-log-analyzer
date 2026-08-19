@@ -4,6 +4,13 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r89 (2026-08-19) — Spolehlivá Confluence CSV publikace
+
+### Opraveno
+
+- CSV uploader při aktualizaci zachovává existující title cílové Confluence stránky; update se proto nepokouší o přejmenování do kolizního názvu `Known Errors` nebo `Known Peaks`.
+- Backfill CronJob publikuje Recent Incidents pouze jednou a nezakrývá neúspěch CSV uploaderu jako non-critical úspěch.
+
 ## r88 (2026-08-18) — Scope thresholdů a tiché baseline logy
 
 ### Opraveno
