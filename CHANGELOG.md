@@ -4,6 +4,14 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r91 (2026-08-24) — Opravená publikace Daily Incident Analysis
+
+### Opraveno
+
+- Recent Incidents publisher používá environment-specific `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID`; legacy hardcoded page ID už nemá fallback.
+- CyberArk dvojice `CONFLUENCE_USERNAME`/`CONFLUENCE_PASSWORD` používá HTTP Basic auth, explicitní `CONFLUENCE_TOKEN` používá Bearer auth. Stejný kontrakt používají Recent Incidents i CSV publisher.
+- Recent Incidents update zachovává aktuální title cílové stránky, takže nekoliduje s existujícím názvem jiné stránky v Confluence space.
+
 ## r89 (2026-08-19) — Spolehlivá Confluence CSV publikace
 
 ### Opraveno
