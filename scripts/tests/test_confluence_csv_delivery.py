@@ -1,8 +1,23 @@
+import base64
 import json
 from pathlib import Path
 
 from scripts import confluence_csv_uploader as uploader
 
+
+def test_confluence_password_uses_basic_auth(monkeypatch):
+    monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', None)
+    monkeypatch.setattr(uploader, 'CONFLUENCE_USERNAME', 'service-user')
+    monkeypatch.setattr(uploader, 'CONFLUENCE_PASSWORD', 'service-password')
+
+    expected = base64.b64encode(b'service-user:service-password').decode()
+    assert uploader.get_confluence_auth_header() == f'Basic {expected}'
+
+
+def test_explicit_confluence_token_uses_bearer_auth(monkeypatch):
+    monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', 'personal-access-token')
+
+    assert uploader.get_confluence_auth_header() == 'Bearer personal-access-token'
 
 def _write_csv(path: Path) -> None:
     path.write_text('name,count\nexample,1\n', encoding='utf-8')

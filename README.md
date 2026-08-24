@@ -111,7 +111,8 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `DB_USER` / `DB_PASSWORD` | DB app user | CyberArk |
 | `DB_DDL_USER` / `DB_DDL_PASSWORD` | DB DDL user (migrace) | CyberArk |
 | `CONFLUENCE_URL` | Confluence base URL | `https://wiki.kb.cz` |
-| `CONFLUENCE_USERNAME` / `CONFLUENCE_PASSWORD` | Confluence služební účet; token/heslo je uložené v CyberArku jako password atribut | CyberArk |
+| `CONFLUENCE_USERNAME` / `CONFLUENCE_PASSWORD` | Confluence služební účet používaný přes Basic auth; heslo je uložené v CyberArku | CyberArk |
+| `CONFLUENCE_TOKEN` | Volitelný Personal Access Token používaný přes Bearer auth; pokud je nastavený, má přednost před Basic auth | Secret mimo standardní prod/nprod chart |
 | `CONFLUENCE_KNOWN_ERRORS_PAGE_ID` | ID stránky Known Errors | z URL stránky |
 | `CONFLUENCE_KNOWN_PEAKS_PAGE_ID` | ID stránky Known Peaks | z URL stránky |
 | `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` | ID stránky Recent Incidents | z URL stránky |

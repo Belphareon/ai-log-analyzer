@@ -9,9 +9,10 @@ Usage:
     python3 confluence_csv_uploader.py
 """
 
-import os
+import base64
 import csv
 import json
+import os
 import urllib.request
 import urllib.error
 import ssl
@@ -32,12 +33,25 @@ except ModuleNotFoundError:
 
 # Configuration
 CONFLUENCE_URL = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
-CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_PASSWORD')  # OAuth token
+CONFLUENCE_USERNAME = os.getenv('CONFLUENCE_USERNAME')
+CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN')
+CONFLUENCE_PASSWORD = os.getenv('CONFLUENCE_PASSWORD')
 CONFLUENCE_KNOWN_ERRORS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_ERRORS_PAGE_ID', '1334314201')
 CONFLUENCE_KNOWN_PEAKS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_PEAKS_PAGE_ID', '1334314203')
 
 SCRIPT_DIR = Path(__file__).parent
 EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
+
+
+def get_confluence_auth_header() -> str:
+    if CONFLUENCE_TOKEN:
+        return f'Bearer {CONFLUENCE_TOKEN}'
+    if CONFLUENCE_USERNAME and CONFLUENCE_PASSWORD:
+        credentials = base64.b64encode(
+            f'{CONFLUENCE_USERNAME}:{CONFLUENCE_PASSWORD}'.encode()
+        ).decode()
+        return f'Basic {credentials}'
+    return ''
 
 
 def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
@@ -203,12 +217,13 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
 
 def upload_to_confluence(page_id: str, html_content: str) -> bool:
     """Upload HTML content to Confluence page."""
-    if not CONFLUENCE_TOKEN:
-        print("❌ Missing CONFLUENCE_TOKEN")
+    auth_header = get_confluence_auth_header()
+    if not auth_header:
+        print("❌ Missing Confluence token or username/password credentials")
         return False
     
     headers = {
-        'Authorization': f'Bearer {CONFLUENCE_TOKEN}',
+        'Authorization': auth_header,
         'Content-Type': 'application/json',
         'Accept': 'application/json'
     }

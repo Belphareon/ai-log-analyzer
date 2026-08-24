@@ -71,6 +71,8 @@ kde `{lobUser}` = `conjur.lobUser` (např. `CAR_TA_LOBUser_PROD`/`_TEST`), `{saf
 
 > **Důležité:** Každý účet musí v CyberArku poskytovat správný username a password. Conjur mapuje tyto atributy z EPV záznamu. U virtual dual accountu zajišťuje aktivního člena CyberArk; chart vždy odkazuje na jediný `database` a jediný `database_ddl` název.
 
+Confluence publishery používají `CONFLUENCE_USERNAME` + `CONFLUENCE_PASSWORD` jako Basic auth. Volitelný explicitní `CONFLUENCE_TOKEN` používá Bearer auth a má před Basic auth přednost; standardní prod/nprod chart injektuje username/password z CyberArku.
+
 ### 1.3 Confluence — vytvoření stránek
 
 Vytvořit 3 stránky v příslušném Confluence space:
