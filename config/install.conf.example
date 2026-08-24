@@ -12,8 +12,10 @@
 
 ENVIRONMENT=prod
 
-# Image dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest je pevne nastavena
-# v install.sh. Instalator ji nikdy nebuildi ani nepushuje.
+# Image tag musi byt explicitni. Standardni install.sh image sestavi a pushne;
+# --skip-docker pouzij jen pokud uz stejny tag v registry existuje.
+DOCKER_SQUAD=pccm-sq016
+IMAGE_TAG="<release_tag>"
 
 # Spolecne hodnoty pro prod i nprod.
 DB_PORT=5432
@@ -35,13 +37,10 @@ PROD_INFRA_APPS_BASE_BRANCH="<prod_base_branch>"
 PROD_DB_HOST=P050P001.PROD.KB.CZ
 PROD_DB_NAME=ai_log_analyzer
 
-# Nazvy vsech ctyr uctu, ktere uzivatel dostane pri zalozeni DB.
-# Hesla zustavaji v CyberArku. D1 je nyni aktivni, D2 je pripraven pro pozdejsi
-# doplneni dual-account prepinani.
-PROD_DB_DDL_USER_D1=ai_log_analyzer_ddl_user_d1
-PROD_DB_DDL_USER_D2=ai_log_analyzer_ddl_user_d2
-PROD_DB_USER_D1=ai_log_analyzer_user_d1
-PROD_DB_USER_D2=ai_log_analyzer_user_d2
+# Nazvy runtime a DDL uctu v CyberArku. Muze jit o virtual dual accounts;
+# aktivniho clena pak prepina CyberArk bez zmeny chartu.
+PROD_CONJUR_ACCOUNT_DB="<prod_database_account>"
+PROD_CONJUR_ACCOUNT_DB_DDL="<prod_database_ddl_account>"
 PROD_DB_DDL_ROLE=role_ai_log_analyzer_ddl
 PROD_DB_APP_ROLE=role_ai_log_analyzer_user
 
@@ -66,10 +65,8 @@ NPROD_INFRA_APPS_REPO=/root/git/sas/k8s-infra-apps-nprod
 NPROD_INFRA_APPS_BASE_BRANCH=k8s-nprod-3394
 NPROD_DB_HOST=P050TD01.DEV.KB.CZ
 NPROD_DB_NAME=ailog_analyzer
-NPROD_DB_DDL_USER_D1=ailog_analyzer_ddl_user_d1
-NPROD_DB_DDL_USER_D2=ailog_analyzer_ddl_user_d2
-NPROD_DB_USER_D1=ailog_analyzer_user_d1
-NPROD_DB_USER_D2=ailog_analyzer_user_d2
+NPROD_CONJUR_ACCOUNT_DB=ailog_analyzer_user_d1
+NPROD_CONJUR_ACCOUNT_DB_DDL=ailog_analyzer_ddl_user_d1
 NPROD_DB_DDL_ROLE=role_ailog_analyzer_ddl
 NPROD_DB_APP_ROLE=role_ailog_analyzer_user
 NPROD_ES_HOST=https://elasticsearch-test.kb.cz:9500

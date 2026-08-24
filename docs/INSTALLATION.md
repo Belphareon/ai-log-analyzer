@@ -30,9 +30,9 @@ Vytvorit v MIQ nebo požádat DBA o vytvoření:
 | **Databáze** | `ailog_analyzer` |
 | **Schéma** | `ailog_peak` (vytvoří K8s init job automaticky) |
 | **DDL role** | `role_ailog_analyzer_ddl` — vlastní schéma, CREATE TABLE |
-| **App role** | `role_ailog_analyzer_app` — SELECT/INSERT/UPDATE/DELETE |
+| **App role** | Role z `DB_APP_ROLE` (prod typicky `role_ai_log_analyzer_user`) — SELECT/INSERT/UPDATE/DELETE |
 | **DDL user** | Přiřazen do `role_ailog_analyzer_ddl` |
-| **App user** | Přiřazen do `role_ailog_analyzer_app` |
+| **App user** | Přiřazen do role z `DB_APP_ROLE` |
 
 Hostnames se liší podle prostředí:
 
@@ -51,12 +51,12 @@ Všechny credentials jsou uloženy v CyberArk SPEED safe a do K8s se injektují 
 
 1. **Registrovat Application Identity** — unikátní identifikátor aplikace v Conjur (např. `AI-LOG-ANALYZER`). Slouží pro autentizaci podu vůči Conjur API.
 2. **Vytvořit SPEED Safe** — úložiště pro credentials (např. `DAN_AI-LOG-ANALYZER`).
-3. **Uložit účty do safe** — čtyři DB účty D1/D2 a účty pro ES a Confluence. Každý účet musí mít v EPV vyplněný `username` a `password` atribut:
+3. **Uložit účty do safe** — DB runtime a DDL účty (v produkci typicky CyberArk virtual dual accounts) a účty pro ES a Confluence. Každý účet musí poskytovat `username` a `password` atribut:
 
 | `values.yaml` klíč (`conjur.accounts.*`) | Účet | Co to je | Jak získat | Secret klíče v podu |
 |---|---|---|---|---|
-| `database.d1/d2` | DB runtime účty | PostgreSQL účty pro SELECT/INSERT/UPDATE/DELETE | `DB_USER_D1` a `DB_USER_D2` získané při založení DB | `DB_USER`, `DB_PASSWORD` (aktuálně D1) |
-| `database_ddl.d1/d2` | DB DDL účty | PostgreSQL účty pro CREATE/ALTER/DROP, používané init jobem | `DB_DDL_USER_D1` a `DB_DDL_USER_D2` získané při založení DB | `DB_DDL_USER`, `DB_DDL_PASSWORD` (aktuálně D1) |
+| `database` | DB runtime účet | PostgreSQL účet nebo CyberArk virtual dual account pro SELECT/INSERT/UPDATE/DELETE | Název aktivního EPV/virtual accountu | `DB_USER`, `DB_PASSWORD` |
+| `database_ddl` | DB DDL účet | PostgreSQL účet nebo CyberArk virtual dual account pro CREATE/ALTER/DROP, používaný init jobem | Název aktivního EPV/virtual accountu | `DB_DDL_USER`, `DB_DDL_PASSWORD` |
 | `elastic` | ES read user | Elasticsearch read-only | Založit technický účet (např. `XX_<TEAM>_ES_READ`), přidat do CyberArk | `ES_USER`, `ES_PASSWORD` |
 | `confluence` | Confluence user | API přístup na wiki.kb.cz | Založit služební účet, nebo použít sdílený (např. `XX_AWX_CONFLUENCE` v safe `DAN_OCSS`) | `CONFLUENCE_USERNAME`, `CONFLUENCE_PASSWORD` |
 
@@ -69,7 +69,7 @@ epv/{lobUser}/{safeName}/{accountName}/password
 
 kde `{lobUser}` = `conjur.lobUser` (např. `CAR_TA_LOBUser_PROD`/`_TEST`), `{safeName}` = `conjur.safeName` (např. `DAN_AI-LOG-ANALYZER`), `{accountName}` = hodnota z tabulky výše (např. `ailog_analyzer_user_d1`).
 
-> **Důležité:** Každý účet musí být v CyberArk uložen se správným username a password. Conjur mapuje `username` a `password` atributy z EPV záznamu. Bez aktivních D1, ES a Confluence účtů se init job/CronJoby nespustí. D2 účty jsou zatím připravené pro pozdější dual-account přepínání.
+> **Důležité:** Každý účet musí v CyberArku poskytovat správný username a password. Conjur mapuje tyto atributy z EPV záznamu. U virtual dual accountu zajišťuje aktivního člena CyberArk; chart vždy odkazuje na jediný `database` a jediný `database_ddl` název.
 
 ### 1.3 Confluence — vytvoření stránek
 
@@ -119,8 +119,8 @@ Klíčové sekce:
 | Sekce | Co vyplnit |
 |-------|-----------|
 | 1. PROSTŘEDÍ | `nprod` nebo `prod`; vybere celý `NPROD_*`/`PROD_*` profil |
-| 2. INFRA-APPS | Repo a base branch pro každé prostředí |
-| 3. POSTGRESQL | JDBC host/DB a názvy účtů `DB_DDL_USER_D1/D2`, `DB_USER_D1/D2` |
+| 2. INFRA-APPS | Repo a referenční base branch pro ruční checkout každého prostředí |
+| 3. POSTGRESQL | JDBC host/DB, DB role a názvy runtime/DDL účtů nebo virtual dual accounts |
 | 4. DB ROLE | Předvyplněná oprávnění `DB_DDL_ROLE` a `DB_APP_ROLE`; obvykle se nemění |
 | 5. ELASTICSEARCH | URL a index pattern |
 | 6. CONFLUENCE | URL, proxy, page IDs |
@@ -136,7 +136,7 @@ Klíčové sekce:
 Vygenerovaný `values.yaml` je autoritativní konfigurace pro K8s prostředí. Na konci instalace skript vypíše cestu — zkontroluj hlavně:
 
 - `conjur.applicationId`, `conjur.lobUser`, `conjur.safeName`
-- `conjur.accounts.database.d1/d2`, `database_ddl.d1/d2`, `elastic`, `confluence`
+- `conjur.accounts.database`, `database_ddl`, `elastic`, `confluence`
 - `env.DB_HOST`, `env.ES_HOST`, `env.ES_INDEX`, Confluence page IDs
 - `teams.email`, `teams.enabled`, `email.smtpHost`
 
@@ -150,11 +150,10 @@ chmod +x install.sh
 # Plná instalace
 ./install.sh
 
-# Jen validace (bez změn)
+# Náhled bez Docker build/push, DB migrací a git změn.
+# Pozor: values.yaml a chart se i v dry-run režimu přegenerují v INFRA_APPS_DIR.
 ./install.sh --dry-run
 
-# Volitelně použít jiný konfigurační soubor
-./install.sh --config /cesta/ke/config.env
 ```
 
 ### Co install.sh provede:
@@ -162,11 +161,15 @@ chmod +x install.sh
 | Krok | Co dělá |
 |------|---------|
 | **1. Validace** | Ověří, že všechny povinné proměnné v `.env` jsou vyplněné |
-| **2. Infra branch** | Oznámí a vytvoří novou branch z base branche zvoleného prostředí |
-| **3. K8s struktura** | Vytvoří `infra-apps/ai-log-analyzer.yaml` a kompletní chart v `infra-apps/ai-log-analyzer/` |
-| **4. Validace** | Ověří YAML, `helm lint` a `helm template` |
-| **5. Git commit & push** | Commitne pouze oba AI Log Analyzer cíle a pushne branch |
+| **2. Databáze** | Standardně přeskočí lokální migrace; s `--run-db-migrations` je spustí pomocí lokálních DB credentials |
+| **3. Docker image** | Sestaví a pushne image; `--skip-docker` tento krok přeskočí |
+| **4. K8s chart** | Přegeneruje `values.yaml` a zkopíruje `templates/` a `Chart.yaml` do existujícího `infra-apps/ai-log-analyzer/` |
+| **5. Git commit & push** | Z aktuálního checkoutu infra repa vytvoří feature branch, commitne chart a pushne ji |
 | **6. Souhrn** | Deployment checklist + instrukce pro další kroky |
+
+Před spuštěním musí být infra repo checkoutnuté na správné base branchi pro cílové prostředí. `install.sh` hodnotu `*_INFRA_APPS_BASE_BRANCH` nepoužívá a base branch sám nepřepíná.
+
+Argo Application manifest `infra-apps/ai-log-analyzer.yaml` musí v infra repu existovat a spravuje se samostatně; installer vytváří nebo aktualizuje pouze chart v adresáři `infra-apps/ai-log-analyzer/`.
 
 ### Po install.sh:
 
@@ -174,7 +177,9 @@ Skript na konci vypíše přesné kroky — v souhrnu:
 
 1. **Vytvořit PR** z branch `feat/ai-log-analyzer-<env>` v infra-apps repu
 2. **Review a merge PR**
-3. **ArgoCD sync** — po merge ArgoCD automaticky nasadí CronJoby, PVC, ServiceAccount, Secret
+3. **ArgoCD sync** — po merge ArgoCD automaticky nasadí CronJoby, PVC, ServiceAccount, Secret a init Job
+
+Argo Application nesmí mít globální `Replace=true`: Kubernetes nedovolí replace bound PVC. `Force=true,Replace=true` patří pouze na immutable init Job a `ApplyOutOfSyncOnly=true` zajistí, že se Job znovu vytvoří jen při skutečné změně jeho manifestu. Před syncem proto není potřeba Job ručně mazat.
 
 ---
 
@@ -186,15 +191,12 @@ Po úspěšném ArgoCD sync (vše Synced & Healthy):
 # Ověřit, že vše běží
 kubectl get all -n ai-log-analyzer
 
-# Spustit init job (backfill + threshold výpočet)
-helm template <infra-apps-dir> | kubectl apply -f - -l job-type=init
-
 # Sledovat průběh
 kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
 Init job provede:
-1. **DB migrations** — spustí SQL migrace přes `DB_DDL_USER`/`DB_DDL_PASSWORD` z CyberArku a nastaví oprávnění pro `role_ailog_analyzer_app`
+1. **DB migrations** — spustí SQL migrace přes `DB_DDL_USER`/`DB_DDL_PASSWORD` z CyberArku a nastaví oprávnění pro roli z `DB_APP_ROLE`
 2. **Backfill** — stáhne error logy z ES za posledních N dní (default: 21)
 3. **Threshold calc** — vypočítá P93/CAP prahy z backfill dat
 4. **Verify** — zobrazí vypočtené thresholdy
@@ -230,7 +232,7 @@ SELECT namespace, COUNT(*) FROM ailog_peak.peak_thresholds GROUP BY namespace;
 
 ### Confluence
 
-Po prvním backfill jobu by měly být aktualizované stránky Known Errors, Known Peaks, Recent Incidents.
+Po prvním úspěšném backfill jobu mají být aktualizované všechny tři stránky. `backfill.py` publikuje Recent Incidents z `problem_report_*.txt` na `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID`; následný `confluence_csv_uploader.py` publikuje Known Errors a Known Peaks z registry CSV exportů.
 
 ---
 
@@ -245,12 +247,13 @@ Po prvním backfill jobu by měly být aktualizované stránky Known Errors, Kno
 - [ ] **Prerekvizity:** ES účet založen a v CyberArk
 - [ ] `.env` vyplněn bez runtime hesel a validován (`install.sh` krok 1)
 - [ ] CyberArk account names zapsané do `values.yaml`
-- [ ] Použitá publikovaná image `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest`
-- [ ] Kompletní K8s struktura vygenerována v infra-apps (`install.sh` krok 3)
-- [ ] YAML a Helm chart validovány (`install.sh` krok 4)
+- [ ] `IMAGE_TAG` je explicitní a image s tímto tagem je dostupná v registry
+- [ ] Kompletní K8s chart vygenerován v infra-apps (`install.sh` krok 4)
+- [ ] Chart validován pomocí `helm lint <chart-dir>` a `helm template <release> <chart-dir>`
 - [ ] Branch pushnuta (`install.sh` krok 5)
 - [ ] PR vytvořen a mergnut
 - [ ] ArgoCD sync proběhl — Synced & Healthy
+- [ ] Argo Application nemá globální `Replace=true`; init Job má resource-level `Force=true,Replace=true`
 - [ ] Init job dokončen (DB migrations + backfill + thresholds)
 - [ ] CronJoby běží (regular, backfill, thresholds)
 - [ ] Email/Teams notifikace ověřena

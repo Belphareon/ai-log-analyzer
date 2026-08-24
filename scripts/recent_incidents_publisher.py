@@ -18,8 +18,11 @@ if 'confluence.kb.cz' in CONFLUENCE_URL:
     CONFLUENCE_URL = 'https://wiki.kb.cz'
 CONFLUENCE_USERNAME = os.getenv('CONFLUENCE_USERNAME')
 CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_PASSWORD')
-CONFLUENCE_PAGE_ID = '1334314207'  # Recent Incidents page
 REPORTS_DIR = Path(__file__).parent / 'reports'
+
+
+def get_confluence_page_id() -> str:
+    return os.getenv('CONFLUENCE_RECENT_INCIDENTS_PAGE_ID', '').strip()
 
 def get_latest_problem_report(reports_dir: Path = REPORTS_DIR):
     """Get the most recent problem analysis report"""
@@ -128,6 +131,10 @@ def upload_via_confluence_api(html_content):
     if not CONFLUENCE_USERNAME or not CONFLUENCE_TOKEN:
         print("❌ Missing CONFLUENCE_USERNAME or CONFLUENCE_TOKEN")
         return False
+    page_id = get_confluence_page_id()
+    if not page_id:
+        print("❌ Missing CONFLUENCE_RECENT_INCIDENTS_PAGE_ID")
+        return False
     
     import base64
     import json
@@ -160,7 +167,7 @@ def upload_via_confluence_api(html_content):
         proxies['http'] = confluence_proxy
 
     print(f"🔧 Confluence URL: {CONFLUENCE_URL}")
-    print(f"🔧 Confluence page: {CONFLUENCE_PAGE_ID}")
+    print(f"🔧 Confluence page: {page_id}")
     print(f"🔧 Proxy (https): {proxies.get('https')}")
 
     opener = urllib.request.build_opener(
@@ -170,7 +177,7 @@ def upload_via_confluence_api(html_content):
     
     # Step 1: Get current page version
     try:
-        url = f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}?expand=version,body.storage"
+        url = f"{CONFLUENCE_URL}/rest/api/content/{page_id}?expand=version,body.storage"
         req = urllib.request.Request(url, headers=headers)
         with opener.open(req) as response:
             page_data = json.loads(response.read().decode())
@@ -206,7 +213,7 @@ def upload_via_confluence_api(html_content):
     }
     
     try:
-        url = f"{CONFLUENCE_URL}/rest/api/content/{CONFLUENCE_PAGE_ID}"
+        url = f"{CONFLUENCE_URL}/rest/api/content/{page_id}"
         req = urllib.request.Request(
             url,
             data=json.dumps(update_data).encode(),

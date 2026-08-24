@@ -17,6 +17,8 @@ kind: Job
 metadata:
   name: {{ .Values.app.name }}-init
   namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
   labels:
     app: {{ .Values.app.name }}
     job-type: init

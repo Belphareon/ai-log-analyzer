@@ -426,9 +426,10 @@ scripts/exports/latest/     # CSV/MD pro Confluence upload
 
 | Job | Schedule | Skript |
 |-----|----------|--------|
-| `log-analyzer-regular` | `*/15 * * * *` | `scripts/regular_phase.py` |
-| `log-analyzer-backfill` | `0 2 * * *` | `scripts/backfill.py --days 1` |
+| `log-analyzer` | `*/15 * * * *` | `scripts/regular_phase.py` |
+| `log-analyzer-backfill` | `0 9 * * *` | `scripts/backfill.py --days 1` |
 | `log-analyzer-thresholds` | `0 3 * * 0` | `scripts/core/calculate_peak_thresholds.py --weeks 4` |
+| `log-analyzer-maintenance` | `30 2 * * *` | `scripts/core/run_data_maintenance.py` |
 
 Image: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:<tag>`
 

@@ -11,6 +11,7 @@ Vše pro běžný provoz, manuální zásahy a diagnostiku. Systém běží **au
 | `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → alert → export | 1–5 min |
 | `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish | 10–60 min |
 | `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet P93/CAP z peak_raw_data | 1–5 min |
+| `log-analyzer-maintenance` | `30 2 * * *` | Denní rollup + retention faktů | 1–30 min |
 
 ### Závislosti
 
@@ -23,6 +24,7 @@ Poté autonomně:
   regular (*/15)       → fetch ES → detect → alert → plní peak_raw_data
   backfill (09:00)     → zpracuje předchozí den → publikuje Confluence
   thresholds (Ne 03:00) → přepočítá P93/CAP z posledních 4 týdnů
+  maintenance (02:30)  → denní rollupy → smaže fakta starší než retention limit
 ```
 
 ### Stav
@@ -61,10 +63,12 @@ kubectl delete job manual-regular manual-backfill manual-thresholds -n ai-log-an
 Pro přeplnění dat od nuly (změna namespace, nové prostředí):
 
 ```bash
-kubectl delete job log-analyzer-init -n ai-log-analyzer --ignore-not-found
-helm template <infra-apps-dir> | kubectl apply -f - -l job-type=init
+# Uprav init values nebo image v infra-apps a spusť Argo sync.
+# Argo Job samo delete/create díky resource-level Force/Replace.
 kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
+
+Argo Application používá běžný apply a `ApplyOutOfSyncOnly=true`; globální `Replace=true` je zakázaný kvůli immutable bound PVC. Init Job je jediný resource s `Force=true,Replace=true`. Ruční mazání Jobu před běžným syncem není potřeba.
 
 ---
 
@@ -141,8 +145,7 @@ env:
 
 3. **Naplnit data pro nový namespace:**
    ```bash
-   kubectl delete job log-analyzer-init -n ai-log-analyzer --ignore-not-found
-   helm template <infra-apps-dir> | kubectl apply -f - -l job-type=init
+  # Po merge změny spusť Argo sync; Job se při změně manifestu znovu vytvoří.
    kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
    ```
 
@@ -179,6 +182,8 @@ kubectl logs job/<failed-job> -n ai-log-analyzer
 | `connection refused DB_HOST` | DB nedostupná z K8s | Ověřit DB_HOST, network policy |
 | `ES connection timeout` | ES nedostupný | Ověřit ES_HOST, proxy |
 | `401 Unauthorized (Confluence)` | Neplatný token | Obnovit credentials v CyberArk |
+| Daily Incident Analysis je prázdná | Chybné `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` nebo selhal publisher v `backfill.py` | Ověřit page ID v rendered backfill CronJobu a hledat `Recent Incidents` v logu posledního backfill jobu |
+| Argo sync selže na immutable Job/PVC | Globální `Replace=true` v Application | Odstranit globální Replace; ponechat Force/Replace pouze na init Jobu a zapnout `ApplyOutOfSyncOnly=true` |
 | `No thresholds found` | Prázdná DB | Spustit init job |
 | `SMTP connection refused` | Mail server | Ověřit SMTP_HOST z K8s |
 

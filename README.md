@@ -15,8 +15,8 @@ Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespac
 3. **Určí, co je nové vs. známé** — registry drží historii všech dříve viděných problémů
 4. **Vyhodnotí závažnost** — deterministické bodování 0–100
 5. **Koreluje** — různé logové projevy stejné události se sloučí do jednoho alertu
-6. **Notifikuje** — při peaku odešle digest email; do Teams kanálu se doručuje e-mailem na jeho adresu (`TEAMS_EMAIL`), webhook je v aplikaci vypnutý
-7. **Aktualizuje Confluence** — Known Errors, Known Peaks a Recent Incidents tabulky
+6. **Notifikuje** — při peaku odešle digest přes nakonfigurovaný Teams webhook, email, nebo oba kanály
+7. **Aktualizuje Confluence** — Known Errors a Known Peaks z registry exportů; Recent Incidents z denního problem reportu
 8. **Sbírá historická data** — ukládá surové počty chyb pro zpětný přepočet P93/CAP prahů
 
 ---
@@ -47,8 +47,7 @@ cp config/install.conf.example .env && vi .env
 # 2. Instalační skript — validuje konfiguraci → vygeneruje kompletní infra-apps strukturu → commitne instalační branch
 ./install.sh
 
-# 3. Po merge PR → ArgoCD sync → spustit init job
-kubectl create job log-analyzer-init --from=cronjob/log-analyzer-backfill -n ai-log-analyzer
+# 3. Po merge PR → ArgoCD sync; init Job je součástí chartu
 kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
@@ -71,6 +70,7 @@ python3 scripts/backfill.py --days 1 --dry-run
 | `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → alert → export | 1–5 min |
 | `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish | 10–60 min |
 | `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet P93/CAP z peak_raw_data | 1–5 min |
+| `log-analyzer-maintenance` | `30 2 * * *` | Denní rollup a retention jemnozrnných faktů | 1–30 min |
 
 ### Manuální spuštění
 
@@ -266,7 +266,7 @@ ai-log-analyzer/
 
 ## Image pro instalaci
 
-Instalace vždy používá publikovanou image `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest`. Instalační balíček image nebuildí ani nepushuje.
+Instalátor používá explicitní `IMAGE_TAG` z `.env`. Standardně image sestaví a pushne; `--skip-docker` použij pouze tehdy, když daný tag už v registry existuje. V manifestu nepoužívej implicitní `latest`.
 
 ---
 

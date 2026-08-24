@@ -13,7 +13,7 @@
 # Použití:
 #   cp .env.example .env   # vyplnit hodnoty
 #   ./install.sh            # spustit instalaci
-#   ./install.sh --dry-run  # jen validace, bez změn
+#   ./install.sh --dry-run  # bez DB/Docker/git změn; chart se přegeneruje
 #   ./install.sh --run-db-migrations  # volitelně spustit DB migrace lokálně
 #   ./install.sh --skip-docker  # přeskočit Docker build
 # =============================================================================
@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
         --skip-docker) SKIP_DOCKER=true; shift ;;
         -h|--help)
             echo "Usage: $0 [--dry-run] [--run-db-migrations] [--skip-db] [--skip-docker]"
-            echo "  --dry-run      Jen validace, bez změn"
+            echo "  --dry-run      Přeskočí DB migrace, Docker a git; přegeneruje chart v INFRA_APPS_DIR"
             echo "  --run-db-migrations  Spustit DB migrace lokálně pomocí DB_DDL_* z .env"
             echo "  --skip-db      Přeskočit lokální DB migrace (default; migrace běží v K8s init jobu přes Conjur)"
             echo "  --skip-docker  Přeskočit Docker build & push"
@@ -90,6 +90,7 @@ for variable_name in \
     DB_HOST DB_NAME DB_DDL_USER_D1 DB_DDL_USER_D2 DB_USER_D1 DB_USER_D2 \
     DB_DDL_ROLE DB_APP_ROLE ES_HOST ES_INDEX MONITORED_NAMESPACES \
     CONJUR_LOB_USER CONJUR_SAFE_NAME \
+    CONJUR_ACCOUNT_DB CONJUR_ACCOUNT_DB_DDL \
     CONJUR_ACCOUNT_ES CONJUR_ACCOUNT_CONFLUENCE \
     CONFLUENCE_KNOWN_ERRORS_PAGE_ID CONFLUENCE_KNOWN_PEAKS_PAGE_ID \
     CONFLUENCE_RECENT_INCIDENTS_PAGE_ID SMTP_HOST EMAIL_FROM TEAMS_EMAIL
@@ -101,11 +102,11 @@ INFRA_APPS_DIR="${INFRA_APPS_DIR:-${PROFILE_PREFIX}_INFRA_APPS_REPO}"
 if [[ "$INFRA_APPS_DIR" == "${PROFILE_PREFIX}_INFRA_APPS_REPO" ]]; then
     INFRA_APPS_DIR="${!INFRA_APPS_DIR}/infra-apps/ai-log-analyzer"
 fi
-CONJUR_ACCOUNT_DB="${CONJUR_ACCOUNT_DB:-$DB_USER_D1}"
-CONJUR_ACCOUNT_DB_DDL="${CONJUR_ACCOUNT_DB_DDL:-$DB_DDL_USER_D1}"
+CONJUR_ACCOUNT_DB="${CONJUR_ACCOUNT_DB:-${DB_USER_D1:-}}"
+CONJUR_ACCOUNT_DB_DDL="${CONJUR_ACCOUNT_DB_DDL:-${DB_DDL_USER_D1:-}}"
 
 header "AI Log Analyzer — Instalace ($ENVIRONMENT)"
-if $DRY_RUN; then warn "DRY-RUN mód — žádné změny nebudou provedeny"; fi
+if $DRY_RUN; then warn "DRY-RUN mód — DB, Docker a git se nemění; chart se přegeneruje"; fi
 
 # ─── 1. Validace ─────────────────────────────────────────────────────────────
 header "1/6  Validace konfigurace"
@@ -349,18 +350,18 @@ env:
   DB_HOST: "$DB_HOST"
   DB_NAME: "$DB_NAME"
   DB_PORT: "$DB_PORT"
-    DB_DDL_ROLE: "$DB_DDL_ROLE"
-    DB_APP_ROLE: "$DB_APP_ROLE"
+  DB_DDL_ROLE: "$DB_DDL_ROLE"
+  DB_APP_ROLE: "$DB_APP_ROLE"
   ES_HOST: "$ES_HOST"
   ES_INDEX: "$ES_INDEX"
-    MONITORED_NAMESPACES: "$MONITORED_NAMESPACES"
+  MONITORED_NAMESPACES: "$MONITORED_NAMESPACES"
   CONFLUENCE_URL: "$CONFLUENCE_URL"
   CONFLUENCE_PROXY: "$PROXY_VALUE"
   HTTP_PROXY: "$PROXY_VALUE"
   HTTPS_PROXY: "$PROXY_VALUE"
   CONFLUENCE_KNOWN_ERRORS_PAGE_ID: "$CONFLUENCE_KNOWN_ERRORS_PAGE_ID"
   CONFLUENCE_KNOWN_PEAKS_PAGE_ID: "$CONFLUENCE_KNOWN_PEAKS_PAGE_ID"
-    CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID"
+  CONFLUENCE_RECENT_INCIDENTS_PAGE_ID: "$CONFLUENCE_RECENT_INCIDENTS_PAGE_ID"
   SPIKE_THRESHOLD: "${SPIKE_THRESHOLD:-3.0}"
   EWMA_ALPHA: "${EWMA_ALPHA:-0.3}"
   WINDOW_MINUTES: "${WINDOW_MINUTES:-15}"
@@ -373,7 +374,7 @@ env:
   ALERT_HEARTBEAT_MIN: "${ALERT_HEARTBEAT_MIN:-120}"
   ALERT_MIN_DELTA_PCT: "${ALERT_MIN_DELTA_PCT:-30}"
   ALERT_CONTINUATION_LOOKBACK_MIN: "${ALERT_CONTINUATION_LOOKBACK_MIN:-60}"
-    FACT_RETENTION_DAYS: "${FACT_RETENTION_DAYS:-90}"
+  FACT_RETENTION_DAYS: "${FACT_RETENTION_DAYS:-90}"
 
 init:
   backfillDays: ${INIT_BACKFILL_DAYS:-21}
@@ -382,13 +383,13 @@ init:
   activeDeadlineSeconds: 14400
 
 email:
-    smtpHost: "${SMTP_HOST:-css-smtp-prod-os.sos.kb.cz}"
-    smtpPort: "${SMTP_PORT:-25}"
-    from: "${EMAIL_FROM:-ai-log-analyzer@kb.cz}"
+  smtpHost: "${SMTP_HOST:-css-smtp-prod-os.sos.kb.cz}"
+  smtpPort: "${SMTP_PORT:-25}"
+  from: "${EMAIL_FROM:-ai-log-analyzer@kb.cz}"
 
 teams:
-    enabled: "${TEAMS_ENABLED:-false}"
-    webhook_url: "${TEAMS_WEBHOOK_URL:-}"
+  enabled: "${TEAMS_ENABLED:-false}"
+  webhook_url: "${TEAMS_WEBHOOK_URL:-}"
   email: "$TEAMS_EMAIL"
 VALEOF
 
@@ -464,12 +465,8 @@ echo ""
 echo "  3. OVĚŘIT v ArgoCD, že je vše Synced & Healthy:"
 echo "     kubectl get all -n ai-log-analyzer"
 echo ""
-echo "  4. SPUSTIT INIT JOB (jednorázový bootstrap):"
-echo "     kubectl create job log-analyzer-init-manual \\"
-echo "       --from=cronjob/log-analyzer -n ai-log-analyzer \\"
-echo "       -- /bin/bash -c 'python3 /app/scripts/backfill.py --days ${INIT_BACKFILL_DAYS:-21} --force && python3 /app/scripts/core/calculate_peak_thresholds.py --weeks ${INIT_THRESHOLD_WEEKS:-3}'"
-echo "     NEBO pokud je init Job template v manifestech:"
-echo "     helm template $INFRA_APPS_DIR | kubectl apply -f - -l job-type=init"
+echo "  4. INIT JOB (jednorázový bootstrap):"
+echo "     Init Job je součástí chartu a spustí se při ArgoCD syncu."
 echo ""
 echo "  5. SLEDOVAT init job:"
 echo "     kubectl logs -f job/log-analyzer-init -n ai-log-analyzer"
