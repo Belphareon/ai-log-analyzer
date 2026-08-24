@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r91 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r92 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r91 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r92 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r91"
-LABEL description="AI Log Analyzer - r91: authenticated Confluence publishing"
+LABEL version="r92"
+LABEL description="AI Log Analyzer - r92: production Confluence Bearer auth"
 
 # Set working directory
 WORKDIR /app

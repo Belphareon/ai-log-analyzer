@@ -4,7 +4,6 @@ Publish Recent Incidents Report to Confluence
 Extracts problem analysis report and uploads to Recent Incidents page
 """
 
-import base64
 import os
 import re
 from datetime import datetime
@@ -17,9 +16,7 @@ CONFLUENCE_URL = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
 if 'confluence.kb.cz' in CONFLUENCE_URL:
     print(f"⚠️ CONFLUENCE_URL overridden: {CONFLUENCE_URL} -> https://wiki.kb.cz")
     CONFLUENCE_URL = 'https://wiki.kb.cz'
-CONFLUENCE_USERNAME = os.getenv('CONFLUENCE_USERNAME')
-CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN')
-CONFLUENCE_PASSWORD = os.getenv('CONFLUENCE_PASSWORD')
+CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_PASSWORD')
 REPORTS_DIR = Path(__file__).parent / 'reports'
 
 
@@ -30,11 +27,6 @@ def get_confluence_page_id() -> str:
 def get_confluence_auth_header() -> str:
     if CONFLUENCE_TOKEN:
         return f'Bearer {CONFLUENCE_TOKEN}'
-    if CONFLUENCE_USERNAME and CONFLUENCE_PASSWORD:
-        credentials = base64.b64encode(
-            f'{CONFLUENCE_USERNAME}:{CONFLUENCE_PASSWORD}'.encode()
-        ).decode()
-        return f'Basic {credentials}'
     return ''
 
 
@@ -144,7 +136,7 @@ def upload_via_confluence_api(html_content):
     """Upload HTML content directly to Confluence via API"""
     auth_header = get_confluence_auth_header()
     if not auth_header:
-        print("❌ Missing Confluence token or username/password credentials")
+        print("❌ Missing CONFLUENCE_TOKEN or CONFLUENCE_PASSWORD")
         return False
     page_id = get_confluence_page_id()
     if not page_id:

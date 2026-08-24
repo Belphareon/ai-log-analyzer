@@ -9,7 +9,6 @@ Usage:
     python3 confluence_csv_uploader.py
 """
 
-import base64
 import csv
 import json
 import os
@@ -33,9 +32,7 @@ except ModuleNotFoundError:
 
 # Configuration
 CONFLUENCE_URL = os.getenv('CONFLUENCE_URL', 'https://wiki.kb.cz')
-CONFLUENCE_USERNAME = os.getenv('CONFLUENCE_USERNAME')
-CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN')
-CONFLUENCE_PASSWORD = os.getenv('CONFLUENCE_PASSWORD')
+CONFLUENCE_TOKEN = os.getenv('CONFLUENCE_TOKEN') or os.getenv('CONFLUENCE_PASSWORD')
 CONFLUENCE_KNOWN_ERRORS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_ERRORS_PAGE_ID', '1334314201')
 CONFLUENCE_KNOWN_PEAKS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_PEAKS_PAGE_ID', '1334314203')
 
@@ -46,11 +43,6 @@ EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
 def get_confluence_auth_header() -> str:
     if CONFLUENCE_TOKEN:
         return f'Bearer {CONFLUENCE_TOKEN}'
-    if CONFLUENCE_USERNAME and CONFLUENCE_PASSWORD:
-        credentials = base64.b64encode(
-            f'{CONFLUENCE_USERNAME}:{CONFLUENCE_PASSWORD}'.encode()
-        ).decode()
-        return f'Basic {credentials}'
     return ''
 
 
@@ -219,7 +211,7 @@ def upload_to_confluence(page_id: str, html_content: str) -> bool:
     """Upload HTML content to Confluence page."""
     auth_header = get_confluence_auth_header()
     if not auth_header:
-        print("❌ Missing Confluence token or username/password credentials")
+        print("❌ Missing CONFLUENCE_TOKEN or CONFLUENCE_PASSWORD")
         return False
     
     headers = {

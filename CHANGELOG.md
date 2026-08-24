@@ -4,12 +4,19 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r92 (2026-08-24) — Produkční Confluence Bearer autentizace
+
+### Opraveno
+
+- Recent Incidents i CSV publisher znovu používají stejný produkčně ověřený mechanismus jako Known Errors: `CONFLUENCE_TOKEN`, nebo fallback `CONFLUENCE_PASSWORD` z CyberArku, se posílá jako Bearer token.
+- Odstraněn Basic auth zavedený v r91, který v produkci skončil `401 Basic Authentication Failure`.
+
 ## r91 (2026-08-24) — Opravená publikace Daily Incident Analysis
 
 ### Opraveno
 
 - Recent Incidents publisher používá environment-specific `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID`; legacy hardcoded page ID už nemá fallback.
-- CyberArk dvojice `CONFLUENCE_USERNAME`/`CONFLUENCE_PASSWORD` používá HTTP Basic auth, explicitní `CONFLUENCE_TOKEN` používá Bearer auth. Stejný kontrakt používají Recent Incidents i CSV publisher.
+- V r91 byla autentizace chybně přepnuta na HTTP Basic auth; opraveno v r92 návratem k produkčně ověřenému Bearer tokenu.
 - Recent Incidents update zachovává aktuální title cílové stránky, takže nekoliduje s existujícím názvem jiné stránky v Confluence space.
 
 ## r89 (2026-08-19) — Spolehlivá Confluence CSV publikace

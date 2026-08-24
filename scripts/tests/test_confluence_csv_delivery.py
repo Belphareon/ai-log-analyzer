@@ -1,23 +1,24 @@
-import base64
+import importlib
 import json
 from pathlib import Path
 
 from scripts import confluence_csv_uploader as uploader
 
 
-def test_confluence_password_uses_basic_auth(monkeypatch):
-    monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', None)
-    monkeypatch.setattr(uploader, 'CONFLUENCE_USERNAME', 'service-user')
-    monkeypatch.setattr(uploader, 'CONFLUENCE_PASSWORD', 'service-password')
+def test_confluence_password_fallback_uses_bearer_auth(monkeypatch):
+    monkeypatch.delenv('CONFLUENCE_TOKEN', raising=False)
+    monkeypatch.setenv('CONFLUENCE_PASSWORD', 'cyberark-password-value')
+    reloaded_uploader = importlib.reload(uploader)
 
-    expected = base64.b64encode(b'service-user:service-password').decode()
-    assert uploader.get_confluence_auth_header() == f'Basic {expected}'
+    assert reloaded_uploader.get_confluence_auth_header() == 'Bearer cyberark-password-value'
 
 
 def test_explicit_confluence_token_uses_bearer_auth(monkeypatch):
-    monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', 'personal-access-token')
+    monkeypatch.setenv('CONFLUENCE_TOKEN', 'personal-access-token')
+    monkeypatch.setenv('CONFLUENCE_PASSWORD', 'cyberark-password-value')
+    reloaded_uploader = importlib.reload(uploader)
 
-    assert uploader.get_confluence_auth_header() == 'Bearer personal-access-token'
+    assert reloaded_uploader.get_confluence_auth_header() == 'Bearer personal-access-token'
 
 def _write_csv(path: Path) -> None:
     path.write_text('name,count\nexample,1\n', encoding='utf-8')

@@ -111,8 +111,8 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `DB_USER` / `DB_PASSWORD` | DB app user | CyberArk |
 | `DB_DDL_USER` / `DB_DDL_PASSWORD` | DB DDL user (migrace) | CyberArk |
 | `CONFLUENCE_URL` | Confluence base URL | `https://wiki.kb.cz` |
-| `CONFLUENCE_USERNAME` / `CONFLUENCE_PASSWORD` | Confluence služební účet používaný přes Basic auth; heslo je uložené v CyberArku | CyberArk |
-| `CONFLUENCE_TOKEN` | Volitelný Personal Access Token používaný přes Bearer auth; pokud je nastavený, má přednost před Basic auth | Secret mimo standardní prod/nprod chart |
+| `CONFLUENCE_USERNAME` / `CONFLUENCE_PASSWORD` | Confluence služební účet; token je uložený v CyberArku jako password atribut a publisher ho posílá přes Bearer auth | CyberArk |
+| `CONFLUENCE_TOKEN` | Volitelný přímý token pro lokální běh; má přednost před `CONFLUENCE_PASSWORD` a používá stejný Bearer auth | Secret mimo standardní prod/nprod chart |
 | `CONFLUENCE_KNOWN_ERRORS_PAGE_ID` | ID stránky Known Errors | z URL stránky |
 | `CONFLUENCE_KNOWN_PEAKS_PAGE_ID` | ID stránky Known Peaks | z URL stránky |
 | `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` | ID stránky Recent Incidents | z URL stránky |
@@ -307,7 +307,7 @@ SELECT COUNT(*) FROM ailog_peak.peak_investigation WHERE created_at > NOW() - IN
 |-------|---------|--------|
 | `connection refused DB_HOST` | DB nedostupná z K8s | Ověřit DB_HOST, network policy |
 | `ES connection timeout` | ES nedostupný | Ověřit ES_HOST, proxy |
-| `401/403 (Confluence)` | Neplatné credentials, chybný Basic/Bearer režim nebo chybějící edit oprávnění | Ověřit auth režim, CyberArk credentials a oprávnění cílové stránky |
+| `401/403 (Confluence)` | Neplatný token nebo chybějící edit oprávnění | Ověřit Bearer token z CyberArk password atributu a oprávnění cílové stránky |
 | `No thresholds found` | Prázdná DB | Spustit init job |
 | `SMTP connection refused` | Mail server | Ověřit SMTP_HOST z K8s |
 

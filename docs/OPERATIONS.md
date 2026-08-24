@@ -181,7 +181,7 @@ kubectl logs job/<failed-job> -n ai-log-analyzer
 |-------|---------|--------|
 | `connection refused DB_HOST` | DB nedostupná z K8s | Ověřit DB_HOST, network policy |
 | `ES connection timeout` | ES nedostupný | Ověřit ES_HOST, proxy |
-| `401/403 (Confluence)` | Neplatné credentials, chybný auth režim nebo chybějící edit oprávnění | Ověřit Basic auth pro `CONFLUENCE_USERNAME`/`CONFLUENCE_PASSWORD`, Bearer pro `CONFLUENCE_TOKEN` a oprávnění cílové stránky |
+| `401/403 (Confluence)` | Neplatný Bearer token nebo chybějící edit oprávnění | Ověřit token v `CONFLUENCE_PASSWORD`/`CONFLUENCE_TOKEN` a oprávnění cílové stránky |
 | Daily Incident Analysis je prázdná | Chybné `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` nebo selhal publisher v `backfill.py` | Ověřit page ID v rendered backfill CronJobu a hledat `Recent Incidents` v logu posledního backfill jobu |
 | Argo sync selže na immutable Job/PVC | Globální `Replace=true` v Application | Odstranit globální Replace; ponechat Force/Replace pouze na init Jobu a zapnout `ApplyOutOfSyncOnly=true` |
 | `No thresholds found` | Prázdná DB | Spustit init job |

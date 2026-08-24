@@ -1,4 +1,3 @@
-import base64
 import json
 
 from scripts import recent_incidents_publisher as publisher
@@ -41,13 +40,10 @@ def test_recent_incidents_page_id_has_no_legacy_fallback(monkeypatch):
     assert publisher.get_confluence_page_id() == ''
 
 
-def test_confluence_password_uses_basic_auth(monkeypatch):
-    monkeypatch.setattr(publisher, "CONFLUENCE_TOKEN", None)
-    monkeypatch.setattr(publisher, "CONFLUENCE_USERNAME", "service-user")
-    monkeypatch.setattr(publisher, "CONFLUENCE_PASSWORD", "service-password")
+def test_confluence_password_fallback_uses_bearer_auth(monkeypatch):
+    monkeypatch.setattr(publisher, "CONFLUENCE_TOKEN", "cyberark-password-value")
 
-    expected = base64.b64encode(b"service-user:service-password").decode()
-    assert publisher.get_confluence_auth_header() == f"Basic {expected}"
+    assert publisher.get_confluence_auth_header() == "Bearer cyberark-password-value"
 
 
 def test_explicit_confluence_token_uses_bearer_auth(monkeypatch):
