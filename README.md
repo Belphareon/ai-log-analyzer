@@ -307,7 +307,7 @@ SELECT COUNT(*) FROM ailog_peak.peak_investigation WHERE created_at > NOW() - IN
 |-------|---------|--------|
 | `connection refused DB_HOST` | DB nedostupná z K8s | Ověřit DB_HOST, network policy |
 | `ES connection timeout` | ES nedostupný | Ověřit ES_HOST, proxy |
-| `401 Unauthorized (Confluence)` | Neplatný token | Obnovit credentials v CyberArk |
+| `401/403 (Confluence)` | Neplatné credentials, chybný Basic/Bearer režim nebo chybějící edit oprávnění | Ověřit auth režim, CyberArk credentials a oprávnění cílové stránky |
 | `No thresholds found` | Prázdná DB | Spustit init job |
 | `SMTP connection refused` | Mail server | Ověřit SMTP_HOST z K8s |
 
