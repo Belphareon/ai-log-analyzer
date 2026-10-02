@@ -63,6 +63,7 @@ from core.run_persistence import (
     build_query_hash,
     load_peak_episodes_before,
     persist_analysis_run,
+    stream_advisory_lock,
 )
 from core.namespace_contract import namespace_contract_hash
 from core.peak_decision import materialize_decision_windows
@@ -457,23 +458,19 @@ def process_day_worker(
             ]
             try:
                 from core.peak_episode import materialize_episode_state
-                prior_episodes = []
-                if not dry_run:
-                    prior_episodes = load_peak_episodes_before(
-                        get_db_connection,
-                        stream_key='backfill',
-                        before_window_start=date_from,
+                if dry_run:
+                    collection.peak_episodes, collection.peak_episode_transitions = (
+                        materialize_episode_state(
+                            collection.namespace_peak_decisions,
+                            [],
+                            resolve_non_peak_windows=int(
+                                os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                            ),
+                        )
                     )
-                collection.peak_episodes, collection.peak_episode_transitions = (
-                    materialize_episode_state(
-                        collection.namespace_peak_decisions,
-                        [],
-                        resolve_non_peak_windows=int(
-                            os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
-                        ),
-                        prior_episodes=prior_episodes,
-                    )
-                )
+                else:
+                    collection.peak_episodes = []
+                    collection.peak_episode_transitions = []
             except Exception as error:
                 result['status'] = 'error'
                 result['error'] = str(error)
@@ -634,32 +631,25 @@ def process_day_worker(
                 f"reconciled cause families"
             )
             from core.peak_episode import materialize_episode_state
-            prior_episodes = []
-            if not dry_run:
-                try:
-                    prior_episodes = load_peak_episodes_before(
-                        get_db_connection,
-                        stream_key='backfill',
-                        before_window_start=date_from,
+            collection.episode_cause_families = [
+                family.to_dict() for family in cause_analysis.families
+            ]
+            if dry_run:
+                collection.peak_episodes, collection.peak_episode_transitions = (
+                    materialize_episode_state(
+                        getattr(collection, 'namespace_peak_decisions', []),
+                        collection.episode_cause_families,
+                        resolve_non_peak_windows=int(
+                            os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                        ),
+                        escalation_ratio=float(
+                            os.getenv('EPISODE_ESCALATION_RATIO', '1.5')
+                        ),
                     )
-                except Exception as error:
-                    safe_print(
-                        f"   ⚠️ [{thread_name}] Historical episode state unavailable; "
-                        f"current day only: {type(error).__name__}: {error}"
-                    )
-            collection.peak_episodes, collection.peak_episode_transitions = (
-                materialize_episode_state(
-                    getattr(collection, 'namespace_peak_decisions', []),
-                    [family.to_dict() for family in cause_analysis.families],
-                    resolve_non_peak_windows=int(
-                        os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
-                    ),
-                    escalation_ratio=float(
-                        os.getenv('EPISODE_ESCALATION_RATIO', '1.5')
-                    ),
-                    prior_episodes=prior_episodes,
                 )
-            )
+            else:
+                collection.peak_episodes = []
+                collection.peak_episode_transitions = []
             
             # 3. Extract event timestamps
             event_timestamps = {}
@@ -932,37 +922,58 @@ def run_backfill(
         safe_print(f"\n💾 Persisting {len(collections_to_save)} complete runs (main thread)...")
         monitored_namespaces = _load_monitored_namespaces()
 
-        for date_str, collection in collections_to_save:
-            result = next(item for item in results if item['date'] == date_str)
-            try:
-                persistence = persist_analysis_run(
-                    connection_factory=get_db_connection,
-                    collection=collection,
-                    run_type='backfill',
-                    window_start=result['window_start'],
-                    window_end=result['window_end'],
-                    monitored_namespaces=monitored_namespaces,
-                    expected_count=result['expected_count'],
-                    fetched_count=result['fetched_count'],
-                    source_index=INDICES,
-                )
-            except Exception as e:
-                result['status'] = 'error'
-                result['error'] = str(e)
-                safe_print(f" ❌ {date_str}: persistence failed: {e}")
-                continue
+        from core.peak_episode import materialize_episode_state
+        with stream_advisory_lock(get_db_connection, 'backfill') as persistence_connection:
+            for date_str, collection in sorted(collections_to_save, key=lambda item: item[0]):
+                result = next(item for item in results if item['date'] == date_str)
+                try:
+                    prior_episodes = load_peak_episodes_before(
+                        get_db_connection,
+                        stream_key='backfill',
+                        before_window_start=result['window_start'],
+                    )
+                    collection.peak_episodes, collection.peak_episode_transitions = (
+                        materialize_episode_state(
+                            getattr(collection, 'namespace_peak_decisions', []),
+                            getattr(collection, 'episode_cause_families', []),
+                            resolve_non_peak_windows=int(
+                                os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                            ),
+                            escalation_ratio=float(
+                                os.getenv('EPISODE_ESCALATION_RATIO', '1.5')
+                            ),
+                            prior_episodes=prior_episodes,
+                        )
+                    )
+                    persistence = persist_analysis_run(
+                        connection_factory=get_db_connection,
+                        collection=collection,
+                        run_type='backfill',
+                        window_start=result['window_start'],
+                        window_end=result['window_end'],
+                        monitored_namespaces=monitored_namespaces,
+                        expected_count=result['expected_count'],
+                        fetched_count=result['fetched_count'],
+                        source_index=INDICES,
+                        connection=persistence_connection,
+                    )
+                except Exception as e:
+                    result['status'] = 'error'
+                    result['error'] = str(e)
+                    safe_print(f" ❌ {date_str}: persistence failed: {e}")
+                    continue
 
-            result.update(persistence)
-            result['saved'] = persistence['incident_rows']
-            total_saved += persistence['incident_rows']
-            committed_collections.append((date_str, collection))
-            all_event_timestamps.update(result.get('event_timestamps', {}))
-            safe_print(
-                f" ✅ {date_str}: {persistence['persisted_events']:,} events, "
-                f"{persistence['fact_rows']:,} facts, "
-                f"{persistence['namespace_rows']:,} namespace rows, "
-                f"{persistence['incident_rows']:,} incidents"
-            )
+                result.update(persistence)
+                result['saved'] = persistence['incident_rows']
+                total_saved += persistence['incident_rows']
+                committed_collections.append((date_str, collection))
+                all_event_timestamps.update(result.get('event_timestamps', {}))
+                safe_print(
+                    f" ✅ {date_str}: {persistence['persisted_events']:,} events, "
+                    f"{persistence['fact_rows']:,} facts, "
+                    f"{persistence['namespace_rows']:,} namespace rows, "
+                    f"{persistence['incident_rows']:,} incidents"
+                )
 
         safe_print(f" ✅ Total incident rows committed: {total_saved}")
     elif dry_run:

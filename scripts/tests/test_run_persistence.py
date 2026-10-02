@@ -12,6 +12,7 @@ from scripts.core.run_persistence import (
     build_namespace_rows,
     build_peak_episode_transition_rows,
     persist_analysis_run,
+    stream_advisory_lock,
     validate_reconciliation,
 )
 from scripts.analysis.operational_cause import (  # noqa: E402
@@ -62,6 +63,21 @@ class FakeConnection:
 
     def close(self):
         self.closed = True
+
+
+def test_stream_advisory_lock_commits_only_after_context_exit():
+    connection = FakeConnection()
+
+    with stream_advisory_lock(lambda: connection, 'live') as locked:
+        assert locked is connection
+        assert connection.commits == 0
+        assert any(
+            'pg_advisory_xact_lock' in statement
+            for statement, _ in connection.cursor_instance.statements
+        )
+
+    assert connection.commits == 1
+    assert connection.closed
 
 
 def _fact(window_start, fingerprint, application, count):

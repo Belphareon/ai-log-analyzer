@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from scripts.core.peak_episode import (
     PeakEpisodeCorrelator,
     PeakObservation,
+    materialize_episode_state,
 )
 
 
@@ -53,6 +54,41 @@ def test_same_cause_continues_and_new_namespace_expands():
     }
     states = [transition.state for transition in correlator.last_transitions]
     assert states == ["START", "EXPANSION", "EXPANSION"]
+
+
+def test_multi_namespace_family_counts_are_added_once_per_window():
+    window = START.isoformat()
+    decisions = [
+        {
+            "window_decision_id": "decision-ns-a",
+            "stream_key": "replay-1",
+            "signal_namespace": "ns-a",
+            "window_start_utc": window,
+            "is_peak": True,
+            "namespace_raw_lines": 60,
+        },
+        {
+            "window_decision_id": "decision-ns-b",
+            "stream_key": "replay-1",
+            "signal_namespace": "ns-b",
+            "window_start_utc": window,
+            "is_peak": True,
+            "namespace_raw_lines": 40,
+        },
+    ]
+    families = [{
+        "signature": "cause-a",
+        "raw_error_lines": 100,
+        "unique_operations": 4,
+        "namespace_counts": {"ns-a": 60, "ns-b": 40},
+    }]
+
+    episodes, transitions = materialize_episode_state(decisions, families)
+
+    assert episodes[0]["current_raw_error_lines"] == 40
+    assert episodes[0]["cumulative_raw_error_lines"] == 100
+    assert episodes[0]["cumulative_operation_occurrences"] == 4
+    assert [item["allocated_raw_error_lines"] for item in transitions] == [60, 40]
 
 
 def test_different_cause_does_not_merge_even_in_same_window():

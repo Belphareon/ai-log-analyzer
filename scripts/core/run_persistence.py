@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -29,6 +30,29 @@ except ImportError:  # pragma: no cover - direct script execution
 
 class PersistenceInvariantError(RuntimeError):
     """Raised when source, pipeline, and persisted quantities cannot reconcile."""
+
+
+@contextmanager
+def stream_advisory_lock(
+    connection_factory: Callable[[], Any],
+    stream_key: str,
+):
+    """Hold one stream lock for load, correlation, and persistence."""
+    connection = connection_factory()
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (stream_key,),
+        )
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+        connection.close()
 
 
 def build_query_hash(source_index: str, monitored_namespaces: Iterable[str]) -> str:
@@ -627,6 +651,7 @@ def persist_analysis_run(
     code_version: Optional[str] = None,
     query_hash: Optional[str] = None,
     execute_values_fn: Optional[Callable[..., None]] = None,
+    connection: Optional[Any] = None,
 ) -> Dict[str, int]:
     """Persist all run data and mark it complete only after exact reconciliation."""
     if run_type not in {'regular', 'backfill'}:
@@ -660,9 +685,11 @@ def persist_analysis_run(
     peak_episode_transition_rows = build_peak_episode_transition_rows(collection)
     execute_values_fn = execute_values_fn or _default_execute_values
 
-    connection = connection_factory()
+    owns_connection = connection is None
+    connection = connection or connection_factory()
     cursor = connection.cursor()
     running_committed = False
+    savepoint_name = 'peak_run_persistence'
     try:
         stream_keys = {
             str(row[2])
@@ -674,11 +701,12 @@ def persist_analysis_run(
             for row in peak_episode_rows
             if row[1]
         )
-        for stream_key in sorted(stream_keys):
-            cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                (stream_key,),
-            )
+        if owns_connection:
+            for stream_key in sorted(stream_keys):
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (stream_key,),
+                )
         cursor.execute(
             """
             UPDATE ailog_peak.analysis_runs
@@ -719,7 +747,10 @@ def persist_analysis_run(
                 processed_count, replay_of_run_id,
             ),
         )
-        connection.commit()
+        if owns_connection:
+            connection.commit()
+        else:
+            cursor.execute(f'SAVEPOINT {savepoint_name}')
         running_committed = True
 
         if error_kind_rows:
@@ -1095,7 +1126,8 @@ def persist_analysis_run(
         )
         if cursor.rowcount != 1:
             raise PersistenceInvariantError('running ledger row was not completed exactly once')
-        connection.commit()
+        if owns_connection:
+            connection.commit()
         return {
             'persisted_events': persisted_event_count,
             'fact_rows': len(error_kind_rows),
@@ -1110,9 +1142,12 @@ def persist_analysis_run(
             'peak_episode_transition_rows': len(peak_episode_transition_rows),
         }
     except Exception as exc:
-        connection.rollback()
+        if owns_connection:
+            connection.rollback()
         if running_committed:
             try:
+                if not owns_connection:
+                    cursor.execute(f'ROLLBACK TO SAVEPOINT {savepoint_name}')
                 cursor.execute(
                     """
                     UPDATE ailog_peak.analysis_runs
@@ -1122,10 +1157,12 @@ def persist_analysis_run(
                     """,
                     (exc.__class__.__name__, str(exc)[:2000], run_id),
                 )
-                connection.commit()
+                if owns_connection:
+                    connection.commit()
             except Exception:
                 connection.rollback()
         raise
     finally:
         cursor.close()
-        connection.close()
+        if owns_connection:
+            connection.close()

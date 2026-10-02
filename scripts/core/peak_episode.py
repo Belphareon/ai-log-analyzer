@@ -666,10 +666,26 @@ def materialize_episode_state(
         namespace = str(
             decision.get("signal_namespace") or decision.get("namespace") or ""
         )
-        matching_families = [
-            family for family in families
-            if int((family.get("namespace_counts") or {}).get(namespace, 0) or 0) > 0
-        ]
+        matching_families = []
+        for family in families:
+            namespace_counts = family.get("namespace_counts") or {}
+            namespace_lines = int(namespace_counts.get(namespace, 0) or 0)
+            if namespace_lines <= 0:
+                continue
+            family_namespaces = sorted(
+                str(key)
+                for key, value in namespace_counts.items()
+                if int(value or 0) > 0
+            )
+            namespace_family = dict(family)
+            namespace_family["raw_error_lines"] = namespace_lines
+            if family.get("unique_operations") is not None:
+                namespace_family["unique_operations"] = (
+                    int(family["unique_operations"])
+                    if namespace == family_namespaces[0]
+                    else 0
+                )
+            matching_families.append(namespace_family)
         enriched = dict(decision)
         enriched["cause_families"] = matching_families
         enriched_decisions.append(enriched)

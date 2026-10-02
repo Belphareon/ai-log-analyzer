@@ -56,6 +56,7 @@ from core.notification_policy import decide_notification_candidates
 from core.run_persistence import (
     load_peak_episodes_before,
     persist_analysis_run,
+    stream_advisory_lock,
 )
 from core.namespace_contract import namespace_contract_hash
 from core.peak_decision import materialize_decision_windows
@@ -2155,21 +2156,15 @@ def _load_replay_threshold_bundle(
     return metadata
 
 
-def run_regular_phase(
-    window_minutes: int = 15,
-    dry_run: bool = False,
-    output_dir: str = None,
-    replay_window_end: Optional[datetime] = None,
-    audit_only: bool = False,
-    replay_thresholds_json: Optional[Path] = None,
-    replay_evaluate_policy: bool = False,
-    replay_prior_episodes_json: Optional[Path] = None,
-) -> dict:
-    """
-    Main regular phase function.
-    
-    Processes last N minutes of data and updates registry.
-    """
+def _validate_regular_phase_args(
+    window_minutes: int,
+    dry_run: bool,
+    replay_window_end: Optional[datetime],
+    audit_only: bool,
+    replay_thresholds_json: Optional[Path],
+    replay_evaluate_policy: bool,
+    replay_prior_episodes_json: Optional[Path],
+) -> None:
     if replay_window_end is not None and window_minutes != 15:
         raise ValueError('historical replay requires window_minutes=15')
     if replay_window_end is not None and not dry_run:
@@ -2194,6 +2189,77 @@ def run_regular_phase(
         raise ValueError(
             'replay_prior_episodes_json requires replay_evaluate_policy'
         )
+
+
+def run_regular_phase(
+    window_minutes: int = 15,
+    dry_run: bool = False,
+    output_dir: str = None,
+    replay_window_end: Optional[datetime] = None,
+    audit_only: bool = False,
+    replay_thresholds_json: Optional[Path] = None,
+    replay_evaluate_policy: bool = False,
+    replay_prior_episodes_json: Optional[Path] = None,
+) -> dict:
+    _validate_regular_phase_args(
+        window_minutes,
+        dry_run,
+        replay_window_end,
+        audit_only,
+        replay_thresholds_json,
+        replay_evaluate_policy,
+        replay_prior_episodes_json,
+    )
+    if dry_run:
+        return _run_regular_phase(
+            window_minutes=window_minutes,
+            dry_run=dry_run,
+            output_dir=output_dir,
+            replay_window_end=replay_window_end,
+            audit_only=audit_only,
+            replay_thresholds_json=replay_thresholds_json,
+            replay_evaluate_policy=replay_evaluate_policy,
+            replay_prior_episodes_json=replay_prior_episodes_json,
+        )
+    with stream_advisory_lock(get_db_connection, 'live') as persistence_connection:
+        return _run_regular_phase(
+            window_minutes=window_minutes,
+            dry_run=dry_run,
+            output_dir=output_dir,
+            replay_window_end=replay_window_end,
+            audit_only=audit_only,
+            replay_thresholds_json=replay_thresholds_json,
+            replay_evaluate_policy=replay_evaluate_policy,
+            replay_prior_episodes_json=replay_prior_episodes_json,
+            persistence_connection=persistence_connection,
+        )
+
+
+def _run_regular_phase(
+    window_minutes: int = 15,
+    dry_run: bool = False,
+    output_dir: str = None,
+    replay_window_end: Optional[datetime] = None,
+    audit_only: bool = False,
+    replay_thresholds_json: Optional[Path] = None,
+    replay_evaluate_policy: bool = False,
+    replay_prior_episodes_json: Optional[Path] = None,
+    persistence_connection: Optional[Any] = None,
+) -> dict:
+    """
+    Main regular phase function.
+
+    Processes last N minutes of data and updates registry.
+    """
+    _validate_regular_phase_args(
+        window_minutes,
+        dry_run,
+        replay_window_end,
+        audit_only,
+        replay_thresholds_json,
+        replay_evaluate_policy,
+        replay_prior_episodes_json,
+    )
     now, window_start, window_end = _resolve_regular_window(
         window_minutes,
         replay_window_end,
@@ -2353,6 +2419,7 @@ def run_regular_phase(
                     expected_count=LAST_FETCH_STATS.get('expected'),
                     fetched_count=0,
                     source_index=INDICES,
+                    connection=persistence_connection,
                 )
                 result.update(persistence)
             except Exception as e:
@@ -2585,6 +2652,7 @@ def run_regular_phase(
                 expected_count=LAST_FETCH_STATS.get('expected'),
                 fetched_count=result['error_count'],
                 source_index=INDICES,
+                connection=persistence_connection,
             )
             result.update(persistence)
             result['saved'] = persistence['incident_rows']
