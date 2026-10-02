@@ -37,6 +37,19 @@ import yaml
 from datetime import datetime
 from typing import Dict, Tuple, Optional, Any
 
+try:
+    from .calculate_peak_thresholds import (
+        CALCULATION_VERSION,
+        PERCENTILE_METHOD,
+        POPULATION_GRAIN,
+    )
+except ImportError:  # pragma: no cover - direct script execution
+    from calculate_peak_thresholds import (
+        CALCULATION_VERSION,
+        PERCENTILE_METHOD,
+        POPULATION_GRAIN,
+    )
+
 
 class PeakDetector:
     """
@@ -133,29 +146,69 @@ class PeakDetector:
             raise RuntimeError("Database connection not set. Call set_connection() first.")
         
         cur = self._conn.cursor()
-        
-        cur.execute("""
-            SELECT snapshot_id, namespace, day_of_week, percentile_value,
-                   cap_value, sample_count
-            FROM ailog_peak.v_latest_threshold_values
-        """)
+        try:
+            cur.execute("""
+                SELECT threshold_row.snapshot_id, threshold_row.namespace,
+                       threshold_row.day_of_week, threshold_row.percentile_value,
+                       threshold_row.cap_value, threshold_row.sample_count,
+                       threshold_row.percentile_level, snapshot.population_grain,
+                       threshold_row.percentile_method,
+                       threshold_row.calculation_version
+                FROM ailog_peak.v_latest_threshold_values threshold_row
+                JOIN ailog_peak.threshold_snapshot_runs snapshot
+                  ON snapshot.snapshot_id = threshold_row.snapshot_id
+            """)
+            rows = cur.fetchall()
+        finally:
+            cur.close()
 
-        self._thresholds_cache = {}
-        self._caps_cache = {}
-        snapshot_ids = set()
-        for snapshot_id, ns, dow, value, cap, samples in cur.fetchall():
-            snapshot_ids.add(str(snapshot_id))
-            self._thresholds_cache[(ns, dow)] = {
+        if not rows:
+            raise RuntimeError('no complete threshold snapshot values available')
+
+        snapshot_ids = {str(row[0]) for row in rows}
+        if len(snapshot_ids) != 1:
+            raise RuntimeError(f'latest threshold view mixed snapshots: {sorted(snapshot_ids)}')
+
+        metadata = {
+            (float(row[6]), str(row[7]), str(row[8]), str(row[9]))
+            for row in rows
+        }
+        if len(metadata) != 1:
+            raise RuntimeError('latest threshold snapshot has inconsistent metadata')
+        percentile_level, population_grain, percentile_method, calculation_version = metadata.pop()
+        mismatches = []
+        if abs(percentile_level - self._percentile_level) >= 1e-9:
+            mismatches.append(
+                f'percentile_level={percentile_level} expected={self._percentile_level}'
+            )
+        if population_grain != POPULATION_GRAIN:
+            mismatches.append(
+                f'population_grain={population_grain} expected={POPULATION_GRAIN}'
+            )
+        if percentile_method != PERCENTILE_METHOD:
+            mismatches.append(
+                f'percentile_method={percentile_method} expected={PERCENTILE_METHOD}'
+            )
+        if calculation_version != CALCULATION_VERSION:
+            mismatches.append(
+                f'calculation_version={calculation_version} expected={CALCULATION_VERSION}'
+            )
+        if mismatches:
+            raise RuntimeError('incompatible threshold snapshot: ' + '; '.join(mismatches))
+
+        thresholds = {}
+        caps = {}
+        for snapshot_id, ns, dow, value, cap, samples, *_metadata in rows:
+            thresholds[(ns, dow)] = {
                 'value': float(value),
                 'samples': samples
             }
-            self._caps_cache[ns] = {
+            caps[ns] = {
                 'value': float(cap),
                 'samples': samples,
             }
-        cur.close()
-        if len(snapshot_ids) > 1:
-            raise RuntimeError(f'latest threshold view mixed snapshots: {sorted(snapshot_ids)}')
+        self._thresholds_cache = thresholds
+        self._caps_cache = caps
         self._threshold_snapshot_id = next(iter(snapshot_ids), None)
         self._cache_loaded_at = datetime.now()
     
@@ -236,6 +289,8 @@ class PeakDetector:
             'is_peak': peak_detected,
             'value': value,
             'p93_threshold': p93_thr,
+            'percentile_level': self._percentile_level,
+            'percentile_threshold': p93_thr,
             'cap_threshold': cap_thr,
             'triggered_by': triggered_by,
             'namespace': namespace,

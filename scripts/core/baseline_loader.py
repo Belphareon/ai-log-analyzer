@@ -99,6 +99,85 @@ class BaselineLoader:
             print(f"❌ BaselineLoader error: {e}")
             raise
 
+    def load_namespace_fingerprint_rates(
+        self,
+        namespace_fingerprints: List[tuple[str, str]],
+        analysis_window_start: datetime,
+        lookback_days: int = 7,
+        window_minutes: int = 15,
+        min_samples: int = 3,
+    ) -> Dict[tuple[str, str], List[float]]:
+        """Return one zero-inclusive rate per complete bucket for each namespace/fingerprint."""
+        if not namespace_fingerprints:
+            return {}
+        if analysis_window_start is None:
+            raise ValueError('analysis_window_start is required for as-of baseline loading')
+        if analysis_window_start.tzinfo is None or analysis_window_start.utcoffset() is None:
+            raise ValueError('analysis_window_start must be timezone-aware')
+        if window_minutes != 15:
+            raise ValueError('authoritative facts currently use fixed 15-minute buckets')
+
+        pairs = sorted(set(namespace_fingerprints))
+        cutoff_time = analysis_window_start - timedelta(days=lookback_days)
+        try:
+            cursor = self.db_conn.cursor()
+            query = """
+            WITH complete_windows AS (
+                SELECT DISTINCT window_start
+                FROM ailog_peak.v_authoritative_run_windows
+                WHERE window_start >= %s
+                  AND window_start < %s
+            ),
+            requested_pairs AS (
+                SELECT pair_row.namespace, pair_row.fingerprint
+                FROM UNNEST(%s::TEXT[], %s::TEXT[]) AS pair_row(namespace, fingerprint)
+            ),
+            fingerprint_counts AS (
+                SELECT namespace, fingerprint, window_start, SUM(error_count)::BIGINT AS error_count
+                FROM ailog_peak.v_complete_error_kind_counts
+                WHERE (namespace, fingerprint) IN (
+                    SELECT namespace, fingerprint FROM requested_pairs
+                )
+                  AND window_start >= %s
+                  AND window_start < %s
+                GROUP BY namespace, fingerprint, window_start
+            )
+            SELECT
+                requested.namespace,
+                requested.fingerprint,
+                complete.window_start,
+                COALESCE(counts.error_count, 0)::BIGINT AS error_count
+            FROM requested_pairs requested
+            CROSS JOIN complete_windows complete
+            LEFT JOIN fingerprint_counts counts
+              ON counts.namespace = requested.namespace
+             AND counts.fingerprint = requested.fingerprint
+             AND counts.window_start = complete.window_start
+            ORDER BY requested.namespace, requested.fingerprint, complete.window_start
+            """
+            cursor.execute(query, (
+                cutoff_time,
+                analysis_window_start,
+                [namespace for namespace, _ in pairs],
+                [fingerprint for _, fingerprint in pairs],
+                cutoff_time,
+                analysis_window_start,
+            ))
+            rows = cursor.fetchall()
+            cursor.close()
+
+            rates_by_pair: Dict[tuple[str, str], List[float]] = defaultdict(list)
+            for namespace, fingerprint, _, error_count in rows:
+                rates_by_pair[(namespace, fingerprint)].append(float(error_count))
+            return {
+                pair: rates
+                for pair, rates in rates_by_pair.items()
+                if len(rates) >= min_samples
+            }
+        except Exception as e:
+            print(f"❌ NamespaceFingerprintBaselineLoader error: {e}")
+            raise
+
     def load_historical_rates(
         self,
         fingerprints: List[str],

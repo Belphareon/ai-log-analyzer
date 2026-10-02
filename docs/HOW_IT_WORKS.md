@@ -10,7 +10,7 @@ Detailní popis celého procesu: od načtení logů přes detekci anomálií až
 2. [Načítání logů z Elasticsearch](#2-načítání-logů-z-elasticsearch)
 3. [Fingerprinting a normalizace](#3-fingerprinting-a-normalizace)
 4. [Měření a baseline](#4-měření-a-baseline)
-5. [Detekce anomálií — P93/CAP](#5-detekce-anomálií--p93cap)
+5. [Detekce anomálií — Pxx/CAP a cause-family gate](#5-detekce-anomálií--pxxcap-a-cause-family-gate)
 6. [Ostatní detekční pravidla](#6-ostatní-detekční-pravidla)
 7. [Skórování (0–100)](#7-skórování-0100)
 8. [Klasifikace](#8-klasifikace)
@@ -39,7 +39,7 @@ Při každém spuštění proběhne tento cyklus:
  5. Stáhni logy z Elasticsearch za aktuální okno (15 min)
  6. Spusť Detection Pipeline (fáze A→F) pro každý namespace
  7. Spusť Incident Analysis
- 8. Ulož výsledky do DB (peak_raw_data, peak_investigation)
+ 8. Ulož výsledky do DB (complete facts, peak_investigation)
  9. Ulož/aktualizuj YAML registry
 10. Rozhodni, zda odeslat alert
 11. Pokud ano — odešli email digest
@@ -101,7 +101,7 @@ Fingerprint identifikuje **typ problému**, ne konkrétní výskyt.
 
 ### Baseline
 
-- Načítá se z DB (`ailog_peak.peak_raw_data`) — posledních 7 dní
+- Načítá se z authoritative complete facts (`ailog_peak.v_complete_error_kind_counts`) — posledních 7 dní
 - Baseline = EWMA (exponenciálně vážený klouzavý průměr, alfa default 0.3)
 - Odráží, kolik chyb tohoto typu bylo *obvyklé* v tomto namespace v tuto dobu
 
@@ -117,86 +117,95 @@ EWMA a MAD se **NEPOUŽÍVAJÍ pro spike detekci** (viz důvody níže). Zůstá
 Tyto metriky se ukládají do DB (`peak_investigation`) a používají v Phase D pro bonus scoring (`trend_ratio > 2.0` přidává body).
 
 **Proč ne EWMA pro spike detekci:**
-- EWMA produkuje 17.8% false positive rate (vs 7.8% P93)
+- EWMA produkuje více false positives než percentile gate
 - EWMA se adaptuje na vysoké hodnoty a pak missí reálné peaky
 - MAD test generuje masivní false positives u nízkých hodnot
 
 ---
 
-## 5. Detekce anomálií — P93/CAP
+## 5. Detekce anomálií — Pxx/CAP a cause-family gate
 
 **Fáze C** (`phase_c_detect.py`) rozhoduje, zda je aktuální počet chyb anomální.
 
-### P93/CAP metodika
+### Pxx/CAP metodika
 
-Spike detekce probíhá na úrovni **namespace** (celkový error count), ne per-fingerprint:
+Spike detekce má dvě samostatné podmínky. Namespace volume gate odpovídá na otázku, zda je celkový ERROR provoz neobvyklý; cause-family gate určuje, která konkrétní family smí spike vlastnit.
 
 ```
-is_peak = (namespace_total > P93_per_DOW) OR (namespace_total > CAP)
+namespace_peak = (namespace_total > effective_Pxx_per_DOW) OR (namespace_total > CAP)
+family_peak = contribution > max(20, median(namespace/fingerprint history) + 6 * 1.4826 * MAD)
+is_spike = namespace_peak AND family_peak
 ```
 
-**P93** = 93. percentil historických error countů pro danou kombinaci `(namespace, day_of_week)`.
-- Pokud je v pondělí v `pcb-sit-01-app` obvyklých maximálně 500 chyb, P93 = 500.
-- Výskyt 600 chyb = spike.
+**Pxx** = uživatelem zvolený percentil `PERCENTILE_LEVEL` historických aktivních 15min oken pro danou kombinaci `(namespace, day_of_week)`. Jeho efektivní hodnota je chráněna před opakovanou kontaminací incidenty:
 
-**CAP** = `(median_P93 + avg_P93) / 2` přes všechny dny týdne pro daný namespace.
+```
+effective_Pxx = min(configured_Pxx, median + 6 * 1.4826 * MAD)
+```
+
+Konfigurovaný Pxx zůstává hlavním ovladačem citlivosti. Robustní cap jej pouze sníží, když by opakované extrémní incidenty zvýšily práh natolik, že by se další incident ztratil.
+
+**CAP** = `(median_Pxx + avg_Pxx) / 2` přes všechny dny týdne pro daný namespace.
 - Záložní práh, pokud pro konkrétní den není dostatek historických dat.
+
+**Cause-family gate** používá hustou, zero-inclusive sedmidenní historii stejného `(namespace, fingerprint)`. Family s historií musí překročit vlastní robustní práh. Nová family bez historie smí vlastnit namespace peak až od `new_error_min_count` (výchozí `50`). Pokud se authoritative family baseline nenačte, peak se fail-closed nepřiřadí žádné family.
 
 ### Jak to funguje v pipeline
 
-1. **`detect_batch()`** agreguje total error count per namespace
-2. **`PeakDetector.is_peak()`** zkontroluje každý namespace proti P93/CAP
-3. **`_detect_spike()`** per fingerprint: pokud namespace fingerprintu je v peaku → `is_spike=True`
+1. **`detect_batch()`** agreguje total error count per namespace a contribution každého fingerprintu.
+2. **`PeakDetector.is_peak()`** zkontroluje každý namespace proti efektivnímu Pxx/CAP ze kompatibilního snapshotu.
+3. **`_fingerprint_peak_gate()`** porovná contribution s historií stejného `(namespace, fingerprint)`.
+4. **`_detect_spike()`** označí pouze vítěznou kvalifikovanou family jako `is_spike=True`.
 
 ### Příklad
 
 ```
 Namespace: pcb-sit-01-app, Pondělí
-P93 threshold: 360 errors/window
+Effective P98 threshold: 360 errors/window
 CAP threshold: 373 errors/window
 Aktuální celkový count: 487 errors
+Cause family contribution: 200 errors
+Family threshold: 20 errors
 
-487 > 360 (P93) → SPIKE (triggered_by=p93)
+487 > 360 (P98) a 200 > 20 → SPIKE (triggered_by=percentile)
 ```
 
 ### Jak se thresholdy počítají
 
 ```
-Regular phase (15 min)
-  └─ ukládá namespace totals → peak_raw_data
-
-Backfill (historická data)
-  └─ ukládá 15-min namespace totals → peak_raw_data
+Regular phase a backfill
+  └─ ukládají úplná 15-min fakta
 
 calculate_peak_thresholds.py (týdně)
-  └─ čte peak_raw_data
-  └─ počítá P93 per (namespace, DOW)
+  └─ čte complete namespace facts
+  └─ počítá robustní Pxx per (namespace, DOW)
   └─ počítá CAP per namespace
   └─ ukládá → peak_thresholds + peak_threshold_caps
 
 Pipeline (Phase C)
   └─ PeakDetector čte thresholdy z DB
-  └─ porovnává aktuální namespace total vs P93/CAP
+  └─ porovnává aktuální namespace total vs Pxx/CAP a family contribution vs namespace/fingerprint historii
 ```
 
 ### DB tabulky pro spike detekci
 
 | Tabulka | Účel | Kdo plní |
 |---------|------|----------|
-| `peak_raw_data` | 15-min error counts per namespace | regular_phase, backfill |
-| `peak_thresholds` | P93 per (namespace, DOW) | calculate_peak_thresholds.py |
+| `v_complete_namespace_error_counts` | Complete 15-min namespace facts | authoritative complete runs |
+| `peak_thresholds` | Robust Pxx per (namespace, DOW) | calculate_peak_thresholds.py |
 | `peak_threshold_caps` | CAP per namespace | calculate_peak_thresholds.py |
+| `v_complete_error_kind_counts` | Zero-inclusive namespace/fingerprint facts | authoritative complete runs |
 
-### Fallback: nový error typ
+### Nová cause family
 
-Nový error typ bez historie s ≥5 výskyty = spike (`new_error_min_count`):
+Nová `(namespace, fingerprint)` family bez historie může vlastnit namespace peak až od `new_error_min_count`:
 ```
-baseline_ewma == 0 AND baseline_median == 0 AND current_count >= 5
+namespace_peak AND contribution >= new_error_min_count
 ```
 
-### Legacy fallback (bez PeakDetectoru)
+### Fail-closed baseline
 
-Pokud PeakDetector není dostupný (chybí DB thresholds), použije se EWMA ratio test. Tento stav nastane jen při prvním nasazení před naplněním `peak_raw_data`.
+Pokud nelze načíst kompatibilní DB threshold snapshot nebo authoritative namespace/fingerprint baseline, regular phase i backfill skončí s chybou. EWMA se pro spike rozhodování nepoužívá jako fallback.
 
 ---
 
@@ -286,6 +295,12 @@ Regular phase rozhoduje, zda odeslat notifikaci:
 
 Continuation: peak detekovaný v předchozím okně se považuje za pokračující. Potlačuje se, pokud nedošlo k materiální změně.
 
+### Workflow lifecycle větev
+
+Před ERROR fetch se volitelně spustí nezávislý probe raw INFO zpráv pro queue processing, blocking predecessor, návrat `PROCESSING -> REGISTERED` bez delay a completion predecessorů. Kandidátní scope se načítají přes PIT/search_after a každý root/predecessor query se počítá do completeness ledgeru.
+
+`LIFECYCLE_ANALYSIS_ENABLED` a `LIFECYCLE_ALERT_ENABLED` jsou defaultně `false`. Alert je možný jen po úplném fetchi, high-confidence detekci a commitnutém `workflow_lifecycle_runs` záznamu. Probe cap, evidence cap, timeout nebo chybný fetch vytvoří pouze partial auditní run a žádný alert.
+
 ---
 
 ## 12. Email digest
@@ -341,7 +356,7 @@ Na konci: daily report + Teams notifikace.
 
 ## 16. Přepočet thresholdů
 
-`scripts/core/calculate_peak_thresholds.py` přepočítá P93/CAP z nasbíraných dat:
+`scripts/core/calculate_peak_thresholds.py` přepočítá robustní Pxx/CAP z complete namespace facts:
 
 ```bash
 # Přepočítat z posledních 4 týdnů
@@ -356,5 +371,5 @@ V K8s běží automaticky jako CronJob `log-analyzer-thresholds` každou neděli
 ### Edge cases
 
 - **Nový namespace** (bez thresholdů): PeakDetector použije CAP (pokud existuje pro jiný DOW) nebo `default_threshold` (100)
-- **Málo dat** (< 7 dní): P93 bude méně přesný, CAP slouží jako bezpečná fallback
+- **Málo dat** (< 7 dní): Pxx bude méně přesný; CAP z kompatibilního snapshotu slouží jako namespace fallback
 - **Víkend vs pracovní den**: thresholdy se liší per day_of_week

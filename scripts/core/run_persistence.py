@@ -10,8 +10,21 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+try:
+    from .peak_decision import (
+        build_contributor_rows,
+        build_decision_rows,
+        decision_from_dict,
+    )
+except ImportError:  # pragma: no cover - direct script execution
+    from peak_decision import build_contributor_rows, build_decision_rows, decision_from_dict
+
 
 WINDOW_MINUTES = 15
+try:
+    from ..analysis.operational_cause import CAUSE_SIGNATURE_VERSION
+except ImportError:  # pragma: no cover - direct script execution
+    from analysis.operational_cause import CAUSE_SIGNATURE_VERSION
 
 
 class PersistenceInvariantError(RuntimeError):
@@ -28,6 +41,71 @@ def build_query_hash(source_index: str, monitored_namespaces: Iterable[str]) -> 
     }
     payload = json.dumps(contract, sort_keys=True, separators=(',', ':')).encode('utf-8')
     return hashlib.sha256(payload).hexdigest()
+
+
+def load_peak_episodes_before(
+    connection_factory: Callable[[], Any],
+    *,
+    stream_key: str,
+    before_window_start: datetime,
+) -> List[dict[str, Any]]:
+    """Load event-time episode state used to seed the next correlation run."""
+    if before_window_start.tzinfo is None or before_window_start.utcoffset() is None:
+        raise PersistenceInvariantError('before_window_start must be timezone-aware')
+    connection = connection_factory()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT episode_id, stream_key, cause_signature,
+                       signature_version, state, first_window_start_utc,
+                       last_window_start_utc, resolved_at_utc,
+                       current_raw_error_lines, cumulative_raw_error_lines,
+                       current_operation_occurrences,
+                       cumulative_operation_occurrences,
+                       diagnosis_confidence, active_namespaces,
+                       material_change_reasons, non_peak_windows,
+                      previous_episode_id,
+                      COALESCE((
+                          SELECT ARRAY_AGG(window_decision_id)
+                          FROM ailog_peak.peak_episode_windows w
+                          WHERE w.episode_id = p.episode_id
+                      ), ARRAY[]::CHAR(64)[])
+                FROM ailog_peak.peak_episodes
+                  AS p
+                WHERE stream_key = %s
+                  AND last_window_start_utc < %s
+                ORDER BY last_window_start_utc ASC, episode_id ASC
+                """,
+                (stream_key, before_window_start),
+            )
+            rows = cursor.fetchall()
+    finally:
+        connection.close()
+
+    return [
+        {
+            'episode_id': str(row[0]),
+            'stream_key': row[1],
+            'cause_signature': row[2] or 'unresolved',
+            'cause_signature_version': row[3],
+            'state': row[4],
+            'first_window_start_utc': row[5],
+            'last_window_start_utc': row[6],
+            'resolved_at_utc': row[7],
+            'current_raw_error_lines': row[8],
+            'cumulative_raw_error_lines': row[9],
+            'current_operation_occurrences': row[10],
+            'cumulative_operation_occurrences': row[11],
+            'diagnosis_confidence': row[12],
+            'active_namespaces': row[13] or [],
+            'material_change_reasons': row[14] or [],
+            'non_peak_windows': row[15] or 0,
+            'previous_episode_id': str(row[16]) if row[16] else None,
+            'seen_window_ids': {str(item).strip() for item in (row[17] or [])},
+        }
+        for row in rows
+    ]
 
 
 def _require_aware_aligned_window(window_start: datetime, window_end: datetime) -> None:
@@ -134,6 +212,135 @@ def build_namespace_rows(
         for bucket in buckets
         for namespace in namespaces
     ]
+
+
+def build_namespace_peak_decision_rows(collection, run_id: str) -> List[tuple]:
+    """Build authoritative decision rows from the pipeline's serialized contract."""
+    payloads = getattr(collection, 'namespace_peak_decisions', None) or []
+    if not payloads:
+        return []
+    decisions = [decision_from_dict(payload) for payload in payloads]
+    return build_decision_rows(decisions, run_id)
+
+
+def build_namespace_peak_contributor_rows(collection, run_id: str) -> List[tuple]:
+    """Build all contributor rows without collapsing them to one owner."""
+    payloads = getattr(collection, 'namespace_peak_decisions', None) or []
+    if not payloads:
+        return []
+    decisions = [decision_from_dict(payload) for payload in payloads]
+    return build_contributor_rows(decisions, run_id)
+
+
+def _episode_timestamp(value: Any, label: str) -> datetime:
+    return _coerce_datetime(value, label)
+
+
+def build_peak_episode_rows(collection) -> List[tuple]:
+    rows = []
+    identities = set()
+    for episode in getattr(collection, 'peak_episodes', None) or []:
+        episode_id = str(episode.get('episode_id') or '')
+        if not episode_id or episode_id in identities:
+            raise PersistenceInvariantError(f'invalid or duplicate episode_id: {episode_id!r}')
+        identities.add(episode_id)
+        state = str(episode.get('state') or '')
+        if state not in {'START', 'CONTINUATION', 'EXPANSION', 'ESCALATION', 'RECOVERY', 'RESOLVED', 'RECURRENCE'}:
+            raise PersistenceInvariantError(f'invalid episode state: {state}')
+        confidence = str(episode.get('diagnosis_confidence') or 'low')
+        if confidence not in {'low', 'medium', 'high'}:
+            raise PersistenceInvariantError(f'invalid episode confidence: {confidence}')
+        first_window = _episode_timestamp(
+            episode.get('first_window_start_utc'), 'episode.first_window_start_utc'
+        )
+        last_window = _episode_timestamp(
+            episode.get('last_window_start_utc'), 'episode.last_window_start_utc'
+        )
+        resolved_at = (
+            _episode_timestamp(episode.get('resolved_at_utc'), 'episode.resolved_at_utc')
+            if episode.get('resolved_at_utc') else None
+        )
+        rows.append((
+            episode_id,
+            str(episode.get('stream_key') or ''),
+            str(episode.get('cause_signature') or '') or None,
+            str(episode.get('cause_signature_version') or CAUSE_SIGNATURE_VERSION),
+            state,
+            first_window,
+            last_window,
+            resolved_at,
+            int(episode.get('current_raw_error_lines') or 0),
+            int(episode.get('cumulative_raw_error_lines') or 0),
+            episode.get('current_operation_occurrences'),
+            episode.get('cumulative_operation_occurrences'),
+            confidence,
+            json.dumps(sorted(episode.get('active_namespaces') or [])),
+            json.dumps(sorted(episode.get('material_change_reasons') or [])),
+            int(episode.get('non_peak_windows') or 0),
+            episode.get('previous_episode_id') or None,
+        ))
+    return sorted(rows, key=lambda row: row[0])
+
+
+def build_peak_episode_window_rows(collection) -> List[tuple]:
+    rows = []
+    identities = set()
+    for transition in getattr(collection, 'peak_episode_transitions', None) or []:
+        identity = (
+            str(transition.get('episode_id') or ''),
+            str(transition.get('window_decision_id') or ''),
+            str(transition.get('cause_signature') or ''),
+        )
+        if not all(identity) or identity in identities:
+            raise PersistenceInvariantError(f'invalid or duplicate episode window: {identity}')
+        identities.add(identity)
+        confidence = str(transition.get('confidence') or 'low')
+        if confidence not in {'low', 'medium', 'high'}:
+            raise PersistenceInvariantError(f'invalid episode-window confidence: {confidence}')
+        state = str(transition.get('state') or '')
+        if state not in {'START', 'CONTINUATION', 'EXPANSION', 'ESCALATION', 'RECOVERY', 'RESOLVED', 'RECURRENCE'}:
+            raise PersistenceInvariantError(f'invalid episode-window state: {state}')
+        rows.append((
+            identity[0],
+            identity[1],
+            identity[2],
+            CAUSE_SIGNATURE_VERSION,
+            state,
+            str(transition.get('correlation_method') or 'unknown'),
+            str(transition.get('correlation_version') or 'unknown'),
+            confidence,
+            int(transition.get('allocated_raw_error_lines') or 0),
+            int(transition.get('unexplained_raw_lines') or 0),
+            json.dumps(sorted(transition.get('contributor_fingerprints') or [])),
+            json.dumps(sorted(transition.get('material_change_reasons') or [])),
+        ))
+    return sorted(rows, key=lambda row: (row[0], row[1], row[2]))
+
+
+def build_peak_episode_transition_rows(collection) -> List[tuple]:
+    rows = []
+    identities = set()
+    for transition in getattr(collection, 'peak_episode_transitions', None) or []:
+        identity = (
+            str(transition.get('episode_id') or ''),
+            str(transition.get('window_decision_id') or ''),
+            str(transition.get('state') or ''),
+        )
+        if not all(identity) or identity in identities:
+            raise PersistenceInvariantError(f'invalid or duplicate episode transition: {identity}')
+        identities.add(identity)
+        rows.append((
+            identity[0],
+            identity[1],
+            transition.get('previous_state'),
+            identity[2],
+            ','.join(transition.get('material_change_reasons') or ())
+            or str(transition.get('correlation_method') or 'event_time_transition'),
+            transition.get('previous_raw_error_lines'),
+            int(transition.get('current_raw_error_lines') or 0),
+            int(transition.get('cumulative_raw_error_lines') or 0),
+        ))
+    return sorted(rows, key=lambda row: (row[0], row[1], row[3]))
 
 
 def validate_reconciliation(
@@ -267,6 +474,140 @@ def build_detection_rows(
     return rows
 
 
+def build_cause_family_rows(
+    collection,
+    run_id: str,
+    window_start: datetime,
+) -> List[tuple]:
+    analysis = getattr(collection, 'cause_analysis', None)
+    if analysis is None:
+        return []
+
+    try:
+        analysis.validate()
+    except ValueError as error:
+        raise PersistenceInvariantError(str(error)) from error
+
+    source_count = int(analysis.source_raw_error_lines)
+    processed_count = int(collection.input_records)
+    if source_count != processed_count:
+        raise PersistenceInvariantError(
+            'cause-family source count does not match processed count: '
+            f'cause_families={source_count}, processed={processed_count}'
+        )
+
+    rows = []
+    signatures = set()
+    valid_assessments = {
+        'technical_failure',
+        'business_rejection',
+        'expected_outcome_logged_as_error',
+        'unknown',
+    }
+    valid_confidences = {'low', 'medium', 'high'}
+    for family in analysis.families:
+        signature = str(family.signature or '')
+        if not signature or signature in signatures:
+            raise PersistenceInvariantError(
+                f'invalid or duplicate cause signature: {signature!r}'
+            )
+        signatures.add(signature)
+
+        raw_lines = int(family.raw_error_lines)
+        traced_lines = int(family.traced_error_lines)
+        unsegmented_lines = int(family.unsegmented_error_lines)
+        if raw_lines <= 0 or traced_lines < 0 or unsegmented_lines < 0:
+            raise PersistenceInvariantError(
+                f'invalid cause-family counts for {signature}'
+            )
+        if traced_lines + unsegmented_lines != raw_lines:
+            raise PersistenceInvariantError(
+                f'cause-family coverage does not reconcile for {signature}'
+            )
+        if family.assessment not in valid_assessments:
+            raise PersistenceInvariantError(
+                f'invalid cause-family assessment: {family.assessment}'
+            )
+        if family.confidence not in valid_confidences:
+            raise PersistenceInvariantError(
+                f'invalid cause-family confidence: {family.confidence}'
+            )
+
+        unique_operations = (
+            int(family.unique_operations)
+            if family.unique_operations is not None else None
+        )
+        trace_ids = [str(trace_id) for trace_id in family.trace_ids if trace_id]
+        if unique_operations is not None and unique_operations < len(trace_ids):
+            raise PersistenceInvariantError(
+                f'cause-family operation count is smaller than represented trace IDs for {signature}'
+            )
+        operation_count_method = str(family.operation_count_method or '')
+        operation_count_confidence = str(family.operation_count_confidence or '')
+        if operation_count_method not in {'root_span', 'trace_id', 'mixed', 'unavailable'}:
+            raise PersistenceInvariantError(
+                f'invalid operation-count method for {signature}: {operation_count_method}'
+            )
+        if operation_count_confidence not in valid_confidences:
+            raise PersistenceInvariantError(
+                f'invalid operation-count confidence for {signature}: '
+                f'{operation_count_confidence}'
+            )
+        if unique_operations is None and operation_count_method != 'unavailable':
+            raise PersistenceInvariantError(
+                f'unknown operation count must use unavailable method for {signature}'
+            )
+        if unique_operations is not None and operation_count_method == 'unavailable':
+            raise PersistenceInvariantError(
+                f'known operation count cannot use unavailable method for {signature}'
+            )
+        for label, counts in (
+            ('application', family.app_counts),
+            ('namespace', family.namespace_counts),
+        ):
+            normalized_counts = [int(value or 0) for value in counts.values()]
+            if any(value < 0 for value in normalized_counts):
+                raise PersistenceInvariantError(
+                    f'negative {label} count for cause family {signature}'
+                )
+            if sum(normalized_counts) > raw_lines:
+                raise PersistenceInvariantError(
+                    f'{label} counts exceed raw lines for cause family {signature}'
+                )
+
+        rows.append((
+            run_id,
+            window_start,
+            signature,
+            CAUSE_SIGNATURE_VERSION,
+            str(family.canonical_cause or 'Unknown cause')[:4000],
+            str(family.root_app or 'unknown-app')[:255],
+            str(family.operation or 'unknown-operation')[:255],
+            family.outward_status,
+            family.assessment,
+            family.confidence,
+            raw_lines,
+            traced_lines,
+            unsegmented_lines,
+            unique_operations,
+            family.amplification,
+            json.dumps(family.app_counts, sort_keys=True),
+            json.dumps(family.namespace_counts, sort_keys=True),
+            str(family.representative_trace_id or ''),
+            json.dumps(trace_ids),
+            operation_count_method,
+            operation_count_confidence,
+            str(family.operation_count_reason or '')[:2000],
+            str(family.next_action or '')[:4000],
+        ))
+
+    if sum(row[10] for row in rows) != source_count:
+        raise PersistenceInvariantError(
+            'cause-family rows do not reconcile to their source count'
+        )
+    return rows
+
+
 def _default_execute_values(cursor, statement: str, rows: Sequence[tuple], page_size: int) -> None:
     from psycopg2.extras import execute_values
 
@@ -311,12 +652,33 @@ def persist_analysis_run(
     )
     incident_rows = build_incident_rows(collection, error_kind_rows, run_id, run_type)
     detection_rows = build_detection_rows(collection, error_kind_rows, run_id)
+    cause_family_rows = build_cause_family_rows(collection, run_id, window_start)
+    namespace_peak_decision_rows = build_namespace_peak_decision_rows(collection, run_id)
+    namespace_peak_contributor_rows = build_namespace_peak_contributor_rows(collection, run_id)
+    peak_episode_rows = build_peak_episode_rows(collection)
+    peak_episode_window_rows = build_peak_episode_window_rows(collection)
+    peak_episode_transition_rows = build_peak_episode_transition_rows(collection)
     execute_values_fn = execute_values_fn or _default_execute_values
 
     connection = connection_factory()
     cursor = connection.cursor()
     running_committed = False
     try:
+        stream_keys = {
+            str(row[2])
+            for row in namespace_peak_decision_rows
+            if row[2]
+        }
+        stream_keys.update(
+            str(row[1])
+            for row in peak_episode_rows
+            if row[1]
+        )
+        for stream_key in sorted(stream_keys):
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (stream_key,),
+            )
         cursor.execute(
             """
             UPDATE ailog_peak.analysis_runs
@@ -386,6 +748,57 @@ def persist_analysis_run(
             ON CONFLICT (run_id, window_start, namespace)
             DO UPDATE SET error_count = EXCLUDED.error_count
         """, namespace_rows, page_size=1000)
+
+        if namespace_peak_decision_rows:
+            execute_values_fn(cursor, """
+                INSERT INTO ailog_peak.namespace_peak_decisions
+                    (run_id, window_decision_id, stream_key, signal_namespace,
+                     window_start_utc, window_end_utc, detector_version,
+                     threshold_snapshot_id, namespace_raw_lines, p93_threshold,
+                     cap_threshold, effective_threshold, triggered_by, is_peak,
+                     verdict_reason, diagnosis_status, contract_hash, peak_identifier)
+                VALUES %s
+                ON CONFLICT (window_decision_id)
+                DO UPDATE SET
+                    run_id = EXCLUDED.run_id,
+                    stream_key = EXCLUDED.stream_key,
+                    signal_namespace = EXCLUDED.signal_namespace,
+                    window_start_utc = EXCLUDED.window_start_utc,
+                    window_end_utc = EXCLUDED.window_end_utc,
+                    detector_version = EXCLUDED.detector_version,
+                    threshold_snapshot_id = EXCLUDED.threshold_snapshot_id,
+                    namespace_raw_lines = EXCLUDED.namespace_raw_lines,
+                    p93_threshold = EXCLUDED.p93_threshold,
+                    cap_threshold = EXCLUDED.cap_threshold,
+                    effective_threshold = EXCLUDED.effective_threshold,
+                    triggered_by = EXCLUDED.triggered_by,
+                    is_peak = EXCLUDED.is_peak,
+                    verdict_reason = EXCLUDED.verdict_reason,
+                    diagnosis_status = EXCLUDED.diagnosis_status,
+                    contract_hash = EXCLUDED.contract_hash,
+                    peak_identifier = EXCLUDED.peak_identifier
+            """, namespace_peak_decision_rows, page_size=1000)
+
+        if namespace_peak_contributor_rows:
+            execute_values_fn(cursor, """
+                INSERT INTO ailog_peak.namespace_peak_contributors
+                    (run_id, window_decision_id, fingerprint, error_type,
+                     normalized_message, contribution, baseline, threshold,
+                     anomaly_score, method, is_anomalous, apps)
+                VALUES %s
+                ON CONFLICT (window_decision_id, fingerprint)
+                DO UPDATE SET
+                    run_id = EXCLUDED.run_id,
+                    error_type = EXCLUDED.error_type,
+                    normalized_message = EXCLUDED.normalized_message,
+                    contribution = EXCLUDED.contribution,
+                    baseline = EXCLUDED.baseline,
+                    threshold = EXCLUDED.threshold,
+                    anomaly_score = EXCLUDED.anomaly_score,
+                    method = EXCLUDED.method,
+                    is_anomalous = EXCLUDED.is_anomalous,
+                    apps = EXCLUDED.apps
+            """, namespace_peak_contributor_rows, page_size=1000)
 
         peak_raw_rows = [
             (
@@ -457,6 +870,102 @@ def persist_analysis_run(
                     evidence = EXCLUDED.evidence
             """, detection_rows, page_size=1000)
 
+        if cause_family_rows:
+            execute_values_fn(cursor, """
+                INSERT INTO ailog_peak.cause_family_facts
+                    (run_id, window_start, cause_signature, signature_version,
+                     canonical_cause, root_application, operation, outward_status,
+                     assessment, confidence, raw_error_lines, traced_error_lines,
+                     unsegmented_error_lines, unique_operations, amplification,
+                     app_counts, namespace_counts, representative_trace_id,
+                     trace_ids, operation_count_method,
+                     operation_count_confidence, operation_count_reason,
+                     next_action)
+                VALUES %s
+                ON CONFLICT (run_id, cause_signature)
+                DO UPDATE SET
+                    signature_version = EXCLUDED.signature_version,
+                    canonical_cause = EXCLUDED.canonical_cause,
+                    root_application = EXCLUDED.root_application,
+                    operation = EXCLUDED.operation,
+                    outward_status = EXCLUDED.outward_status,
+                    assessment = EXCLUDED.assessment,
+                    confidence = EXCLUDED.confidence,
+                    raw_error_lines = EXCLUDED.raw_error_lines,
+                    traced_error_lines = EXCLUDED.traced_error_lines,
+                    unsegmented_error_lines = EXCLUDED.unsegmented_error_lines,
+                    unique_operations = EXCLUDED.unique_operations,
+                    amplification = EXCLUDED.amplification,
+                    app_counts = EXCLUDED.app_counts,
+                    namespace_counts = EXCLUDED.namespace_counts,
+                    representative_trace_id = EXCLUDED.representative_trace_id,
+                    trace_ids = EXCLUDED.trace_ids,
+                    operation_count_method = EXCLUDED.operation_count_method,
+                    operation_count_confidence = EXCLUDED.operation_count_confidence,
+                    operation_count_reason = EXCLUDED.operation_count_reason,
+                    next_action = EXCLUDED.next_action
+            """, cause_family_rows, page_size=1000)
+
+        if peak_episode_rows:
+            execute_values_fn(cursor, """
+                INSERT INTO ailog_peak.peak_episodes
+                    (episode_id, stream_key, cause_signature, signature_version,
+                     state, first_window_start_utc, last_window_start_utc,
+                     resolved_at_utc, current_raw_error_lines,
+                     cumulative_raw_error_lines, current_operation_occurrences,
+                     cumulative_operation_occurrences, diagnosis_confidence,
+                     active_namespaces, material_change_reasons, non_peak_windows,
+                     previous_episode_id)
+                VALUES %s
+                ON CONFLICT (episode_id)
+                DO UPDATE SET
+                    state = EXCLUDED.state,
+                    last_window_start_utc = EXCLUDED.last_window_start_utc,
+                    resolved_at_utc = EXCLUDED.resolved_at_utc,
+                    current_raw_error_lines = EXCLUDED.current_raw_error_lines,
+                    cumulative_raw_error_lines = EXCLUDED.cumulative_raw_error_lines,
+                    current_operation_occurrences = EXCLUDED.current_operation_occurrences,
+                    cumulative_operation_occurrences = EXCLUDED.cumulative_operation_occurrences,
+                    diagnosis_confidence = EXCLUDED.diagnosis_confidence,
+                    active_namespaces = EXCLUDED.active_namespaces,
+                    material_change_reasons = EXCLUDED.material_change_reasons,
+                    non_peak_windows = EXCLUDED.non_peak_windows,
+                    previous_episode_id = EXCLUDED.previous_episode_id,
+                    updated_at = NOW()
+            """, peak_episode_rows, page_size=1000)
+
+        if peak_episode_window_rows:
+            execute_values_fn(cursor, """
+                INSERT INTO ailog_peak.peak_episode_windows
+                    (episode_id, window_decision_id, cause_signature,
+                     signature_version, transition_state, correlation_method,
+                     correlation_version, correlation_confidence,
+                     allocated_raw_error_lines, unexplained_raw_lines,
+                     contributor_fingerprints, material_change_reasons)
+                VALUES %s
+                ON CONFLICT (episode_id, window_decision_id, cause_signature)
+                DO UPDATE SET
+                    transition_state = EXCLUDED.transition_state,
+                    correlation_method = EXCLUDED.correlation_method,
+                    correlation_version = EXCLUDED.correlation_version,
+                    correlation_confidence = EXCLUDED.correlation_confidence,
+                    allocated_raw_error_lines = EXCLUDED.allocated_raw_error_lines,
+                    unexplained_raw_lines = EXCLUDED.unexplained_raw_lines,
+                    contributor_fingerprints = EXCLUDED.contributor_fingerprints,
+                    material_change_reasons = EXCLUDED.material_change_reasons
+            """, peak_episode_window_rows, page_size=1000)
+
+        if peak_episode_transition_rows:
+            execute_values_fn(cursor, """
+                INSERT INTO ailog_peak.peak_episode_transitions
+                    (episode_id, window_decision_id, previous_state, next_state,
+                     transition_reason, previous_raw_error_lines,
+                     current_raw_error_lines, cumulative_raw_error_lines)
+                VALUES %s
+                ON CONFLICT (episode_id, window_decision_id, next_state)
+                DO NOTHING
+            """, peak_episode_transition_rows, page_size=1000)
+
         cursor.execute(
             "SELECT COUNT(*), COALESCE(SUM(error_count), 0) "
             "FROM ailog_peak.error_kind_counts WHERE run_id = %s",
@@ -479,6 +988,55 @@ def persist_analysis_run(
             (run_id,),
         )
         stored_detection_rows = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT COUNT(*), COALESCE(SUM(raw_error_lines), 0) "
+            "FROM ailog_peak.cause_family_facts WHERE run_id = %s",
+            (run_id,),
+        )
+        stored_cause_rows, stored_cause_events = cursor.fetchone()
+        if namespace_peak_decision_rows:
+            cursor.execute(
+                "SELECT COUNT(*) FROM ailog_peak.namespace_peak_decisions "
+                "WHERE run_id = %s",
+                (run_id,),
+            )
+            stored_decision_rows = int(cursor.fetchone()[0])
+            cursor.execute(
+                "SELECT COUNT(*) FROM ailog_peak.namespace_peak_contributors "
+                "WHERE run_id = %s",
+                (run_id,),
+            )
+            stored_contributor_rows = int(cursor.fetchone()[0])
+        else:
+            stored_decision_rows = 0
+            stored_contributor_rows = 0
+        if peak_episode_rows:
+            cursor.execute(
+                "SELECT COUNT(*) FROM ailog_peak.peak_episodes WHERE episode_id IN "
+                "(SELECT DISTINCT episode_id FROM ailog_peak.peak_episode_windows "
+                "WHERE window_decision_id IN (SELECT window_decision_id FROM "
+                "ailog_peak.namespace_peak_decisions WHERE run_id = %s))",
+                (run_id,),
+            )
+            stored_episode_rows = int(cursor.fetchone()[0])
+            cursor.execute(
+                "SELECT COUNT(*) FROM ailog_peak.peak_episode_windows WHERE "
+                "window_decision_id IN (SELECT window_decision_id FROM "
+                "ailog_peak.namespace_peak_decisions WHERE run_id = %s)",
+                (run_id,),
+            )
+            stored_episode_window_rows = int(cursor.fetchone()[0])
+            cursor.execute(
+                "SELECT COUNT(*) FROM ailog_peak.peak_episode_transitions WHERE "
+                "window_decision_id IN (SELECT window_decision_id FROM "
+                "ailog_peak.namespace_peak_decisions WHERE run_id = %s)",
+                (run_id,),
+            )
+            stored_episode_transition_rows = int(cursor.fetchone()[0])
+        else:
+            stored_episode_rows = 0
+            stored_episode_window_rows = 0
+            stored_episode_transition_rows = 0
         stored = (
             int(stored_fact_rows),
             int(stored_fact_events),
@@ -486,6 +1044,13 @@ def persist_analysis_run(
             int(stored_namespace_events),
             int(stored_incident_rows),
             int(stored_detection_rows),
+            int(stored_cause_rows),
+            int(stored_cause_events),
+            stored_decision_rows,
+            stored_contributor_rows,
+            stored_episode_rows,
+            stored_episode_window_rows,
+            stored_episode_transition_rows,
         )
         expected_stored = (
             len(error_kind_rows),
@@ -494,6 +1059,13 @@ def persist_analysis_run(
             persisted_event_count,
             len(incident_rows),
             len(detection_rows),
+            len(cause_family_rows),
+            int(getattr(getattr(collection, 'cause_analysis', None), 'source_raw_error_lines', 0)),
+            len(namespace_peak_decision_rows),
+            len(namespace_peak_contributor_rows),
+            len(peak_episode_rows),
+            len(peak_episode_window_rows),
+            len(peak_episode_transition_rows),
         )
         if stored != expected_stored:
             raise PersistenceInvariantError(
@@ -530,6 +1102,12 @@ def persist_analysis_run(
             'namespace_rows': len(namespace_rows),
             'incident_rows': len(incident_rows),
             'detection_rows': len(detection_rows),
+            'cause_family_rows': len(cause_family_rows),
+            'namespace_peak_decision_rows': len(namespace_peak_decision_rows),
+            'namespace_peak_contributor_rows': len(namespace_peak_contributor_rows),
+            'peak_episode_rows': len(peak_episode_rows),
+            'peak_episode_window_rows': len(peak_episode_window_rows),
+            'peak_episode_transition_rows': len(peak_episode_transition_rows),
         }
     except Exception as exc:
         connection.rollback()

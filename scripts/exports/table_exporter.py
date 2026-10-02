@@ -51,7 +51,8 @@ SCRIPT_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 sys.path.insert(0, str(SCRIPT_DIR.parent / 'core'))
 
-from core.problem_registry import ProblemRegistry, ProblemEntry, PeakEntry, is_test_peak_counts
+from core.peak_classification import is_test_peak_counts
+from core.problem_registry import ProblemRegistry, ProblemEntry, PeakEntry
 
 
 # =============================================================================

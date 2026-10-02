@@ -52,6 +52,10 @@ from phase_c_detect import PhaseC_Detect, DetectionResult
 from phase_d_score import PhaseD_Score, ScoreResult, score_to_severity
 from phase_e_classify import PhaseE_Classify, ClassificationResult
 from phase_f_report import PhaseF_Report
+try:
+    from core.peak_decision import materialize_decision_windows
+except ImportError:  # package import from scripts.pipeline
+    from ..core.peak_decision import materialize_decision_windows
 
 
 class Pipeline:
@@ -79,6 +83,9 @@ class Pipeline:
 
         # P93/CAP peak detection
         peak_detector = None,
+        monitored_namespaces = None,
+        stream_key: str = 'live',
+        namespace_contract_hash: str = '',
 
         # Tráce-centric analýza (opt-in; backfill ji nechce kvůli výkonu)
         build_trace_patterns: bool = False,
@@ -98,12 +105,20 @@ class Pipeline:
             spike_mad_threshold=spike_mad_threshold,
             cross_ns_threshold=cross_ns_threshold,
             peak_detector=peak_detector,
+            monitored_namespaces=monitored_namespaces,
         )
         self.phase_d = PhaseD_Score()
         self.phase_e = PhaseE_Classify()
         self.phase_f = PhaseF_Report()
 
         self.build_trace_patterns = build_trace_patterns
+        self.monitored_namespaces = tuple(sorted({
+            str(namespace).strip()
+            for namespace in (monitored_namespaces or ())
+            if str(namespace).strip()
+        }))
+        self.stream_key = stream_key
+        self.namespace_contract_hash = namespace_contract_hash
 
         self.db_conn = db_conn
 
@@ -300,6 +315,27 @@ class Pipeline:
             pipeline_version="1.0",
             input_records=len(errors),
         )
+        window_starts = sorted({
+            record.timestamp.replace(
+                minute=(record.timestamp.minute // self.phase_b.window_minutes) * self.phase_b.window_minutes,
+                second=0,
+                microsecond=0,
+            )
+            for record in records
+            if record.timestamp
+        })
+        if self.monitored_namespaces and window_starts:
+            collection.namespace_peak_decisions = [
+                decision.to_dict()
+                for decision in materialize_decision_windows(
+                    self.phase_c.namespace_peak_audit,
+                    self.monitored_namespaces,
+                    window_starts=window_starts,
+                    stream_key=self.stream_key,
+                    contract_hash=self.namespace_contract_hash,
+                    run_id=run_id,
+                )
+            ]
         
         # Determine time range
         timestamps = [r.timestamp for r in records if r.timestamp]
@@ -591,7 +627,7 @@ class Pipeline:
         self.phase_c.prepare_namespace_peak_results({
             fingerprint: agg.acc[fingerprint].ns_bucket_counts
             for fingerprint in measurements
-        })
+        }, measurements)
 
         # --- Per-fingerprint detekce (reuse detect(); burst inkrementálně) ---
         detections: Dict[str, DetectionResult] = {}
@@ -663,6 +699,23 @@ class Pipeline:
             pipeline_version="1.0",
             input_records=input_records,
         )
+        window_starts = sorted({
+            bucket
+            for fingerprint in measurements
+            for bucket in agg.acc[fingerprint].window_counts
+        })
+        if self.monitored_namespaces and window_starts:
+            collection.namespace_peak_decisions = [
+                decision.to_dict()
+                for decision in materialize_decision_windows(
+                    self.phase_c.namespace_peak_audit,
+                    self.monitored_namespaces,
+                    window_starts=window_starts,
+                    stream_key=self.stream_key,
+                    contract_hash=self.namespace_contract_hash,
+                    run_id=run_id,
+                )
+            ]
         if agg.min_ts is not None:
             collection.time_range_start = agg.min_ts
             collection.time_range_end = agg.max_ts

@@ -68,12 +68,12 @@ Elasticsearch
       ▼
 [ FÁZE B: Measure ]
       │  MeasurementResult: current_count, baseline, ewma, mad, trend_ratio
-      │  (baseline se načítá z DB peak_raw_data — 7 dní historie)
+      │  (baseline se načítá z complete DB facts — 7 dní historie)
       ▼
 [ FÁZE C: Detect ]
       │  DetectionResult: is_spike, is_burst, is_new, is_regression,
       │  is_cross_namespace + evidence (proč byl flag nastaven)
-      │  (spike detekce: P93/CAP z DB ailog_peak.peak_thresholds)
+      │  (spike detekce: robustní Pxx/CAP + namespace/fingerprint family gate z DB)
       ▼
 [ FÁZE D: Score ]
       │  score 0–100 (váhový součet flagů + škálovací bonusy)
@@ -88,7 +88,7 @@ Elasticsearch
       │  IncidentAnalysis: timeline, scope, causal_chain, recommended_actions
       ▼
 [ Persistence ]
-      ├── DB: peak_raw_data (surové počty → vstup pro P93/CAP výpočet)
+      ├── DB: complete 15min facts (vstup pro Pxx/CAP a family baseline)
       ├── DB: peak_investigation (evidované peaky pro Confluence)
       ├── YAML: registry/known_problems.yaml + known_peaks.yaml (append-only)
       └── JSON: registry/alert_state_regular_phase.json (stav alertů)
@@ -147,7 +147,7 @@ class NormalizedRecord:
 
 1. **Groupování** (O(n)): Seskup records podle `(fingerprint, window_idx)`. Window = 15 min.
 2. **Pro každý fingerprint:** Chronologický array rates `[count_w0, count_w1, ...]`
-3. **Historický baseline z DB** (`BaselineLoader` → tabulka `peak_raw_data`, 7 dní)
+3. **Historický baseline z DB** (`BaselineLoader` → complete facts, 7 dní)
 4. **EWMA** (alpha=0.3): `ewma[i] = alpha * rates[i] + (1-alpha) * ewma[i-1]` — informativní metrika pro trend, NE pro spike detekci
 5. **MAD** (Median Absolute Deviation): robustnější než stddev — informativní metrika
 
@@ -176,20 +176,20 @@ class MeasurementResult:
 
 - **Vstup:** `Dict[fingerprint, MeasurementResult]` + records + registry + PeakDetector
 - **Výstup:** `Dict[fingerprint, DetectionResult]` s boolean flagy
-- **Činnost:** Spike detekce na úrovni namespace (P93/CAP), ostatní pravidla per fingerprint
+- **Činnost:** Spike detekce na úrovni namespace (robustní Pxx/CAP) a automatický gate pro `(namespace, fingerprint)` cause family; ostatní pravidla per fingerprint
 
 **Detection flags:**
 
 | Flag | Pravidlo | Popis |
 |------|----------|-------|
-| `is_spike` | P93/CAP (namespace-level) | Namespace má celkový error rate nad P93 percentilem |
+| `is_spike` | Pxx/CAP + family gate | Namespace total překročí robustní Pxx/CAP a family překročí vlastní namespace historii |
 | `is_burst` | Sliding window (60s), rate > 5.0× | Náhlá lokální koncentrace v krátkém okně |
 | `is_new` | Registry lookup | Fingerprint/problem_key dosud nebyl viděn |
 | `is_cross_namespace` | NS count ≥ 2 | Stejný error se objevuje ve více prostředích |
 | `is_silence` | Absence check | Očekávaný error se neobjevil (baseline > 5, current = 0) |
 | `is_regression` | Version check | Error, který byl opraven, se znovu objevil |
 
-Podrobný popis spike detekce viz [HOW_IT_WORKS.md](HOW_IT_WORKS.md#5-detekce-anomálií--p93cap).
+Podrobný popis spike detekce viz [HOW_IT_WORKS.md](HOW_IT_WORKS.md#5-detekce-anomálií--pxxcap-a-cause-family-gate).
 
 ### Phase D: Score
 
@@ -294,6 +294,12 @@ Dvě varianty (řízeno `ALERT_DIGEST_ENABLED`):
 - **Digest** (`send_regular_phase_peak_digest`) — jeden email per cron okno; souhrn unikátních aplikací a namespaces, HTML tabulka aktivních peaků a detail s deduplikovaným behavior a inferred root cause
 - **Detail** (`send_regular_phase_peak_alert_detailed`) — jeden email per peak; fallback/specifické případy
 
+### Workflow Lifecycle Diagnostics
+
+`run_regular_phase()` spouští před ERROR-only fetchem oddělenou, defaultně vypnutou větev `run_workflow_lifecycle_diagnostics()`. Její probe hledá raw INFO lifecycle zprávy bez závislosti na ERROR nebo trace ID, následuje bounded PIT/search_after fetch pro topic/namespace a predecessor evidence.
+
+Výsledek se vždy nejdřív uloží jako `complete` nebo `partial` run. Pouze complete fetch, high-confidence hot loop a úspěšný commit mohou vyústit v `send_workflow_lifecycle_alert()`. Cap, timeout, chybějící PIT nebo neúplný probe jsou auditovatelné jako partial a fail-closed potlačí alert.
+
 ### Confluence Export (`scripts/exports/table_exporter.py`)
 
 - **Known Errors** — tabulka `ErrorTableRow`: kategorie, root cause, behavior, activity status (ACTIVE/STALE/OLD)
@@ -307,10 +313,16 @@ Schema: `ailog_peak`
 
 | Tabulka | Popis | Klíč |
 |---------|-------|------|
-| `peak_raw_data` | 15-min error counts per namespace | `(namespace, window_start, window_end, day_of_week)` |
-| `peak_thresholds` | P93 per (namespace, day_of_week) | `(namespace, day_of_week)` |
+| `analysis_runs` | Ledger úplnosti a zdrojových počtů | `(run_type, window_start, window_end, query_hash)` |
+| `error_kind_counts` | 15min facts per namespace/app/fingerprint | `(run_id, window_start, namespace, application, fingerprint)` |
+| `v_complete_namespace_error_counts` | Autoritativní úplné namespace facts | `(namespace, window_start)` |
+| `v_complete_error_kind_counts` | Autoritativní complete family facts | `(namespace, fingerprint, window_start)` |
+| `peak_thresholds` | Robustní Pxx per (namespace, day_of_week) | `(namespace, day_of_week)` |
 | `peak_threshold_caps` | CAP per namespace | `(namespace)` |
 | `peak_investigation` | Detekované incidenty | `(peak_key, problem_key, namespace, ...)` |
+| `workflow_lifecycle_runs` | Complete/partial lifecycle fetch ledger | `run_id` |
+| `workflow_lifecycle_incidents` | Lifecycle hot-loop evidence a confidence | `(run_id, topic, namespace, queue_event_id)` |
+| `workflow_lifecycle_evidence` | ES evidence použitá pro incident | `(run_id, topic, namespace, queue_event_id, es_index, es_id)` |
 
 **Zápis do DB** vyžaduje sekvenci:
 1. Připojit se jako DDL user (`DB_DDL_USER`)
@@ -380,11 +392,12 @@ def run_regular_pipeline():
     baseline_loader = BaselineLoader(db_conn)
     peak_detector = PeakDetector(conn=get_db_connection())
     pipeline = Pipeline(peak_detector=peak_detector, ewma_alpha=0.3)
-    pipeline.phase_b.error_type_baseline = baseline_loader.load_historical_rates(...)
+      pipeline.phase_b.historical_baseline = baseline_loader.load_fingerprint_rates(...)
+      pipeline.phase_c.namespace_fingerprint_baselines = baseline_loader.load_namespace_fingerprint_rates(...)
     pipeline.phase_c.registry = registry
     collection = pipeline.run(errors)
     save_incidents_to_db(collection)
-    save_namespace_totals_to_raw_data(collection)
+      persist_analysis_run(collection)
     registry.update_from_incidents(collection.incidents)
     # dispatch alerts, reports, Confluence export
 ```
@@ -395,7 +408,7 @@ Pro každý den: fetch 24h dat po 15-min oknech → pipeline → DB save → reg
 
 ### calculate_peak_thresholds.py (týdně)
 
-Čte `peak_raw_data` za N týdnů → počítá P93 per (namespace, DOW) → CAP per namespace → ukládá do DB.
+Čte complete namespace facts za N týdnů → počítá robustní Pxx per (namespace, DOW) → CAP per namespace → ukládá kompatibilní snapshot do DB.
 
 ---
 
@@ -417,8 +430,8 @@ scripts/exports/latest/     # CSV/MD pro Confluence upload
 4. **Registry = append-only** — nikdy se nemaže
 5. **Scope ≠ Propagation** — oddělené datové struktury
 6. **FACT vs HYPOTHESIS** — jasně oddělené v reportech
-7. **P93/CAP spike detekce** — na úrovni namespace, thresholds z DB
-8. **Samozdokonalovací smyčka** — regular phase ukládá namespace totaly do `peak_raw_data`, periodický přepočet P93/CAP
+7. **Pxx/CAP + family gate** — namespace volume i vlastní history cause family musí projít DB-backed prahy
+8. **Fail-closed baseline** — nekompatibilní snapshot nebo nedostupná authoritative baseline ukončí job bez legacy EWMA fallbacku
 
 ---
 

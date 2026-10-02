@@ -6,11 +6,17 @@ import pytest
 
 from scripts.core.run_persistence import (
     PersistenceInvariantError,
+    build_cause_family_rows,
     build_detection_rows,
     build_error_kind_rows,
     build_namespace_rows,
+    build_peak_episode_transition_rows,
     persist_analysis_run,
     validate_reconciliation,
+)
+from scripts.analysis.operational_cause import (  # noqa: E402
+    CauseFamilyAnalysis,
+    OperationalCauseFamily,
 )
 from scripts.pipeline.incident import Incident
 
@@ -177,6 +183,33 @@ def test_incident_evidence_details_survive_json_round_trip():
     assert restored.evidence[0].details == incident.evidence[0].details
 
 
+def test_episode_transition_rows_keep_reason_and_previous_raw_lines():
+    rows = build_peak_episode_transition_rows(SimpleNamespace(
+        peak_episode_transitions=[{
+            'episode_id': 'episode-1',
+            'window_decision_id': 'decision-1',
+            'previous_state': 'CONTINUATION',
+            'state': 'ESCALATION',
+            'correlation_method': 'event_time_cause_match',
+            'material_change_reasons': ['material_impact_increase'],
+            'previous_raw_error_lines': 100,
+            'current_raw_error_lines': 180,
+            'cumulative_raw_error_lines': 280,
+        }],
+    ))
+
+    assert rows == [(
+        'episode-1',
+        'decision-1',
+        'CONTINUATION',
+        'ESCALATION',
+        'material_impact_increase',
+        100,
+        180,
+        280,
+    )]
+
+
 def test_detection_rows_keep_threshold_snapshot_and_flags():
     window_start = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
     incident = Incident(id='inc-1', fingerprint='fp-a')
@@ -207,3 +240,107 @@ def test_detection_rows_keep_threshold_snapshot_and_flags():
     assert rows[0][5] == 'namespace_p93_cap_v2'
     assert rows[0][8] == '00000000-0000-0000-0000-000000000001'
     assert json.loads(rows[0][9])['is_spike'] is True
+
+
+def test_cause_family_rows_preserve_reconciled_operation_evidence():
+    window_start = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
+    family = OperationalCauseFamily(
+        signature='cause-1',
+        canonical_cause='HibernateOptimisticLockingFailureException',
+        root_app='bl-pcb-v1',
+        operation='repairCard',
+        outward_status=500,
+        assessment='technical_failure',
+        confidence='high',
+        next_action='Inspect concurrent updates.',
+        raw_error_lines=11,
+        traced_error_lines=11,
+        unsegmented_error_lines=0,
+        unique_operations=1,
+        amplification=11.0,
+        app_counts={'bl-pcb-v1': 7, 'feapi-pca-v1': 4},
+        namespace_counts={'pcb-prod-01-app': 11},
+        representative_trace_id='trace-lock',
+        trace_ids=('trace-lock',),
+    )
+    collection = SimpleNamespace(
+        input_records=11,
+        cause_analysis=CauseFamilyAnalysis(
+            families=(family,),
+            source_raw_error_lines=11,
+            segmented_error_lines=11,
+            unsegmented_error_lines=0,
+            unique_operations=1,
+        ),
+    )
+
+    rows = build_cause_family_rows(collection, 'run-1', window_start)
+
+    assert len(rows) == 1
+    assert rows[0][2] == 'cause-1'
+    assert rows[0][3] == 'operational_cause_v1'
+    assert rows[0][10:15] == (11, 11, 0, 1, 11.0)
+    assert json.loads(rows[0][15]) == {'bl-pcb-v1': 7, 'feapi-pca-v1': 4}
+    assert json.loads(rows[0][18]) == ['trace-lock']
+    assert rows[0][19:22] == ('trace_id', 'medium', '')
+
+
+def test_cause_family_rows_allow_multiple_operations_per_trace():
+    window_start = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
+    family = OperationalCauseFamily(
+        signature='cause-session',
+        canonical_cause='Request failed',
+        root_app='app-a',
+        operation='submit',
+        outward_status=500,
+        assessment='technical_failure',
+        confidence='high',
+        next_action='Inspect the two failed requests.',
+        raw_error_lines=2,
+        traced_error_lines=2,
+        unsegmented_error_lines=0,
+        unique_operations=2,
+        amplification=1.0,
+        app_counts={'app-a': 2},
+        namespace_counts={'ns-a': 2},
+        representative_trace_id='session-trace',
+        trace_ids=('session-trace',),
+        operation_count_method='root_span',
+        operation_count_confidence='high',
+    )
+    collection = SimpleNamespace(
+        input_records=2,
+        cause_analysis=CauseFamilyAnalysis(
+            families=(family,),
+            source_raw_error_lines=2,
+            segmented_error_lines=2,
+            unsegmented_error_lines=0,
+            unique_operations=2,
+        ),
+    )
+
+    rows = build_cause_family_rows(collection, 'run-session', window_start)
+
+    assert rows[0][13] == 2
+    assert json.loads(rows[0][18]) == ['session-trace']
+    assert rows[0][19:22] == ('root_span', 'high', '')
+
+
+def test_cause_family_rows_reject_processed_count_mismatch():
+    collection = SimpleNamespace(
+        input_records=2,
+        cause_analysis=CauseFamilyAnalysis(
+            families=(),
+            source_raw_error_lines=0,
+            segmented_error_lines=0,
+            unsegmented_error_lines=0,
+            unique_operations=0,
+        ),
+    )
+
+    with pytest.raises(PersistenceInvariantError, match='processed count'):
+        build_cause_family_rows(
+            collection,
+            'run-mismatch',
+            datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc),
+        )

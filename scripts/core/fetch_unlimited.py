@@ -15,7 +15,11 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-import yaml
+
+try:
+    from .namespace_contract import load_monitored_namespaces as _load_namespace_contract
+except ImportError:  # pragma: no cover - direct script execution
+    from namespace_contract import load_monitored_namespaces as _load_namespace_contract
 
 urllib3.disable_warnings()
 load_dotenv()
@@ -75,25 +79,10 @@ def _source_value(source, *paths, default=None):
 
 
 def _load_monitored_namespaces():
-    env_namespaces = os.getenv('MONITORED_NAMESPACES', '').strip()
-    if env_namespaces:
-        return list(dict.fromkeys(
-            namespace.strip()
-            for namespace in env_namespaces.split(',')
-            if namespace.strip()
-        ))
-
-    config_path = Path(__file__).resolve().parents[2] / 'config' / 'namespaces.yaml'
-    try:
-        config = yaml.safe_load(config_path.read_text(encoding='utf-8')) or {}
-    except (OSError, yaml.YAMLError) as error:
-        print(f"   ❌ Cannot load monitored namespaces from {config_path}: {error}")
-        return []
-    return list(dict.fromkeys(
-        namespace.strip()
-        for namespace in config.get('namespaces', [])
-        if isinstance(namespace, str) and namespace.strip()
-    ))
+    strict = os.getenv('NAMESPACE_CONTRACT_STRICT', '').strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
+    return _load_namespace_contract(strict=strict)
 
 
 def _source_to_error(source, message_limit=500):

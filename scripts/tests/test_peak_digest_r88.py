@@ -15,7 +15,9 @@ SCRIPTS = os.path.normpath(os.path.join(HERE, '..'))
 sys.path.insert(0, SCRIPTS)
 
 import regular_phase as rp  # noqa: E402
+from analysis.operational_cause import build_cause_family  # noqa: E402
 from core.email_notifier import EmailNotifier  # noqa: E402
+from pipeline.incident import Evidence  # noqa: E402
 
 
 def _problem(key, message, count=127, error_class='not_found', traces=()):
@@ -46,6 +48,11 @@ def _payload(problem, *_args, **_kwargs):
         'affected_apps': ['bl-pcb-v1'],
         'affected_namespaces': ['pcb-uat-01-app', 'pcb-sit-01-app'],
         'originator_application_counts': {},
+        'trace_counts': {
+            trace_id: 1
+            for incident in problem.incidents
+            for trace_id in getattr(incident, 'trace_ids', [])
+        },
         'trace_steps': [{
             'app': 'bl-pcb-v1',
             'count': 127,
@@ -108,6 +115,136 @@ class PeakDigestR88Tests(unittest.TestCase):
         self.assertEqual(outcomes[0]['dedup_key'], 'peak-omitted:2026-07-31T08:00:00Z')
         self.assertEqual(outcomes[0]['metadata']['attempt_kind'], 'policy')
 
+    def test_provider_delivery_keeps_notification_decision_link(self):
+        payload = {
+            'peak_key': 'peak-linked',
+            'window_key': '2026-07-31T08:00:00Z',
+            'notification_decision_id': 'decision-linked',
+        }
+
+        outcomes = rp._payload_delivery_outcomes(
+            payload,
+            [{'destination': 'teams_email', 'status': 'delivered'}],
+            'digest',
+        )
+
+        self.assertEqual(outcomes[0]['notification_decision_id'], 'decision-linked')
+
+    def test_cluster_delivery_links_all_episode_decisions(self):
+        payload = {
+            'peak_key': 'peak-clustered',
+            'window_key': '2026-07-31T08:00:00Z',
+            'notification_decision_ids': ['decision-a', 'decision-b'],
+        }
+
+        outcomes = rp._payload_delivery_outcomes(
+            payload,
+            [{'destination': 'teams_email', 'status': 'delivered'}],
+            'digest',
+        )
+
+        self.assertEqual(
+            [outcome['notification_decision_id'] for outcome in outcomes],
+            ['decision-a', 'decision-b'],
+        )
+
+    def test_cause_signature_separates_cooldown_and_delivery_identity(self):
+        first = {
+            'peak_key': 'PEAK:business:card:spike',
+            'window_key': 'w1',
+            'cause_families': [{'signature': 'cause-a'}],
+        }
+        second = {
+            'peak_key': 'PEAK:business:card:spike',
+            'window_key': 'w1',
+            'cause_families': [{'signature': 'cause-b'}],
+        }
+
+        self.assertNotEqual(rp._alert_identity(first), rp._alert_identity(second))
+        self.assertNotEqual(
+            rp._delivery_dedup_key(first),
+            rp._delivery_dedup_key(second),
+        )
+
+    def test_authoritative_families_replace_payload_on_exact_trace_and_count_match(self):
+        client_missing = build_cause_family({
+            'error_count': 1,
+            'root_cause': {'service': 'app', 'message': 'Client does not exist'},
+            'trace_counts': {'session-trace': 1},
+            'unique_operations': 1,
+            'operation_count_method': 'root_span',
+            'operation_count_confidence': 'high',
+        })
+        lock_failure = build_cause_family({
+            'error_count': 1,
+            'root_cause': {
+                'service': 'app',
+                'message': 'HibernateOptimisticLockingFailureException',
+            },
+            'trace_counts': {'session-trace': 1},
+            'unique_operations': 1,
+            'operation_count_method': 'root_span',
+            'operation_count_confidence': 'high',
+        })
+        payload = {
+            'error_count': 2,
+            'trace_counts': {'session-trace': 2},
+            'cause_families': [{'signature': 'legacy'}],
+        }
+
+        attached = rp._attach_authoritative_cause_families(
+            payload,
+            SimpleNamespace(families=(client_missing, lock_failure)),
+        )
+
+        self.assertTrue(attached)
+        self.assertEqual(len(payload['cause_families']), 2)
+        self.assertEqual(
+            {family['operation_count_method'] for family in payload['cause_families']},
+            {'root_span'},
+        )
+        self.assertNotIn('legacy', payload['alert_identity'])
+
+    def test_authoritative_families_mark_partial_scope_and_unexplained_lines(self):
+        family = build_cause_family({
+            'error_count': 1,
+            'root_cause': {'service': 'app', 'message': 'Client does not exist'},
+            'trace_counts': {'session-trace': 1},
+        })
+        legacy = {'signature': 'legacy'}
+        payload = {
+            'error_count': 2,
+            'trace_counts': {'session-trace': 2},
+            'cause_families': [legacy],
+        }
+
+        attached = rp._attach_authoritative_cause_families(
+            payload,
+            SimpleNamespace(families=(family,)),
+        )
+
+        self.assertFalse(attached)
+        self.assertEqual(payload['cause_evidence_status'], 'partial')
+        self.assertEqual(payload['cause_reconciliation']['unexplained_raw_lines'], 1)
+        self.assertEqual(
+            payload['cause_families'][0]['canonical_cause'],
+            'Client does not exist',
+        )
+
+    def test_missing_cause_analysis_is_explicitly_degraded(self):
+        payload = {
+            'error_count': 2,
+            'trace_counts': {'session-trace': 2},
+            'cause_families': [{'signature': 'legacy'}],
+        }
+
+        attached = rp._attach_authoritative_cause_families(payload, None)
+
+        self.assertFalse(attached)
+        self.assertEqual(payload['cause_evidence_status'], 'degraded')
+        self.assertEqual(payload['unexplained_raw_lines'], 2)
+        self.assertEqual(payload['cause_families'], [{'signature': 'legacy'}])
+
     def test_signal_handler_exits_nonzero(self):
         with patch.object(rp.sys, 'exit', side_effect=SystemExit) as exit_mock:
             with self.assertRaises(SystemExit):
@@ -142,6 +279,7 @@ class PeakDigestR88Tests(unittest.TestCase):
             {'pcb-uat-01-app': 65, 'pcb-sit-01-app': 62},
         )
         self.assertEqual(payload['behavior_text'].count('\n'), 0)
+        self.assertEqual(len(payload['cause_families']), 1)
 
     def test_shared_trace_messages_merge_without_double_counting(self):
         first = _problem('trace-a', 'First log message', count=127, traces=('trace-1',))
@@ -155,8 +293,68 @@ class PeakDigestR88Tests(unittest.TestCase):
 
         self.assertEqual(payload['error_count'], 254)
         self.assertEqual(payload['behavior_text'].count('\n'), 0)
+        self.assertEqual(len(payload['cause_families']), 1)
 
-    def test_digest_reports_unique_apps_and_namespaces_without_clusters(self):
+    def test_independent_cluster_members_keep_distinct_cause_families(self):
+        optimistic_lock = _problem(
+            'lock',
+            'HibernateOptimisticLockingFailureException while updating Card',
+            count=11,
+            error_class='ServiceBusinessException',
+            traces=('trace-lock',),
+        )
+        client_missing = _problem(
+            'client',
+            'Client does not exist',
+            count=9,
+            error_class='ServiceBusinessException',
+            traces=('trace-client',),
+        )
+
+        with patch.object(rp, '_build_peak_alert_payload', side_effect=_payload):
+            payload = rp._build_cluster_payload(
+                [optimistic_lock, client_missing], {}, {}, None, None, 15
+            )
+
+        self.assertEqual(payload['error_count'], 20)
+        self.assertEqual(len(payload['cause_families']), 2)
+        self.assertEqual(
+            {family['canonical_cause'] for family in payload['cause_families']},
+            {
+                'HibernateOptimisticLockingFailureException while updating Card',
+                'Client does not exist',
+            },
+        )
+
+    def test_payload_exposes_structured_threshold_decision(self):
+        decision = rp._threshold_evidence([
+            SimpleNamespace(evidence=[Evidence(
+                rule='spike_p93_cap',
+                current=393,
+                threshold=120,
+                details={
+                    'namespace': 'pcb-prod-01-app',
+                    'p93_threshold': 120,
+                    'percentile_level': 0.98,
+                    'percentile_threshold': 120,
+                    'cap_threshold': 180,
+                    'triggered_by': 'p93',
+                    'threshold_snapshot_id': 'snapshot-1',
+                    'fingerprint_contribution': 200,
+                    'detector_version': 'namespace_p93_cap_v2',
+                },
+            )]),
+        ])[0]
+
+        self.assertEqual(decision['observed_value'], 393)
+        self.assertEqual(decision['effective_threshold'], 120)
+        self.assertEqual(decision['p93_threshold'], 120)
+        self.assertEqual(decision['percentile_level'], 0.98)
+        self.assertEqual(decision['percentile_threshold'], 120)
+        self.assertEqual(decision['cap_threshold'], 180)
+        self.assertEqual(decision['threshold_snapshot_id'], 'snapshot-1')
+
+    def test_operator_digest_falls_back_for_legacy_payload(self):
         class CaptureNotifier:
             is_enabled = lambda self: True
 
@@ -203,10 +401,149 @@ class PeakDigestR88Tests(unittest.TestCase):
 
         self.assertTrue(sent)
         combined = notifier.result[1] + notifier.result[2]
-        self.assertIn('Applications affected: 3', combined)
-        self.assertIn('Namespaces affected: 4', combined)
+        self.assertIn('WHY ALERTED', combined)
+        self.assertIn('WHAT ACTUALLY FAILED', combined)
+        self.assertIn('Cause families represented: 1', combined)
+        self.assertIn('trace coverage unavailable', combined)
+        self.assertNotIn('Behavior:', combined)
         self.assertNotIn('Clusters detected', combined)
         self.assertNotIn('cluster sent', combined.lower())
+
+    def test_operator_digest_renders_threshold_impact_assessment_and_action(self):
+        class CaptureNotifier:
+            is_enabled = lambda self: True
+
+            def _send_email(self, subject, body, html_body):
+                self.result = subject, body, html_body
+                return True
+
+        notifier = CaptureNotifier()
+        alert = {
+            'peak_type': 'SPIKE',
+            'is_known': False,
+            'error_count': 200,
+            'threshold_evidence': [{
+                'namespace': 'pcb-prod-01-app',
+                'observed_value': 393,
+                'p93_threshold': 120,
+                'percentile_level': 0.98,
+                'percentile_threshold': 120,
+                'cap_threshold': 180,
+                'effective_threshold': 120,
+                'triggered_by': 'p93',
+                'threshold_snapshot_id': 'snapshot-1',
+            }],
+            'cause_families': [{
+                'canonical_cause': 'Card with product instance null not found',
+                'root_app': 'bl-pcb-v1',
+                'operation': 'findCard',
+                'outward_status': 404,
+                'assessment': 'business_rejection',
+                'confidence': 'medium',
+                'next_action': 'Validate product-instance data.',
+                'raw_error_lines': 200,
+                'unique_operations': 40,
+                'amplification': 5.0,
+                'app_counts': {'bl-pcb-v1': 200},
+                'namespace_counts': {'pcb-prod-01-app': 200},
+                'representative_trace_id': 'trace-example',
+                'trace_ids': [f'trace-{index}' for index in range(40)],
+            }],
+        }
+
+        sent = EmailNotifier.send_regular_phase_peak_digest(
+            notifier,
+            datetime(2026, 8, 25, 8, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 25, 8, 15, tzinfo=timezone.utc),
+            [alert],
+            {'raw_window_errors': 393},
+        )
+
+        self.assertTrue(sent)
+        _subject, body, html_body = notifier.result
+        self.assertIn('393 ERROR lines vs effective threshold 120, 3.3x', body)
+        self.assertIn('P98=120', body)
+        self.assertIn('40 unique operations | 200 raw ERROR lines | 5.0x amplification', body)
+        self.assertIn('coverage: 200 traced, 0 unsegmented ERROR lines', body)
+        self.assertIn('Cause evidence: UNKNOWN; unexplained raw lines=0', body)
+        self.assertIn('BUSINESS / DATA REJECTION (medium confidence)', body)
+        self.assertIn('NEXT ACTION\n  Validate product-instance data.', body)
+        self.assertIn('snapshot=snapshot-1', body)
+        self.assertIn('WHAT ACTUALLY FAILED', html_body)
+
+    def test_operator_digest_labels_partial_cause_coverage(self):
+        class CaptureNotifier:
+            is_enabled = lambda self: True
+
+            def _send_email(self, subject, body, html_body):
+                self.result = subject, body, html_body
+                return True
+
+        notifier = CaptureNotifier()
+        sent = EmailNotifier.send_regular_phase_peak_digest(
+            notifier,
+            datetime(2026, 8, 25, 8, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 25, 8, 15, tzinfo=timezone.utc),
+            [{
+                'error_count': 10,
+                'cause_evidence_status': 'partial',
+                'cause_reconciliation': {
+                    'status': 'partial',
+                    'represented_raw_error_lines': 7,
+                    'unexplained_raw_lines': 3,
+                    'reason': 'trace or raw-line evidence covers only part of current scope',
+                },
+                'cause_families': [{
+                    'canonical_cause': 'Client does not exist',
+                    'root_app': 'service-a',
+                    'raw_error_lines': 7,
+                    'unsegmented_error_lines': 0,
+                    'unique_operations': 2,
+                    'amplification': 3.5,
+                    'representative_trace_id': 'trace-1',
+                }],
+            }],
+            {'raw_window_errors': 10},
+        )
+
+        assert sent
+        _subject, body, html_body = notifier.result
+        assert 'Cause evidence status: partial' in body
+        assert 'Cause unexplained raw lines: 3' in body
+        assert 'Cause evidence: PARTIAL; unexplained raw lines=3' in body
+        assert 'trace or raw-line evidence covers only part of current scope' in html_body
+
+    def test_operator_digest_escapes_log_content_in_html(self):
+        class CaptureNotifier:
+            is_enabled = lambda self: True
+
+            def _send_email(self, subject, body, html_body):
+                self.result = subject, body, html_body
+                return True
+
+        notifier = CaptureNotifier()
+        EmailNotifier.send_regular_phase_peak_digest(
+            notifier,
+            datetime(2026, 8, 25, 8, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 25, 8, 15, tzinfo=timezone.utc),
+            [{
+                'error_count': 1,
+                'cause_families': [{
+                    'canonical_cause': '<script>alert(1)</script>',
+                    'root_app': 'service-a',
+                    'assessment': 'unknown',
+                    'confidence': 'low',
+                    'raw_error_lines': 1,
+                    'next_action': 'Inspect <unsafe> evidence.',
+                }],
+            }],
+            {},
+        )
+
+        html_body = notifier.result[2]
+        self.assertNotIn('<script>', html_body)
+        self.assertIn('&lt;script&gt;', html_body)
+        self.assertIn('&lt;unsafe&gt;', html_body)
 
     def test_failed_fallback_payload_does_not_receive_cooldown(self):
         payloads = [

@@ -65,6 +65,8 @@ class TraceEvent:
     namespace: str = ""
     level: str = "ERROR"    # ERROR/WARN/INFO/... (jen když máme všechny levely)
     signal: int = 0         # informativnost message (vyšší = konkrétnější)
+    span_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
 
 
 @dataclass
@@ -100,6 +102,21 @@ class TraceTimeline:
     @property
     def error_count(self) -> int:
         return len(self.events)
+
+
+@dataclass(frozen=True)
+class OperationOccurrenceEstimate:
+    count: Optional[int]
+    method: str
+    confidence: str
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class OperationTimelineSegment:
+    root_span_id: Optional[str]
+    error_timeline: TraceTimeline
+    context_timeline: Optional[TraceTimeline]
 
 
 @dataclass
@@ -206,10 +223,222 @@ def build_trace_timelines(records: List[Any]) -> Dict[str, TraceTimeline]:
                 message=_smart_trim(useful) or useful[:200],
                 namespace=getattr(r, 'namespace', '') or '',
                 signal=_message_signal_score(useful),
+                span_id=getattr(r, 'span_id', None),
+                parent_span_id=getattr(r, 'parent_span_id', None),
             ))
         timelines[tid] = TraceTimeline(trace_id=tid, events=events)
 
     return timelines
+
+
+def segment_operation_timelines(
+    error_timeline: TraceTimeline,
+    context_timeline: Optional[TraceTimeline] = None,
+    expected_error_lines: Optional[int] = None,
+) -> Tuple[List[OperationTimelineSegment], OperationOccurrenceEstimate]:
+    """Split by proven root spans; otherwise return one unsplit timeline."""
+    error_events = [
+        event
+        for event in error_timeline.events
+        if (event.level or "ERROR").upper() in {"ERROR", "FATAL"}
+    ]
+    unsplit = [OperationTimelineSegment(None, error_timeline, context_timeline)]
+
+    def trace_id_fallback(reason: str) -> OperationOccurrenceEstimate:
+        max_errors = max(
+            0, int(os.getenv("OPERATION_TRACE_FALLBACK_MAX_ERRORS", "100"))
+        )
+        max_duration_min = max(
+            0, int(os.getenv("OPERATION_TRACE_FALLBACK_MAX_DURATION_MIN", "15"))
+        )
+        timestamps = [event.timestamp for event in error_events if event.timestamp]
+        duration_seconds = (
+            (max(timestamps) - min(timestamps)).total_seconds()
+            if len(timestamps) >= 2
+            else 0.0
+        )
+        if max_errors and len(error_events) > max_errors:
+            return OperationOccurrenceEstimate(
+                None,
+                "unavailable",
+                "low",
+                "trace-ID fallback refused: "
+                f"{len(error_events)} ERROR events exceed limit {max_errors}",
+            )
+        if max_duration_min and duration_seconds > max_duration_min * 60:
+            return OperationOccurrenceEstimate(
+                None,
+                "unavailable",
+                "low",
+                "trace-ID fallback refused: "
+                f"trace duration exceeds {max_duration_min} minutes",
+            )
+        return OperationOccurrenceEstimate(1, "trace_id", "medium", reason)
+
+    if expected_error_lines is not None and len(error_events) != expected_error_lines:
+        return (
+            unsplit,
+            OperationOccurrenceEstimate(
+                None,
+                "unavailable",
+                "low",
+                f"ERROR timeline incomplete ({len(error_events)}/{expected_error_lines})",
+            ),
+        )
+    if not error_events:
+        return (
+            unsplit,
+            OperationOccurrenceEstimate(
+                None, "unavailable", "low", "no ERROR events available"
+            ),
+        )
+
+    error_span_ids = [event.span_id for event in error_events]
+    if not any(error_span_ids):
+        return unsplit, trace_id_fallback(
+            "span ancestry unavailable; trace-ID fallback"
+        )
+    if not all(error_span_ids):
+        return (
+            unsplit,
+            OperationOccurrenceEstimate(
+                None,
+                "unavailable",
+                "low",
+                "span ancestry covers only part of the ERROR events",
+            ),
+        )
+
+    parent_candidates: Dict[str, set[str]] = defaultdict(set)
+    parentless_spans: set[str] = set()
+    graph_events = list(error_timeline.events)
+    if context_timeline is not None:
+        graph_events.extend(context_timeline.events)
+    for event in graph_events:
+        span_id = (event.span_id or "").strip()
+        if not span_id:
+            continue
+        parent_span_id = (event.parent_span_id or "").strip()
+        if parent_span_id:
+            parent_candidates[span_id].add(parent_span_id)
+        else:
+            parentless_spans.add(span_id)
+
+    conflicting_spans = [
+        span_id
+        for span_id, parents in parent_candidates.items()
+        if len(parents) > 1
+    ]
+    if conflicting_spans:
+        return (
+            unsplit,
+            OperationOccurrenceEstimate(
+                None,
+                "unavailable",
+                "low",
+                "conflicting parent span metadata",
+            ),
+        )
+
+    parent_by_span: Dict[str, Optional[str]] = {
+        span_id: next(iter(parents))
+        for span_id, parents in parent_candidates.items()
+    }
+    for span_id in parentless_spans:
+        parent_by_span.setdefault(span_id, None)
+
+    def resolve_root(span_id: str) -> Tuple[str, str]:
+        current = span_id
+        visited: set[str] = set()
+        while True:
+            if current in visited:
+                return "cycle", current
+            visited.add(current)
+            if current not in parent_by_span:
+                return "unresolved", current
+            parent_span_id = parent_by_span[current]
+            if not parent_span_id:
+                return "resolved", current
+            current = parent_span_id
+
+    root_assignments: List[Tuple[TraceEvent, str]] = []
+    roots: set[str] = set()
+    unresolved_boundaries: set[str] = set()
+    for event, error_span_id in zip(error_events, error_span_ids):
+        status, boundary = resolve_root(str(error_span_id))
+        if status == "cycle":
+            return (
+                unsplit,
+                OperationOccurrenceEstimate(
+                    None, "unavailable", "low", "cycle in span ancestry"
+                ),
+            )
+        if status == "resolved":
+            roots.add(boundary)
+            root_assignments.append((event, boundary))
+        else:
+            unresolved_boundaries.add(boundary)
+
+    if not unresolved_boundaries:
+        context_by_root: Dict[str, List[TraceEvent]] = defaultdict(list)
+        for event in (context_timeline.events if context_timeline else []):
+            span_id = (event.span_id or "").strip()
+            if not span_id:
+                continue
+            status, root = resolve_root(span_id)
+            if status == "resolved" and root in roots:
+                context_by_root[root].append(event)
+
+        error_by_root: Dict[str, List[TraceEvent]] = defaultdict(list)
+        root_order: List[str] = []
+        for event, root in root_assignments:
+            if root not in error_by_root:
+                root_order.append(root)
+            error_by_root[root].append(event)
+        segments = [
+            OperationTimelineSegment(
+                root_span_id=root,
+                error_timeline=TraceTimeline(error_timeline.trace_id, error_by_root[root]),
+                context_timeline=(
+                    TraceTimeline(error_timeline.trace_id, context_by_root[root])
+                    if context_by_root[root]
+                    else None
+                ),
+            )
+            for root in root_order
+        ]
+        return (
+            segments,
+            OperationOccurrenceEstimate(len(segments), "root_span", "high"),
+        )
+
+    candidates = roots | unresolved_boundaries
+    if len(candidates) == 1:
+        return unsplit, trace_id_fallback(
+            "root span unavailable; trace-ID fallback"
+        )
+    return (
+        unsplit,
+        OperationOccurrenceEstimate(
+            None,
+            "unavailable",
+            "low",
+            "multiple root/request candidates with incomplete span ancestry",
+        ),
+    )
+
+
+def estimate_operation_occurrences(
+    error_timeline: TraceTimeline,
+    context_timeline: Optional[TraceTimeline] = None,
+    expected_error_lines: Optional[int] = None,
+) -> OperationOccurrenceEstimate:
+    """Count operation roots only when every ERROR event is accounted for."""
+    return segment_operation_timelines(
+        error_timeline,
+        context_timeline=context_timeline,
+        expected_error_lines=expected_error_lines,
+    )[1]
 
 
 # =============================================================================
@@ -434,6 +663,13 @@ def timeline_from_raw_events(trace_id: str, raw_events: List[Dict[str, Any]]) ->
             namespace=e.get('namespace', '') or '',
             level=(e.get('level', '') or 'ERROR').upper(),
             signal=_message_signal_score(useful),
+            span_id=e.get('spanId') or e.get('span_id') or None,
+            parent_span_id=(
+                e.get('parentId')
+                or e.get('parent_span_id')
+                or e.get('parent_id')
+                or None
+            ),
         ))
     events.sort(key=lambda x: (x.timestamp or datetime.max))
     return TraceTimeline(trace_id=trace_id, events=events)

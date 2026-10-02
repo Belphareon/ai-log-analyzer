@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS ailog_peak.notification_deliveries (
     metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
     attempted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_notification_delivery_status CHECK (
-        status IN ('delivered', 'failed', 'suppressed', 'skipped')
+        status IN ('delivered', 'failed', 'suppressed', 'skipped', 'not_attempted')
     )
 );
 

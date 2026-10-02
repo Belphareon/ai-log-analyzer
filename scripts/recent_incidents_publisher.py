@@ -6,6 +6,7 @@ Extracts problem analysis report and uploads to Recent Incidents page
 
 import os
 import re
+from html import escape
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -87,8 +88,151 @@ def extract_report_content(report_path):
         print(f"❌ Error extracting report: {e}")
         return None
 
+def _parse_summary(summary_text):
+    sections = {'Classification': [], 'Impact and evidence coverage': []}
+    current_section = 'Classification'
+    notes = []
+    for raw_line in summary_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line == 'Impact and evidence coverage:':
+            current_section = line[:-1]
+            continue
+        match = re.match(r'^(?:-\s*)?([^:]+):\s*(.+)$', line)
+        if match:
+            sections[current_section].append((match.group(1), match.group(2)))
+        else:
+            notes.append(line)
+    return sections, notes
+
+
+def _parse_cause_families(details_text):
+    block_pattern = re.compile(
+        r'^─{20,}\n#(?P<index>\d+) \[(?P<label>[^\]]+)\] '
+        r'(?P<title>.*?)\n─{20,}\n(?P<body>.*?)(?=^─{20,}\n#\d+|\Z)',
+        re.MULTILINE | re.DOTALL,
+    )
+    families = []
+    for match in block_pattern.finditer(details_text):
+        fields = {}
+        section = 'overview'
+        next_action_lines = []
+        for raw_line in match.group('body').splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.endswith(':') and line in {
+                'Impact (current period):', 'Evidence:', 'Next action:'
+            }:
+                section = line[:-1].lower().replace(' ', '_')
+                continue
+            field_match = re.match(r'^([^:]+):\s*(.*)$', line)
+            if field_match:
+                fields[field_match.group(1).strip()] = field_match.group(2).strip()
+            elif section == 'next_action':
+                next_action_lines.append(line)
+        if next_action_lines:
+            fields['Next action'] = ' '.join(next_action_lines)
+        families.append({
+            'index': match.group('index'),
+            'label': match.group('label'),
+            'title': match.group('title').strip(),
+            'fields': fields,
+        })
+    return families
+
+
+def _metric_table(title, rows):
+    if not rows:
+        return ''
+    body = ''.join(
+        '<tr>'
+        f'<td style="padding:6px 10px;border:1px solid #dfe1e6;">{escape(label)}</td>'
+        f'<td style="padding:6px 10px;border:1px solid #dfe1e6;text-align:right;">'
+        f'<strong>{escape(value)}</strong></td>'
+        '</tr>'
+        for label, value in rows
+    )
+    return (
+        f'<h3>{escape(title)}</h3>'
+        '<table style="border-collapse:collapse;width:100%;max-width:760px;">'
+        f'<tbody>{body}</tbody></table>'
+    )
+
+
+def _render_family_table(families):
+    if not families:
+        return ''
+    rows = []
+    for family in families:
+        fields = family['fields']
+        rows.append(
+            '<tr>'
+            f'<td style="padding:7px;border:1px solid #dfe1e6;">{escape(family["label"])}</td>'
+            f'<td style="padding:7px;border:1px solid #dfe1e6;"><strong>{escape(family["title"])}</strong></td>'
+            f'<td style="padding:7px;border:1px solid #dfe1e6;">{escape(fields.get("Root application", "N/A"))}</td>'
+            f'<td style="padding:7px;border:1px solid #dfe1e6;text-align:right;">{escape(fields.get("Unique operations", "N/A"))}</td>'
+            f'<td style="padding:7px;border:1px solid #dfe1e6;text-align:right;">{escape(fields.get("Raw ERROR lines", "N/A"))}</td>'
+            f'<td style="padding:7px;border:1px solid #dfe1e6;">{escape(fields.get("Outward status", "N/A"))}</td>'
+            '</tr>'
+        )
+    return (
+        '<h2>Current Cause Families</h2>'
+        '<table style="border-collapse:collapse;width:100%;">'
+        '<thead><tr style="background:#f4f5f7;">'
+        '<th style="padding:7px;border:1px solid #dfe1e6;text-align:left;">Assessment</th>'
+        '<th style="padding:7px;border:1px solid #dfe1e6;text-align:left;">Cause</th>'
+        '<th style="padding:7px;border:1px solid #dfe1e6;text-align:left;">Root application</th>'
+        '<th style="padding:7px;border:1px solid #dfe1e6;text-align:right;">Operations</th>'
+        '<th style="padding:7px;border:1px solid #dfe1e6;text-align:right;">ERROR lines</th>'
+        '<th style="padding:7px;border:1px solid #dfe1e6;text-align:left;">Status</th>'
+        '</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table>'
+    )
+
+
+def _render_family_details(families):
+    blocks = []
+    for family in families:
+        fields = family['fields']
+        facts = [
+            ('Root application', fields.get('Root application', 'N/A')),
+            ('Operation', fields.get('Operation', 'N/A')),
+            ('Outward status', fields.get('Outward status', 'N/A')),
+            ('Unique operations', fields.get('Unique operations', 'N/A')),
+            ('Operation count evidence', fields.get('Operation count evidence', 'N/A')),
+            ('Raw ERROR lines', fields.get('Raw ERROR lines', 'N/A')),
+            ('Logging amplification', fields.get('Logging amplification', 'N/A')),
+            ('Representative trace', fields.get('Representative trace', 'N/A')),
+        ]
+        fact_rows = ''.join(
+            f'<tr><td style="padding:5px 8px;border:1px solid #dfe1e6;">{escape(label)}</td>'
+            f'<td style="padding:5px 8px;border:1px solid #dfe1e6;">{escape(value)}</td></tr>'
+            for label, value in facts
+        )
+        blocks.append(
+            '<div style="margin-top:22px;padding-top:12px;border-top:2px solid #42526e;">'
+            f'<h3>#{escape(family["index"])} [{escape(family["label"])}] '
+            f'{escape(family["title"])}</h3>'
+            f'<p><strong>Assessment:</strong> {escape(fields.get("Assessment", family["label"]))}</p>'
+            '<table style="border-collapse:collapse;width:100%;max-width:860px;">'
+            f'<tbody>{fact_rows}</tbody></table>'
+            f'<p><strong>Current scope:</strong> {escape(fields.get("Applications", "N/A"))}; '
+            f'{escape(fields.get("Namespaces", "N/A"))}</p>'
+            f'<p><strong>Next action:</strong> {escape(fields.get("Next action", "Needs owner classification."))}</p>'
+            '</div>'
+        )
+    return ''.join(blocks)
+
+
+def _legacy_text_html(text):
+    paragraphs = [escape(part.strip()).replace('\n', '<br/>') for part in text.split('\n\n') if part.strip()]
+    return ''.join(f'<p>{paragraph}</p>' for paragraph in paragraphs)
+
+
 def convert_to_html(report_data):
-    """Convert report data to HTML suitable for Confluence (dark mode friendly)"""
+    """Convert report data to structured Confluence storage HTML."""
     if not report_data:
         return None
     
@@ -101,31 +245,31 @@ def convert_to_html(report_data):
     if report_data.get('header'):
         period, generated, run_id = report_data['header']
         html_parts.append('<h2>Problem Analysis Report</h2>')
-        html_parts.append(f'<p><strong>Period:</strong> {period}<br/>')
-        html_parts.append(f'<strong>Generated:</strong> {generated}<br/>')
-        html_parts.append(f'<strong>Run ID:</strong> {run_id}</p>')
+        html_parts.append(f'<p><strong>Period:</strong> {escape(period)}<br/>')
+        html_parts.append(f'<strong>Generated:</strong> {escape(generated)}<br/>')
+        html_parts.append(f'<strong>Run ID:</strong> {escape(run_id)}</p>')
     
     # Executive Summary
     if report_data['has_summary']:
-        html_parts.append('<h3>Executive Summary</h3>')
-        html_parts.append('<pre style="font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; border-left: 3px solid #4a90e2; margin: 10px 0;">')
-        
-        summary_text = report_data['executive_summary']
-        escaped_summary = summary_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        html_parts.append(escaped_summary)
-        
-        html_parts.append('</pre>')
+        summary_sections, notes = _parse_summary(report_data['executive_summary'])
+        html_parts.append('<h2>Executive Summary</h2>')
+        html_parts.append(_metric_table('Classification', summary_sections['Classification']))
+        html_parts.append(_metric_table(
+            'Impact and Evidence Coverage',
+            summary_sections['Impact and evidence coverage'],
+        ))
+        html_parts.extend(f'<p>{escape(note)}</p>' for note in notes)
     
     # Problem Details
     if report_data['has_details']:
-        html_parts.append('<h3>Problem Details (Top 20)</h3>')
-        html_parts.append('<pre style="font-family: monospace; white-space: pre-wrap; word-wrap: break-word; padding: 10px; border-left: 3px solid #f39c12; margin: 10px 0; overflow-x: auto;">')
-        
-        details_text = report_data['problem_details']
-        escaped_details = details_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        html_parts.append(escaped_details)
-        
-        html_parts.append('</pre>')
+        families = _parse_cause_families(report_data['problem_details'])
+        if families:
+            html_parts.append(_render_family_table(families))
+            html_parts.append('<h2>Cause Family Details</h2>')
+            html_parts.append(_render_family_details(families))
+        else:
+            html_parts.append('<h2>Problem Details (Top 20)</h2>')
+            html_parts.append(_legacy_text_html(report_data['problem_details']))
     
     html_parts.append('</div>')
     html_parts.append(f'<p><small><em>Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")}</em></small></p>')

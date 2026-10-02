@@ -53,103 +53,6 @@ MAX_FINGERPRINTS_PER_PROBLEM = 500  # Warning above this
 MAX_SAMPLE_MESSAGES_PER_FP = 5
 MAX_PROBLEMS_WARNING = 5000
 MAX_FINGERPRINTS_WARNING = 100000
-TEST_PEAK_ORIGINATORS = tuple(
-    item.strip().lower()
-    for item in os.getenv('TEST_PEAK_ORIGINATORS', 'MochaXTestApp').split(',')
-    if item.strip()
-)
-TEST_PEAK_MIN_SHARE = float(os.getenv('TEST_PEAK_MIN_SHARE', '0.5'))
-
-
-def _normalize_count_dict(counts: Optional[Dict[str, Any]]) -> Dict[str, int]:
-    normalized: Dict[str, int] = {}
-    for key, value in (counts or {}).items():
-        if not key:
-            continue
-        try:
-            count = int(value or 0)
-        except (TypeError, ValueError):
-            continue
-        if count <= 0:
-            continue
-        normalized[str(key)] = count
-    return normalized
-
-
-def _merge_count_dict(target: Dict[str, int], source: Optional[Dict[str, Any]]) -> None:
-    for key, count in _normalize_count_dict(source).items():
-        target[key] = target.get(key, 0) + count
-
-
-def _sorted_count_dict(counts: Optional[Dict[str, int]]) -> Dict[str, int]:
-    return {
-        key: value
-        for key, value in sorted((counts or {}).items(), key=lambda kv: (-kv[1], kv[0]))
-    }
-
-
-# HTTP status parser for SPEED-101 / ITO-XXX structured error codes.
-# Format: PREFIX#SYSTEM#SVC#APP#METHOD#CLASS#OP#STATUS#TRAIL
-# Status field is index 7 (0-based 7th '#' segment). Accept 3-digit HTTP codes only.
-_STRUCTURED_CODE_PREFIX_RE = re.compile(
-    r'^(?:SPEED-\d+|ITO-\d+)#'
-    r'[^#]*#[^#]*#[^#]*#[^#]*#[^#]*#[^#]*#'
-    r'(\d{3})(?:#|$)'
-)
-
-
-def _parse_http_status(message: str) -> str:
-    """Extract HTTP status code from structured SPEED/ITO error message.
-
-    Returns empty string when not a structured code or when status field is
-    missing/non-numeric (e.g. 'n/a').
-    """
-    if not message:
-        return ''
-    text = message.strip()
-    m = _STRUCTURED_CODE_PREFIX_RE.match(text)
-    if not m:
-        return ''
-    return m.group(1)
-
-
-# Stack trace stripper — applied at storage time so behavior field never holds
-# Java/Kotlin stack frames. Pattern matches first ' at packageOrClass.method('.
-_STACK_FRAME_RE = re.compile(r'\s+at\s+[a-z][\w$.]+\.\w+\(')
-
-
-def _strip_stack_trace_for_storage(text: str) -> str:
-    """Remove inline Java/Kotlin/Python stack frames from a message string.
-
-    Keeps only the meaningful prefix (the actual exception message) and
-    discards everything from the first ' at <pkg>.<class>.<method>(' onward.
-    Whitespace-collapsed so multiline stacks turn into a clean one-liner.
-    """
-    if not text:
-        return text
-    cleaned = " ".join(str(text).split())
-    m = _STACK_FRAME_RE.search(cleaned)
-    if m:
-        cleaned = cleaned[: m.start()].strip()
-    return cleaned
-
-
-def dominant_count_entry(counts: Optional[Dict[str, int]]) -> Tuple[str, int]:
-    normalized = _normalize_count_dict(counts)
-    if not normalized:
-        return '', 0
-    key, value = max(normalized.items(), key=lambda kv: (kv[1], kv[0]))
-    return key, value
-
-
-def is_test_peak_counts(originator_counts: Optional[Dict[str, int]], total_count: int) -> bool:
-    top_originator, top_count = dominant_count_entry(originator_counts)
-    if not top_originator:
-        return False
-    if top_originator.strip().lower() not in TEST_PEAK_ORIGINATORS:
-        return False
-    denominator = max(int(total_count or 0), sum(_normalize_count_dict(originator_counts).values()), 1)
-    return (top_count / denominator) >= TEST_PEAK_MIN_SHARE
 
 
 # =============================================================================
@@ -183,43 +86,24 @@ class ProblemEntry:
     
     # Counts
     occurrences: int = 0
-
+    
     # Track timestamps of last occurrences (max 100 for memory efficiency)
     # Used for 24h trend calculation in CSV exports
     occurrence_times: List[datetime] = field(default_factory=list)
 
-    # Parallel list: error count per occurrence_times entry (volume tracking)
-    occurrence_counts: List[int] = field(default_factory=list)
-
-    # Linked fingerprints (1:N)
     fingerprints: List[str] = field(default_factory=list)
-
-    # Sample error messages - CRITICAL for understanding what the problem is!
     sample_messages: List[str] = field(default_factory=list)
-    description: str = ""  # Human-readable description / root cause
-    root_cause: str = ""
-    behavior: str = ""
-    enriched_severity: str = ""
-    enriched_score: float = 0.0
-
-    # Scope
+    description: str = ""
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
-    deployments_seen: Set[str] = field(default_factory=set)  # app-v1, app-v2
-    app_versions_seen: Set[str] = field(default_factory=set)  # 4.65.2, 4.65.3
-
-    # Per-entity raw event counts (cumulative, sourced from incident.app_event_counts
-    # and incident.namespace_event_counts). Drives the multi-line apps/NS columns
-    # in the operator export with real volume per app/NS.
-    app_counts: Dict[str, int] = field(default_factory=dict)
-    namespace_counts: Dict[str, int] = field(default_factory=dict)
-    # HTTP status code distribution parsed from structured SPEED-101/ITO-XXX
-    # messages (e.g. {'404': 12, '403': 5, '500': 1}). Empty when no parseable codes.
-    http_status_counts: Dict[str, int] = field(default_factory=dict)
-
-    # Scope classification
-    scope: str = "LOCAL"  # LOCAL, CROSS_NS, SYSTEMIC
-
+    deployments_seen: Set[str] = field(default_factory=set)
+    app_versions_seen: Set[str] = field(default_factory=set)
+    scope: str = "LOCAL"
+    root_cause: Optional[str] = None
+    behavior: Optional[str] = None
+    enriched_severity: Optional[str] = None
+    enriched_score: Optional[float] = None
+    
     # Status
     status: str = "OPEN"  # OPEN, ACKNOWLEDGED, RESOLVED, WONT_FIX
     jira: Optional[str] = None
@@ -237,7 +121,6 @@ class ProblemEntry:
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
             'occurrence_times': [ts.isoformat() if isinstance(ts, datetime) else ts for ts in self.occurrence_times],
-            'occurrence_counts': list(self.occurrence_counts),
             'fingerprints': self.fingerprints,
             'sample_messages': self.sample_messages[:MAX_SAMPLE_MESSAGES_PER_FP],  # Limit samples
             'description': self.description,
@@ -245,17 +128,14 @@ class ProblemEntry:
             'affected_namespaces': sorted(self.affected_namespaces),
             'deployments_seen': sorted(self.deployments_seen),
             'app_versions_seen': sorted(self.app_versions_seen),
-            'app_counts': _sorted_count_dict(self.app_counts),
-            'namespace_counts': _sorted_count_dict(self.namespace_counts),
-            'http_status_counts': _sorted_count_dict(self.http_status_counts),
             'scope': self.scope,
-            'status': self.status,
-            'jira': self.jira,
-            'notes': self.notes,
             'root_cause': self.root_cause,
             'behavior': self.behavior,
             'enriched_severity': self.enriched_severity,
             'enriched_score': self.enriched_score,
+            'status': self.status,
+            'jira': self.jira,
+            'notes': self.notes,
         }
     
     @classmethod
@@ -288,35 +168,18 @@ class ProblemEntry:
             elif isinstance(ts_str, datetime):
                 entry.occurrence_times.append(ts_str)
         
-        # Load occurrence_counts (parallel to occurrence_times).
-        # Migration: old YAML entries lack this field — default each slot to 1.
-        raw_counts = data.get('occurrence_counts', [])
-        if raw_counts and len(raw_counts) == len(entry.occurrence_times):
-            entry.occurrence_counts = [int(c) for c in raw_counts]
-        else:
-            entry.occurrence_counts = [1] * len(entry.occurrence_times)
-        
         entry.fingerprints = data.get('fingerprints', [])
         entry.sample_messages = data.get('sample_messages', [])
         entry.description = data.get('description', '')
-        entry.root_cause = data.get('root_cause', '') or entry.description or ''
-        entry.behavior = data.get('behavior', '')
-        entry.enriched_severity = str(data.get('enriched_severity', '') or '')
-        try:
-            entry.enriched_score = float(data.get('enriched_score', 0.0) or 0.0)
-        except (TypeError, ValueError):
-            entry.enriched_score = 0.0
-        if not entry.behavior and entry.sample_messages:
-            entry.behavior = entry.sample_messages[0]
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
         entry.deployments_seen = set(data.get('deployments_seen', []))
         entry.app_versions_seen = set(data.get('app_versions_seen', []))
-        # Per-entity counts (safe defaults for legacy YAML — empty dicts).
-        entry.app_counts = _normalize_count_dict(data.get('app_counts', {}))
-        entry.namespace_counts = _normalize_count_dict(data.get('namespace_counts', {}))
-        entry.http_status_counts = _normalize_count_dict(data.get('http_status_counts', {}))
         entry.scope = data.get('scope', 'LOCAL')
+        entry.root_cause = data.get('root_cause')
+        entry.behavior = data.get('behavior')
+        entry.enriched_severity = data.get('enriched_severity')
+        entry.enriched_score = data.get('enriched_score')
         entry.status = data.get('status', 'OPEN')
         entry.jira = data.get('jira')
         entry.notes = data.get('notes')
@@ -337,7 +200,6 @@ class PeakEntry:
     
     # Counts
     occurrences: int = 0
-    raw_error_count: int = 0
     
     # Linked fingerprints
     fingerprints: List[str] = field(default_factory=list)
@@ -345,32 +207,20 @@ class PeakEntry:
     # Scope
     affected_apps: Set[str] = field(default_factory=set)
     affected_namespaces: Set[str] = field(default_factory=set)
-    app_counts: Dict[str, int] = field(default_factory=dict)
-    namespace_counts: Dict[str, int] = field(default_factory=dict)
-    originator_application_counts: Dict[str, int] = field(default_factory=dict)
-    trace_counts: Dict[str, int] = field(default_factory=dict)
-    dominant_trace_id: str = ""
-    test: bool = False
-    occurrence_times: List[datetime] = field(default_factory=list)
-    occurrence_counts: List[int] = field(default_factory=list)
     
     # Peak-specific
     max_value: float = 0.0
     max_ratio: float = 0.0
+    root_cause: Optional[str] = None
+    behavior: Optional[str] = None
+    enriched_severity: Optional[str] = None
+    enriched_score: Optional[float] = None
     
     # Status
     status: str = "OPEN"
     jira: Optional[str] = None
     notes: Optional[str] = None
-    root_cause: str = ""
-    behavior: str = ""
-
-    # Map ProblemEntry keys → raw event count contributed to this peak.
-    # Replaces r69 behavior_steps/root_cause_service/root_cause_confidence/total_messages.
-    # Render-time helpers in TableExporter resolve each key to ProblemEntry to
-    # produce per-pattern peak descriptions (no fake per-app duplication).
-    contributing_problems: Dict[str, int] = field(default_factory=dict)
-
+    
     def to_dict(self) -> dict:
         return {
             'id': self.id,
@@ -379,26 +229,18 @@ class PeakEntry:
             'first_seen': self.first_seen.isoformat() if self.first_seen else None,
             'last_seen': self.last_seen.isoformat() if self.last_seen else None,
             'occurrences': self.occurrences,
-            'raw_error_count': self.raw_error_count,
             'fingerprints': self.fingerprints,
             'affected_apps': sorted(self.affected_apps),
             'affected_namespaces': sorted(self.affected_namespaces),
-            'app_counts': _sorted_count_dict(self.app_counts),
-            'namespace_counts': _sorted_count_dict(self.namespace_counts),
-            'originator_application_counts': _sorted_count_dict(self.originator_application_counts),
-            'trace_counts': _sorted_count_dict(self.trace_counts),
-            'dominant_trace_id': self.dominant_trace_id,
-            'test': self.test,
-            'occurrence_times': [ts.isoformat() for ts in self.occurrence_times],
-            'occurrence_counts': self.occurrence_counts,
             'max_value': self.max_value,
             'max_ratio': self.max_ratio,
+            'root_cause': self.root_cause,
+            'behavior': self.behavior,
+            'enriched_severity': self.enriched_severity,
+            'enriched_score': self.enriched_score,
             'status': self.status,
             'jira': self.jira,
             'notes': self.notes,
-            'root_cause': self.root_cause,
-            'behavior': self.behavior,
-            'contributing_problems': _sorted_count_dict(self.contributing_problems),
         }
     
     @classmethod
@@ -415,40 +257,19 @@ class PeakEntry:
             entry.last_seen = datetime.fromisoformat(data['last_seen'])
         
         entry.occurrences = data.get('occurrences', 0)
-        entry.raw_error_count = data.get('raw_error_count', entry.occurrences)
         entry.fingerprints = data.get('fingerprints', [])
         entry.affected_apps = set(data.get('affected_apps', []))
         entry.affected_namespaces = set(data.get('affected_namespaces', []))
-        entry.app_counts = _normalize_count_dict(data.get('app_counts', {}))
-        entry.namespace_counts = _normalize_count_dict(data.get('namespace_counts', {}))
-        entry.originator_application_counts = _normalize_count_dict(data.get('originator_application_counts', {}))
-        entry.trace_counts = _normalize_count_dict(data.get('trace_counts', {}))
-        entry.dominant_trace_id = str(data.get('dominant_trace_id', '') or '')
-        entry.test = bool(data.get('test', False))
-        raw_times = data.get('occurrence_times', []) or []
-        entry.occurrence_times = []
-        for ts in raw_times:
-            try:
-                entry.occurrence_times.append(datetime.fromisoformat(ts))
-            except Exception:
-                continue
-        raw_counts = data.get('occurrence_counts', []) or []
-        if raw_counts and len(raw_counts) == len(entry.occurrence_times):
-            entry.occurrence_counts = [int(c) for c in raw_counts]
-        else:
-            entry.occurrence_counts = [1] * len(entry.occurrence_times)
         entry.max_value = data.get('max_value', 0.0)
         entry.max_ratio = data.get('max_ratio', 0.0)
+        entry.root_cause = data.get('root_cause')
+        entry.behavior = data.get('behavior')
+        entry.enriched_severity = data.get('enriched_severity')
+        entry.enriched_score = data.get('enriched_score')
         entry.status = data.get('status', 'OPEN')
         entry.jira = data.get('jira')
         entry.notes = data.get('notes')
-        entry.root_cause = data.get('root_cause', '')
-        entry.behavior = data.get('behavior', '')
-        # Contributing ProblemEntry keys with counts (safe default for legacy YAML).
-        entry.contributing_problems = _normalize_count_dict(
-            data.get('contributing_problems', {})
-        )
-
+        
         return entry
     
     @property
@@ -730,19 +551,14 @@ class ProblemRegistry:
     # LOAD / SAVE
     # =========================================================================
     
-    def _reset_loaded_state(self) -> None:
+    def load(self) -> bool:
+        """Načte registry z YAML souborů."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
         self.problems.clear()
         self.peaks.clear()
         self.fingerprint_index.clear()
         self._problem_counter = 0
         self._peak_counter = 0
-        for key in self.stats:
-            self.stats[key] = 0
-
-    def _load_unlocked(self) -> bool:
-        """Load all registry files while the caller owns the transaction lock."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        self._reset_loaded_state()
         
         # Load problems
         problems_file = self.registry_dir / 'known_problems.yaml'
@@ -784,13 +600,7 @@ class ProblemRegistry:
                 for item in data:
                     peak = PeakEntry.from_dict(item)
                     self.peaks[peak.problem_key] = peak
-
-                    # Index peak fingerprints so is_fingerprint_known() finds them
-                    # This ensures recurring peaks are not marked as NEW
-                    for fp in peak.fingerprints:
-                        if fp not in self.fingerprint_index:
-                            self.fingerprint_index[fp] = peak.problem_key
-
+                    
                     # Track max ID
                     if peak.id.startswith('PK-'):
                         try:
@@ -798,30 +608,15 @@ class ProblemRegistry:
                             self._peak_counter = max(self._peak_counter, num)
                         except ValueError:
                             pass
-
+                
                 self.stats['peaks_loaded'] = len(self.peaks)
                 
             except Exception as e:
                 print(f"⚠️ Error loading peaks: {e}")
         
         return True
-
-    def load(self) -> bool:
-        """Load a consistent snapshot of all registry files."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        transaction_lock = self.registry_dir / '.registry.transaction.lock'
-        try:
-            with open(transaction_lock, 'w') as lock_fd:
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_SH)
-                try:
-                    return self._load_unlocked()
-                finally:
-                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            print(f"⚠️ Error loading registry: {e}")
-            return False
     
-    def _save_unlocked(self) -> bool:
+    def save(self) -> bool:
         """
         Uloží registry do YAML a MD souborů.
         
@@ -838,45 +633,7 @@ class ProblemRegistry:
             fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
             
             try:
-                # Save problems YAML (atomic)
-                problems_yaml = self.registry_dir / 'known_problems.yaml'
-                sorted_problems = sorted(
-                    self.problems.values(),
-                    key=lambda p: p.last_seen or datetime.min,
-                    reverse=True
-                )
-                
-                self._atomic_write_yaml(
-                    problems_yaml,
-                    [p.to_dict() for p in sorted_problems]
-                )
-                
-                # Save problems MD
-                self._write_problems_md(sorted_problems)
-                
-                # Save peaks YAML (atomic)
-                peaks_yaml = self.registry_dir / 'known_peaks.yaml'
-                sorted_peaks = sorted(
-                    self.peaks.values(),
-                    key=lambda p: p.last_seen or datetime.min,
-                    reverse=True
-                )
-                
-                self._atomic_write_yaml(
-                    peaks_yaml,
-                    [p.to_dict() for p in sorted_peaks]
-                )
-                
-                # Save peaks MD
-                self._write_peaks_md(sorted_peaks)
-                
-                # Save fingerprint index (atomic)
-                self._save_fingerprint_index()
-                
-                # Check health warnings
-                self._check_health_warnings()
-                
-                return True
+                return self._save_locked()
                 
             finally:
                 # Release lock
@@ -889,81 +646,38 @@ class ProblemRegistry:
             traceback.print_exc()
             return False
 
-    def save(self) -> bool:
-        """Save one in-memory snapshot under the registry transaction lock."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        transaction_lock = self.registry_dir / '.registry.transaction.lock'
-        try:
-            with open(transaction_lock, 'w') as lock_fd:
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-                try:
-                    return self._save_unlocked()
-                finally:
-                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            print(f"⚠️ Error saving registry: {e}")
-            return False
+    def _save_locked(self) -> bool:
+        """Persist registry files while the caller holds the registry lock."""
+        problems_yaml = self.registry_dir / 'known_problems.yaml'
+        sorted_problems = sorted(
+            self.problems.values(),
+            key=lambda p: p.last_seen or datetime.min,
+            reverse=True
+        )
 
-    def update_and_save(
-        self,
-        incidents: List[Any],
-        event_timestamps: Dict[str, Tuple[datetime, datetime]] = None,
-    ) -> bool:
-        """Reload, mutate, and save the registry atomically under one lock."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        transaction_lock = self.registry_dir / '.registry.transaction.lock'
-        try:
-            with open(transaction_lock, 'w') as lock_fd:
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-                try:
-                    if not self._load_unlocked():
-                        return False
-                    self.update_from_incidents(incidents, event_timestamps)
-                    return self._save_unlocked()
-                finally:
-                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            print(f"⚠️ Error updating registry: {e}")
-            return False
+        self._atomic_write_yaml(
+            problems_yaml,
+            [p.to_dict() for p in sorted_problems]
+        )
 
-    def merge_enrichment_and_save(
-        self,
-        problem_updates: Dict[str, Dict[str, Any]],
-        peak_updates: Dict[str, Dict[str, Any]],
-    ) -> bool:
-        """Merge derived text fields into the latest registry snapshot."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        transaction_lock = self.registry_dir / '.registry.transaction.lock'
-        try:
-            with open(transaction_lock, 'w') as lock_fd:
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-                try:
-                    if not self._load_unlocked():
-                        return False
-                    for problem_key, updates in problem_updates.items():
-                        entry = self.problems.get(problem_key)
-                        if entry is None:
-                            continue
-                        entry.root_cause = updates.get('root_cause', entry.root_cause)
-                        entry.behavior = updates.get('behavior', entry.behavior)
-                        entry.enriched_severity = updates.get(
-                            'enriched_severity', entry.enriched_severity
-                        )
-                        entry.enriched_score = float(
-                            updates.get('enriched_score', entry.enriched_score)
-                        )
-                    for peak_key, updates in peak_updates.items():
-                        entry = self.peaks.get(peak_key)
-                        if entry is None:
-                            continue
-                        entry.root_cause = updates.get('root_cause', entry.root_cause)
-                        entry.behavior = updates.get('behavior', entry.behavior)
-                    return self._save_unlocked()
-                finally:
-                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-        except Exception as e:
-            print(f"⚠️ Error merging registry enrichment: {e}")
-            return False
+        self._write_problems_md(sorted_problems)
+
+        peaks_yaml = self.registry_dir / 'known_peaks.yaml'
+        sorted_peaks = sorted(
+            self.peaks.values(),
+            key=lambda p: p.last_seen or datetime.min,
+            reverse=True
+        )
+
+        self._atomic_write_yaml(
+            peaks_yaml,
+            [p.to_dict() for p in sorted_peaks]
+        )
+
+        self._write_peaks_md(sorted_peaks)
+        self._save_fingerprint_index()
+        self._check_health_warnings()
+        return True
     
     def _atomic_write_yaml(self, filepath: Path, data: Any):
         """
@@ -1034,13 +748,6 @@ class ProblemRegistry:
                     f"**Namespaces:** {', '.join(sorted(p.affected_namespaces))}",
                     "",
                 ])
-
-                if p.root_cause:
-                    lines.append(f"**Root cause:** {p.root_cause}")
-                if p.behavior:
-                    lines.append(f"**Behavior:** {p.behavior}")
-                if p.root_cause or p.behavior:
-                    lines.append("")
                 
                 if p.jira:
                     lines.append(f"**JIRA:** [{p.jira}](https://jira.kb.cz/browse/{p.jira})")
@@ -1089,22 +796,12 @@ class ProblemRegistry:
                         f"**Problem Key:** `{p.problem_key}`",
                         f"**First seen:** {p.first_seen.strftime('%Y-%m-%d %H:%M') if p.first_seen else 'N/A'}",
                         f"**Last seen:** {p.last_seen.strftime('%Y-%m-%d %H:%M') if p.last_seen else 'N/A'}",
-                        f"**Occurrence count (peak windows):** {p.occurrences}",
-                        f"**Peak count (raw errors):** {p.raw_error_count}",
+                        f"**Occurrences:** {p.occurrences}",
                         f"**Max value:** {p.max_value:.2f}",
                         f"**Max ratio:** {p.max_ratio:.2f}x",
                         "",
                         f"**Apps:** {', '.join(sorted(p.affected_apps)[:5])}",
                         f"**Namespaces:** {', '.join(sorted(p.affected_namespaces))}",
-                        "",
-                    ])
-
-                    if p.root_cause:
-                        lines.append(f"**Root cause:** {p.root_cause}")
-                    if p.behavior:
-                        lines.append(f"**Behavior:** {p.behavior}")
-
-                    lines.extend([
                         "",
                         "---",
                         "",
@@ -1181,25 +878,8 @@ class ProblemRegistry:
         return fingerprint in self.fingerprint_index
     
     def is_problem_key_known(self, problem_key: str) -> bool:
-        """Zjistí zda je problem_key známý (v problems NEBO peaks)."""
-        if problem_key in self.problems:
-            return True
-        # Also check peaks (peak keys have format PEAK:category:flow:peak_type)
-        if problem_key in self.peaks:
-            return True
-        # Cross-check: try matching as peak key variant
-        # Detection generates CATEGORY:flow:error_class, peaks use PEAK:category:flow:peak_type
-        # Check if any peak matches the category+flow portion
-        parts = problem_key.split(':')
-        if len(parts) >= 2:
-            category = parts[0].lower()
-            flow = parts[1]
-            for peak_key in self.peaks:
-                peak_parts = peak_key.split(':')
-                # PEAK:category:flow:peak_type
-                if len(peak_parts) >= 3 and peak_parts[1] == category and peak_parts[2] == flow:
-                    return True
-        return False
+        """Zjistí zda je problem_key známý."""
+        return problem_key in self.problems
     
     def get_problem_for_fingerprint(self, fingerprint: str) -> Optional[ProblemEntry]:
         """Vrátí ProblemEntry pro fingerprint."""
@@ -1265,14 +945,12 @@ class ProblemRegistry:
             if problem_key in self.problems:
                 self._update_problem(
                     problem_key, fingerprint, apps, namespaces,
-                    error_type, normalized_message, first_ts, last_ts, count,
-                    incident=incident,
+                    error_type, normalized_message, first_ts, last_ts, count
                 )
             else:
                 self._create_problem(
                     problem_key, fingerprint, category, apps, namespaces,
-                    error_type, normalized_message, first_ts, last_ts, count,
-                    incident=incident,
+                    error_type, normalized_message, first_ts, last_ts, count
                 )
             
             # Update fingerprint index
@@ -1283,14 +961,81 @@ class ProblemRegistry:
             if hasattr(incident, 'flags'):
                 if incident.flags.is_spike:
                     self._update_peak(
-                        incident, 'SPIKE', first_ts, last_ts,
-                        problem_key=problem_key, problem_count=count,
+                        incident, 'SPIKE', first_ts, last_ts
                     )
                 if incident.flags.is_burst:
                     self._update_peak(
-                        incident, 'BURST', first_ts, last_ts,
-                        problem_key=problem_key, problem_count=count,
+                        incident, 'BURST', first_ts, last_ts
                     )
+
+    def update_and_save(
+        self,
+        incidents: List[Any],
+        event_timestamps: Dict[str, Tuple[datetime, datetime]] = None
+    ) -> bool:
+        """Atomically merge incidents into the latest on-disk registry state."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = self.registry_dir / '.registry.lock'
+
+        try:
+            lock_fd = open(lock_file, 'w')
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            try:
+                if not self.load():
+                    return False
+
+                self.update_from_incidents(incidents, event_timestamps)
+                return self._save_locked()
+            finally:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                lock_fd.close()
+        except Exception as e:
+            print(f"⚠️ Error updating registry: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def merge_enrichment_and_save(
+        self,
+        problems_enrichment: Dict[str, Dict[str, Any]],
+        peaks_enrichment: Dict[str, Dict[str, Any]]
+    ) -> bool:
+        """Atomically merge enrichment fields into the latest registry state."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = self.registry_dir / '.registry.lock'
+
+        try:
+            lock_fd = open(lock_file, 'w')
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+            try:
+                if not self.load():
+                    return False
+
+                for problem_key, enrichment in (problems_enrichment or {}).items():
+                    problem = self.problems.get(problem_key)
+                    if not problem:
+                        continue
+                    for field_name, value in enrichment.items():
+                        if hasattr(problem, field_name):
+                            setattr(problem, field_name, value)
+
+                for peak_key, enrichment in (peaks_enrichment or {}).items():
+                    peak = self.peaks.get(peak_key)
+                    if not peak:
+                        continue
+                    for field_name, value in enrichment.items():
+                        if hasattr(peak, field_name):
+                            setattr(peak, field_name, value)
+
+                return self._save_locked()
+            finally:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                lock_fd.close()
+        except Exception as e:
+            print(f"⚠️ Error merging registry enrichment: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def _update_problem(
         self,
@@ -1302,8 +1047,7 @@ class ProblemRegistry:
         normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
-        count: int,
-        incident: Any = None,
+        count: int
     ):
         """Aktualizuje existující problem."""
         problem = self.problems[problem_key]
@@ -1314,24 +1058,17 @@ class ProblemRegistry:
         if problem.last_seen is None or last_ts > problem.last_seen:
             problem.last_seen = last_ts
         
-        # Update counts — deduplicate by truncating last_ts to minute precision.
-        # Without this, repeated backfill runs (--force) for the same window
-        # would accumulate occurrences and duplicate timestamps each run.
+        # Update counts
+        problem.occurrences += count
+        
+        # Track occurrence timestamps (keep max 100 for 24h trend calculation)
+        # Add last_ts to track when this problem occurred (keep recent timestamps)
         if last_ts:
-            ts_bucket = last_ts.replace(second=0, microsecond=0)
-            existing_buckets = {
-                t.replace(second=0, microsecond=0) if hasattr(t, "replace") else t
-                for t in problem.occurrence_times
-            }
-            if ts_bucket not in existing_buckets:
-                # Genuinely new window — count it
-                problem.occurrences += count
-                problem.occurrence_times.append(last_ts)
-                problem.occurrence_counts.append(count)
-            # else: same minute already recorded -> idempotent re-run, skip
-        else:
-            # No timestamp -> always count (e.g. regular phase rows)
-            problem.occurrences += count
+            problem.occurrence_times.append(last_ts)
+            # Keep only last 100 timestamps (memory efficient)
+            if len(problem.occurrence_times) > 100:
+                # Remove oldest ones to keep only last 100
+                problem.occurrence_times = problem.occurrence_times[-100:]
         
         # Add fingerprint if new (with limit)
         if fingerprint not in problem.fingerprints:
@@ -1344,15 +1081,6 @@ class ProblemRegistry:
             msg = normalized_message.strip()[:500]
             if msg not in problem.sample_messages and len(problem.sample_messages) < MAX_SAMPLE_MESSAGES_PER_FP:
                 problem.sample_messages.append(msg)
-            if not problem.behavior:
-                # Strip stack trace before storing — keep behavior signal-only.
-                problem.behavior = _strip_stack_trace_for_storage(msg)[:500]
-
-        if not problem.root_cause:
-            if error_type and error_type != 'UnknownError':
-                problem.root_cause = error_type
-            else:
-                problem.root_cause = problem.description or ''
         
         # Update affected entities (defensive: filter None)
         safe_apps = [a for a in apps if a] if apps else []
@@ -1360,31 +1088,7 @@ class ProblemRegistry:
         
         problem.affected_apps.update(safe_apps)
         problem.affected_namespaces.update(safe_ns)
-
-        # Per-entity counts: prefer incident.app_event_counts (real per-app
-        # contributions for this fingerprint), fallback to spreading `count`
-        # uniformly across affected apps when not available.
-        app_evt = getattr(incident, 'app_event_counts', None) if incident is not None else None
-        if app_evt:
-            _merge_count_dict(problem.app_counts, app_evt)
-        elif safe_apps and count:
-            share = max(1, count // len(safe_apps))
-            _merge_count_dict(problem.app_counts, {a: share for a in safe_apps})
-
-        ns_evt = getattr(incident, 'namespace_event_counts', None) if incident is not None else None
-        if ns_evt:
-            _merge_count_dict(problem.namespace_counts, ns_evt)
-        elif safe_ns and count:
-            share = max(1, count // len(safe_ns))
-            _merge_count_dict(problem.namespace_counts, {n: share for n in safe_ns})
-
-        # HTTP status parsing from normalized_message (SPEED-101 / ITO-XXX format)
-        http_status = _parse_http_status(normalized_message)
-        if http_status:
-            problem.http_status_counts[http_status] = (
-                problem.http_status_counts.get(http_status, 0) + count
-            )
-
+        
         # Extract deployment labels vs app versions
         for app in safe_apps:
             problem.deployments_seen.add(extract_deployment_label(app))
@@ -1405,8 +1109,7 @@ class ProblemRegistry:
         normalized_message: str,
         first_ts: datetime,
         last_ts: datetime,
-        count: int,
-        incident: Any = None,
+        count: int
     ):
         """Vytvoří nový problem."""
         self._problem_counter += 1
@@ -1435,37 +1138,14 @@ class ProblemRegistry:
             first_seen=first_ts,
             last_seen=last_ts,
             occurrences=count,
-            occurrence_times=[last_ts] if last_ts else [],
-            occurrence_counts=[count] if last_ts else [],
             fingerprints=[fingerprint],
             sample_messages=sample_messages,
             description=f"{error_type}: {normalized_message[:200] if normalized_message else 'N/A'}",
-            root_cause=(error_type if error_type and error_type != 'UnknownError' else ''),
-            behavior=_strip_stack_trace_for_storage(sample_messages[0]) if sample_messages else '',
             affected_apps=set(safe_apps),
             affected_namespaces=set(safe_ns),
             deployments_seen={extract_deployment_label(app) for app in safe_apps},
         )
-
-        # Per-entity counts: prefer incident.app_event_counts when available.
-        app_evt = getattr(incident, 'app_event_counts', None) if incident is not None else None
-        if app_evt:
-            problem.app_counts = _normalize_count_dict(app_evt)
-        elif safe_apps and count:
-            share = max(1, count // len(safe_apps))
-            problem.app_counts = {a: share for a in safe_apps}
-
-        ns_evt = getattr(incident, 'namespace_event_counts', None) if incident is not None else None
-        if ns_evt:
-            problem.namespace_counts = _normalize_count_dict(ns_evt)
-        elif safe_ns and count:
-            share = max(1, count // len(safe_ns))
-            problem.namespace_counts = {n: share for n in safe_ns}
-
-        http_status = _parse_http_status(normalized_message)
-        if http_status:
-            problem.http_status_counts[http_status] = count
-
+        
         problem.scope = self._compute_scope(problem)
         
         self.problems[problem_key] = problem
@@ -1476,12 +1156,9 @@ class ProblemRegistry:
         incident: Any,
         peak_type: str,
         first_ts: datetime,
-        last_ts: datetime,
-        problem_key: Optional[str] = None,
-        problem_count: int = 0,
+        last_ts: datetime
     ):
         """Aktualizuje nebo vytvoří peak."""
-
         # Compute peak problem_key (defensive: apps may contain None)
         category = incident.category.value if hasattr(incident.category, 'value') else 'unknown'
         safe_apps = [a for a in (incident.apps or []) if a]
@@ -1495,84 +1172,22 @@ class ProblemRegistry:
             value = incident.stats.current_rate
             if incident.stats.baseline_rate > 0:
                 ratio = value / incident.stats.baseline_rate
-
-        count = 1
-        if hasattr(incident, 'stats') and hasattr(incident.stats, 'current_count'):
-            try:
-                count = max(1, int(incident.stats.current_count))
-            except (TypeError, ValueError):
-                count = 1
-
-        app_counts = getattr(incident, 'app_event_counts', {}) or {}
-        namespace_counts = getattr(incident, 'namespace_event_counts', {}) or {}
-        originator_counts = getattr(incident, 'originator_application_counts', {}) or {}
-        trace_counts = getattr(incident, 'trace_event_counts', {}) or {}
-        if not trace_counts and getattr(incident, 'trace_ids', None):
-            trace_counts = {trace_id: 1 for trace_id in incident.trace_ids if trace_id}
-
-        def _window_bucket(ts: Optional[datetime]) -> Optional[datetime]:
-            if ts is None:
-                return None
-            return ts.replace(minute=(ts.minute // 15) * 15, second=0, microsecond=0)
-
-        current_bucket = _window_bucket(last_ts)
         
         if peak_key in self.peaks:
             peak = self.peaks[peak_key]
-            previous_last_seen = peak.last_seen
             
             # Update timestamps
             if peak.first_seen is None or first_ts < peak.first_seen:
                 peak.first_seen = first_ts
             if peak.last_seen is None or last_ts > peak.last_seen:
                 peak.last_seen = last_ts
-
-            previous_bucket = _window_bucket(previous_last_seen)
-            if previous_bucket != current_bucket:
-                peak.occurrences += 1
-            if current_bucket is not None:
-                if peak.occurrence_times and _window_bucket(peak.occurrence_times[-1]) == current_bucket:
-                    if peak.occurrence_counts:
-                        peak.occurrence_counts[-1] += count
-                else:
-                    peak.occurrence_times.append(current_bucket)
-                    peak.occurrence_counts.append(count)
-                    peak.occurrences = len(peak.occurrence_times)
-
-            peak.raw_error_count += count
+            
+            peak.occurrences += 1
             peak.max_value = max(peak.max_value, value)
             peak.max_ratio = max(peak.max_ratio, ratio)
-            peak.affected_apps.update(incident.apps or [])
-            peak.affected_namespaces.update(incident.namespaces or [])
-            _merge_count_dict(peak.app_counts, app_counts)
-            _merge_count_dict(peak.namespace_counts, namespace_counts)
-            _merge_count_dict(peak.originator_application_counts, originator_counts)
-            _merge_count_dict(peak.trace_counts, trace_counts)
-            dominant_trace_id, _ = dominant_count_entry(peak.trace_counts)
-            if dominant_trace_id:
-                peak.dominant_trace_id = dominant_trace_id
-            peak.test = is_test_peak_counts(peak.originator_application_counts, peak.raw_error_count)
-            # Always update root_cause and behavior from latest incident
-            if getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError':
-                peak.root_cause = str(incident.error_type)
-            try:
-                from analysis.trace_analysis import _extract_useful_content, _smart_trim
-                raw_msg = str(getattr(incident, 'normalized_message', '') or '')
-                if raw_msg:
-                    extracted = _extract_useful_content(raw_msg)
-                    peak.behavior = (_smart_trim(extracted)[:300] if extracted else raw_msg[:300])
-            except ImportError:
-                raw_msg = str(getattr(incident, 'normalized_message', '') or '')
-                if raw_msg:
-                    peak.behavior = raw_msg[:300]
-
-            # Update structured per-pattern contribution (replaces r69 behavior_steps).
-            if problem_key:
-                inc = max(1, int(problem_count or count))
-                peak.contributing_problems[problem_key] = (
-                    peak.contributing_problems.get(problem_key, 0) + inc
-                )
-
+            peak.affected_apps.update(incident.apps)
+            peak.affected_namespaces.update(incident.namespaces)
+            
             if incident.fingerprint not in peak.fingerprints:
                 peak.fingerprints.append(incident.fingerprint)
             
@@ -1587,36 +1202,13 @@ class ProblemRegistry:
                 first_seen=first_ts,
                 last_seen=last_ts,
                 occurrences=1,
-                raw_error_count=count,
                 fingerprints=[incident.fingerprint],
-                affected_apps=set(incident.apps or []),
-                affected_namespaces=set(incident.namespaces or []),
-                app_counts=_normalize_count_dict(app_counts),
-                namespace_counts=_normalize_count_dict(namespace_counts),
-                originator_application_counts=_normalize_count_dict(originator_counts),
-                trace_counts=_normalize_count_dict(trace_counts),
-                dominant_trace_id=dominant_count_entry(trace_counts)[0],
-                test=is_test_peak_counts(originator_counts, count),
-                occurrence_times=[current_bucket] if current_bucket else [],
-                occurrence_counts=[count] if current_bucket else [],
+                affected_apps=set(incident.apps),
+                affected_namespaces=set(incident.namespaces),
                 max_value=value,
                 max_ratio=ratio,
-                root_cause=(str(incident.error_type) if getattr(incident, 'error_type', None) and incident.error_type != 'UnknownError' else ''),
-                behavior='',
             )
-            # Set behavior with smart extraction
-            if getattr(incident, 'normalized_message', None):
-                try:
-                    from analysis.trace_analysis import _extract_useful_content, _smart_trim
-                    extracted = _extract_useful_content(str(incident.normalized_message))
-                    peak.behavior = _smart_trim(extracted)[:300] if extracted else str(incident.normalized_message)[:300]
-                except ImportError:
-                    peak.behavior = str(incident.normalized_message)[:300]
-
-            # Initialize structured per-pattern contribution.
-            if problem_key:
-                peak.contributing_problems[problem_key] = max(1, int(problem_count or count))
-
+            
             self.peaks[peak_key] = peak
             self.stats['new_peaks_added'] += 1
     

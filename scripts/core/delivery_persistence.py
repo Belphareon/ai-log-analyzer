@@ -13,7 +13,13 @@ import psycopg2
 from psycopg2.extras import Json, execute_values
 
 
-VALID_STATUSES = {"delivered", "failed", "suppressed", "skipped"}
+VALID_STATUSES = {"delivered", "failed", "suppressed", "skipped", "not_attempted"}
+VALID_POLICY_OUTCOMES = {
+    "primary_send",
+    "digest_only",
+    "route_suppressed",
+    "no_material_change",
+}
 
 
 def summarize_delivery_outcomes(
@@ -118,6 +124,7 @@ def persist_notification_deliveries(
                 str(delivery.get("provider_message", "") or "")[:4000],
                 Json(metadata),
                 delivery.get("attempted_at") or attempted_at,
+                str(delivery.get("notification_decision_id") or "").strip() or None,
             )
         )
 
@@ -133,7 +140,7 @@ def persist_notification_deliveries(
                 INSERT INTO ailog_peak.notification_deliveries (
                     delivery_id, run_id, window_start, notification_type,
                     dedup_key, destination, status, provider_message,
-                    metadata, attempted_at
+                    metadata, attempted_at, notification_decision_id
                 ) VALUES %s
                 """,
                 rows,
@@ -163,4 +170,78 @@ def persist_notification_deliveries(
         ),
         flush=True,
     )
+    return len(rows)
+
+
+def persist_notification_decisions(
+    connection_factory: Callable[[], Any],
+    decisions: Iterable[dict[str, Any]],
+) -> int:
+    """Persist one idempotent policy decision for each episode update."""
+    rows = []
+    for decision in decisions:
+        decision_id = str(decision.get("notification_decision_id", "")).strip()
+        episode_id = str(decision.get("episode_id", "")).strip()
+        window_decision_id = str(decision.get("window_decision_id", "")).strip()
+        destination = str(decision.get("destination", "")).strip()
+        outcome = str(decision.get("policy_outcome", "")).strip()
+        metadata = decision.get("metadata") or {}
+        if not decision_id or not episode_id or not window_decision_id or not destination:
+            raise ValueError("Every notification decision requires complete identity")
+        if outcome not in VALID_POLICY_OUTCOMES:
+            raise ValueError(f"Invalid notification policy outcome: {outcome!r}")
+        if not isinstance(metadata, dict):
+            raise ValueError("Notification decision metadata must be a dictionary")
+        rows.append(
+            (
+                decision_id,
+                episode_id,
+                window_decision_id,
+                str(decision.get("stream_key") or "live"),
+                destination,
+                outcome,
+                str(decision.get("episode_state") or "CONTINUATION"),
+                str(decision.get("candidate_reason") or "")[:120],
+                decision.get("detail_rank"),
+                decision.get("detail_limit"),
+                str(decision.get("test_origin_label") or "")[:255] or None,
+                Json(metadata),
+            )
+        )
+
+    if not rows:
+        return 0
+
+    connection = connection_factory()
+    try:
+        with connection.cursor() as cursor:
+            execute_values(
+                cursor,
+                """
+                INSERT INTO ailog_peak.notification_decisions (
+                    notification_decision_id, episode_id, window_decision_id,
+                    stream_key, destination, policy_outcome, episode_state,
+                    candidate_reason, detail_rank, detail_limit,
+                    test_origin_label, metadata
+                ) VALUES %s
+                ON CONFLICT (notification_decision_id)
+                DO UPDATE SET
+                    policy_outcome = EXCLUDED.policy_outcome,
+                    episode_state = EXCLUDED.episode_state,
+                    candidate_reason = EXCLUDED.candidate_reason,
+                    detail_rank = EXCLUDED.detail_rank,
+                    detail_limit = EXCLUDED.detail_limit,
+                    test_origin_label = EXCLUDED.test_origin_label,
+                    metadata = EXCLUDED.metadata,
+                    decided_at = NOW()
+                """,
+                rows,
+                page_size=500,
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
     return len(rows)

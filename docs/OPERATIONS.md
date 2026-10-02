@@ -10,20 +10,20 @@ Vše pro běžný provoz, manuální zásahy a diagnostiku. Systém běží **au
 |---------|----------|---------|--------------|
 | `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → alert → export | 1–5 min |
 | `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish | 10–60 min |
-| `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet P93/CAP z peak_raw_data | 1–5 min |
+| `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet robustního Pxx/CAP z úplných fact rows | 1–5 min |
 | `log-analyzer-maintenance` | `30 2 * * *` | Denní rollup + retention faktů | 1–30 min |
 
 ### Závislosti
 
 ```
 Init Job (jednorázově po instalaci)
-  └─ backfill → plní peak_raw_data + peak_investigation
-  └─ threshold calc → vypočítá P93/CAP z backfill dat
+  └─ backfill → plní authoritative 15min facts + peak_investigation
+  └─ threshold calc → vypočítá robustní Pxx/CAP z complete facts
 
 Poté autonomně:
-  regular (*/15)       → fetch ES → detect → alert → plní peak_raw_data
+  regular (*/15)       → fetch ES → Pxx/CAP + family gate → alert → plní complete facts
   backfill (09:00)     → zpracuje předchozí den → publikuje Confluence
-  thresholds (Ne 03:00) → přepočítá P93/CAP z posledních 4 týdnů
+  thresholds (Ne 03:00) → přepočítá robustní Pxx/CAP z posledních 4 týdnů
   maintenance (02:30)  → denní rollupy → smaže fakta starší než retention limit
 ```
 
@@ -87,13 +87,31 @@ Všechny parametry jsou v `values.yaml` daného prostředí (v infra-apps repu).
 | `env.ALERT_MIN_DELTA_PCT` | `30` | Min. % změna pro znovu-odeslání |
 | `env.ALERT_CONTINUATION_LOOKBACK_MIN` | `60` | Lookback pro pokračující peak |
 
+### Workflow lifecycle diagnostics
+
+| Parametr | Default | Popis |
+|----------|---------|-------|
+| `env.LIFECYCLE_ANALYSIS_ENABLED` | `false` | Zapne INFO-level lifecycle probe a evidence fetch |
+| `env.LIFECYCLE_ALERT_ENABLED` | `false` | Povolí alert až po complete persisted high-confidence runu |
+| `env.LIFECYCLE_PROBE_MAX_HITS` | `200` | Cap discovery probe; cap znamená partial run |
+| `env.LIFECYCLE_FETCH_BATCH_SIZE` | `1000` | PIT/search_after page size |
+| `env.LIFECYCLE_MAX_RECORDS_PER_QUERY` | `50000` | Cap záznamů per root/predecessor query |
+| `env.LIFECYCLE_MAX_PREDECESSOR_IDS` | `500` | Cap predecessor ID per scope |
+| `env.LIFECYCLE_MIN_RETRIES` | `3` | Minimum retry/return cyklů pro kandidáta |
+
+Zavádění: nejprve zapnout pouze `LIFECYCLE_ANALYSIS_ENABLED`, ověřit complete/partial runy a evidence v DB i logu regular CronJobu, a teprve poté povolit `LIFECYCLE_ALERT_ENABLED`. Partial nebo failed run je diagnostický stav, nikdy alert.
+
 ### Detekce
 
 | Parametr | Default | Popis |
 |----------|---------|-------|
-| `env.PERCENTILE_LEVEL` | `0.93` | Percentil pro P93 thresholds |
+| `env.PERCENTILE_LEVEL` | `0.93` | Uživatelská citlivost namespace Pxx thresholdu |
 | `env.MIN_SAMPLES_FOR_THRESHOLD` | `10` | Min vzorků pro spolehlivý threshold |
-| `env.DEFAULT_THRESHOLD` | `100` | Fallback pokud chybí P93/CAP data |
+| `env.DEFAULT_THRESHOLD` | `100` | CAP pro namespace bez vlastního thresholdu v kompatibilním snapshotu |
+| `env.FINGERPRINT_SPIKE_MIN_COUNT` | `20` | Absolutní minimum pro historickou cause family |
+| `env.FINGERPRINT_SPIKE_MAD_MULTIPLIER` | `6` | MAD násobek pro namespace/fingerprint family gate |
+
+Pokud nelze inicializovat `PeakDetector` z authoritative threshold snapshotu, regular phase a backfill skončí s chybou. Selhání načtení authoritative namespace/fingerprint baseline běh nezastaví, ale fail-closed potlačí přiřazení namespace peaku ke cause family. Pro spike rozhodování není EWMA fallback.
 
 ### Init job
 
@@ -185,12 +203,13 @@ kubectl logs job/<failed-job> -n ai-log-analyzer
 | Daily Incident Analysis je prázdná | Chybné `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` nebo selhal publisher v `backfill.py` | Ověřit page ID v rendered backfill CronJobu a hledat `Recent Incidents` v logu posledního backfill jobu |
 | Argo sync selže na immutable Job/PVC | Globální `Replace=true` v Application | Odstranit globální Replace; ponechat Force/Replace pouze na init Jobu a zapnout `ApplyOutOfSyncOnly=true` |
 | `No thresholds found` | Prázdná DB | Spustit init job |
+| `Pxx/CAP peak detector initialization failed` | DB snapshot nebo baseline není dostupný/kompatibilní | Ověřit DB přístup, complete facts a `PERCENTILE_LEVEL`; job nespustí legacy EWMA fallback |
 | `SMTP connection refused` | Mail server | Ověřit SMTP_HOST z K8s |
 
 ### DB diagnostika
 
 ```sql
-SELECT MAX(created_at) FROM ailog_peak.peak_raw_data;
+SELECT MAX(window_start) FROM ailog_peak.v_complete_namespace_error_counts;
 SELECT namespace, COUNT(*) FROM ailog_peak.peak_thresholds GROUP BY namespace;
 SELECT COUNT(*) FROM ailog_peak.peak_investigation WHERE created_at > NOW() - INTERVAL '24 hours';
 ```

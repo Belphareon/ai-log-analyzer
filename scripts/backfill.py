@@ -50,6 +50,7 @@ sys.path.insert(0, str(SCRIPT_DIR.parent))
 from core.fetch_unlimited import (
     INDICES,
     _load_monitored_namespaces,
+    fetch_trace_context,
     fetch_unlimited,
 )
 from core.problem_registry import ProblemRegistry, compute_problem_key
@@ -58,8 +59,15 @@ from core.delivery_persistence import (
     persist_notification_deliveries,
     summarize_delivery_outcomes,
 )
-from core.run_persistence import build_query_hash, persist_analysis_run
+from core.run_persistence import (
+    build_query_hash,
+    load_peak_episodes_before,
+    persist_analysis_run,
+)
+from core.namespace_contract import namespace_contract_hash
+from core.peak_decision import materialize_decision_windows
 from core.streaming_aggregator import StreamingAggregator
+from analysis.operational_cause import build_collection_cause_analysis
 from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
 from pipeline.phase_f_report import PhaseF_Report
@@ -313,7 +321,55 @@ def update_registry_from_incidents(
 # WORKER
 # =============================================================================
 
-def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bool = True) -> dict:
+class _BootstrapPeakDetector:
+    """Suppress threshold-dependent peak detection while bootstrap facts are collected."""
+
+    def is_peak(self, _value: float, _namespace: str, _day_of_week: int) -> dict:
+        return {'is_peak': False}
+
+
+def _env_enabled(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _resolve_operator_trace_analysis() -> bool:
+    report_enabled = _env_enabled('OPERATOR_DAILY_REPORT_ENABLED', True)
+    trace_enabled = _env_enabled(
+        'OPERATOR_DAILY_TRACE_ANALYSIS_ENABLED', report_enabled
+    )
+    if report_enabled and not trace_enabled:
+        raise ValueError(
+            'OPERATOR_DAILY_REPORT_ENABLED requires '
+            'OPERATOR_DAILY_TRACE_ANALYSIS_ENABLED'
+        )
+    return trace_enabled
+
+
+def _validate_trace_evidence(collection: IncidentCollection, enabled: bool) -> None:
+    if not enabled:
+        return
+    traced_error_lines = sum(
+        max(0, int(count or 0))
+        for incident in collection.incidents
+        for count in (getattr(incident, 'trace_event_counts', {}) or {}).values()
+    )
+    if traced_error_lines and not (getattr(collection, 'trace_timelines', {}) or {}):
+        raise RuntimeError(
+            'Trace analysis was enabled and trace IDs were collected, but no '
+            'trace timelines were built'
+        )
+
+
+def process_day_worker(
+    date: datetime,
+    dry_run: bool = False,
+    skip_processed: bool = True,
+    bootstrap: bool = False,
+    build_trace_patterns: Optional[bool] = None,
+) -> dict:
     """
     Worker function - zpracuje jeden den.
 
@@ -384,6 +440,48 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 time_range_start=date_from,
                 time_range_end=date_to,
             )
+            window_starts = [
+                date_from + timedelta(minutes=15 * index)
+                for index in range(96)
+            ]
+            collection.namespace_peak_decisions = [
+                decision.to_dict()
+                for decision in materialize_decision_windows(
+                    [],
+                    _load_monitored_namespaces(),
+                    window_starts=window_starts,
+                    stream_key='backfill',
+                    contract_hash=namespace_contract_hash(_load_monitored_namespaces()),
+                    run_id=collection.run_id,
+                )
+            ]
+            try:
+                from core.peak_episode import materialize_episode_state
+                prior_episodes = []
+                if not dry_run:
+                    prior_episodes = load_peak_episodes_before(
+                        get_db_connection,
+                        stream_key='backfill',
+                        before_window_start=date_from,
+                    )
+                collection.peak_episodes, collection.peak_episode_transitions = (
+                    materialize_episode_state(
+                        collection.namespace_peak_decisions,
+                        [],
+                        resolve_non_peak_windows=int(
+                            os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                        ),
+                        prior_episodes=prior_episodes,
+                    )
+                )
+            except Exception as error:
+                result['status'] = 'error'
+                result['error'] = str(error)
+                safe_print(
+                    f" ❌ [{thread_name}] No-data episode materialization failed: "
+                    f"{type(error).__name__}: {error}"
+                )
+                return result
             result['collection'] = collection
             result['status'] = 'no_data'
         else:
@@ -394,18 +492,40 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
             registry = get_registry()
             known_fps = registry.get_all_known_fingerprints() if registry else set()
 
-            # P93/CAP peak detection
-            peak_detector = None
-            try:
-                from core.peak_detection import PeakDetector
-                peak_db_conn = get_db_connection()
-                peak_detector = PeakDetector(conn=peak_db_conn)
-            except Exception as e:
-                safe_print(f"   ⚠️ [{thread_name}] P93/CAP peak detector unavailable: {e}")
+            # Bootstrap facts before a compatible threshold snapshot exists.
+            if bootstrap:
+                peak_detector = _BootstrapPeakDetector()
+                safe_print(
+                    f"   ℹ️ [{thread_name}] Bootstrap mode: "
+                    "skipping threshold-dependent peak detection"
+                )
+            else:
+                try:
+                    from core.peak_detection import PeakDetector
+                    peak_db_conn = get_db_connection()
+                    peak_detector = PeakDetector(conn=peak_db_conn)
+                except Exception as e:
+                    aggregator.close()
+                    result['status'] = 'error'
+                    result['error'] = (
+                        'Pxx/CAP peak detector initialization failed: '
+                        f'{e}'
+                    )
+                    safe_print(f"   ❌ [{thread_name}] {result['error']}")
+                    return result
+
+            if build_trace_patterns is None:
+                build_trace_patterns = _resolve_operator_trace_analysis()
+
+            monitored_namespaces = _load_monitored_namespaces()
 
             pipeline = Pipeline(
                 ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
                 peak_detector=peak_detector,
+                monitored_namespaces=monitored_namespaces,
+                stream_key='backfill',
+                namespace_contract_hash=namespace_contract_hash(monitored_namespaces),
+                build_trace_patterns=build_trace_patterns,
             )
 
             # Inject registry into Phase C (critical for is_problem_key_known() lookup!)
@@ -415,6 +535,8 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
 
             # Load historical baseline from DB (same as regular_phase.py)
             historical_baseline = {}
+            namespace_fingerprint_baselines = {}
+            namespace_fingerprint_baseline_available = False
             try:
                 db_conn = get_db_connection()
                 baseline_loader = BaselineLoader(db_conn)
@@ -428,6 +550,17 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                         lookback_days=7,
                         min_samples=3
                     )
+                    namespace_fingerprint_baselines = baseline_loader.load_namespace_fingerprint_rates(
+                        namespace_fingerprints=[
+                            (namespace, fingerprint)
+                            for fingerprint, accumulator in aggregator.acc.items()
+                            for namespace in accumulator.ns_bucket_counts
+                        ],
+                        analysis_window_start=date_from,
+                        lookback_days=7,
+                        min_samples=3,
+                    )
+                    namespace_fingerprint_baseline_available = True
                     safe_print(f"   📊 [{thread_name}] Loaded baseline for {len(historical_baseline)}/{len(fingerprints)} fingerprints")
 
                 db_conn.close()
@@ -436,6 +569,10 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 historical_baseline = {}
 
             pipeline.phase_b.historical_baseline = historical_baseline
+            pipeline.phase_c.namespace_fingerprint_baselines = namespace_fingerprint_baselines
+            pipeline.phase_c.namespace_fingerprint_baseline_available = (
+                namespace_fingerprint_baseline_available
+            )
 
             try:
                 collection = pipeline.run_streaming(
@@ -444,6 +581,85 @@ def process_day_worker(date: datetime, dry_run: bool = False, skip_processed: bo
                 )
             finally:
                 aggregator.close()
+
+            _validate_trace_evidence(collection, build_trace_patterns)
+
+            if (
+                getattr(collection, 'trace_patterns', None)
+                and os.getenv('REP_TRACE_CONTEXT', 'false').strip().lower()
+                in {'1', 'true', 'yes', 'on'}
+            ):
+                try:
+                    from analysis.trace_timeline import enrich_patterns_with_trace_context
+
+                    lookback = int(os.getenv('REP_TRACE_CONTEXT_LOOKBACK_MIN', '5'))
+                    context_from = date_from - timedelta(minutes=max(0, lookback))
+                    context_stats = {'traces': 0, 'events': 0}
+
+                    def tracked_fetch(trace_ids, fetch_from, fetch_to):
+                        context = fetch_trace_context(trace_ids, fetch_from, fetch_to)
+                        context_stats['traces'] = len(context)
+                        context_stats['events'] = sum(
+                            len(events) for events in context.values()
+                        )
+                        return context
+
+                    enrich_patterns_with_trace_context(
+                        collection.trace_patterns,
+                        tracked_fetch,
+                        context_from.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                        date_to.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                        top_n=int(os.getenv('REP_TRACE_CONTEXT_TOPN', '10')),
+                    )
+                    if context_stats['traces']:
+                        safe_print(
+                            f"   ✅ [{thread_name}] Enriched "
+                            f"{context_stats['traces']} representative traces with "
+                            f"{context_stats['events']} full-level events"
+                        )
+                    else:
+                        safe_print(
+                            f"   ⚠️ [{thread_name}] No representative trace context "
+                            "returned; continuing with ERROR-only evidence"
+                        )
+                except Exception as error:
+                    safe_print(
+                        f"   ⚠️ [{thread_name}] Trace context enrichment failed "
+                        f"(non-blocking): {type(error).__name__}: {error}"
+                    )
+
+            cause_analysis = build_collection_cause_analysis(collection)
+            safe_print(
+                f"   ✅ [{thread_name}] Built {len(cause_analysis.families)} "
+                f"reconciled cause families"
+            )
+            from core.peak_episode import materialize_episode_state
+            prior_episodes = []
+            if not dry_run:
+                try:
+                    prior_episodes = load_peak_episodes_before(
+                        get_db_connection,
+                        stream_key='backfill',
+                        before_window_start=date_from,
+                    )
+                except Exception as error:
+                    safe_print(
+                        f"   ⚠️ [{thread_name}] Historical episode state unavailable; "
+                        f"current day only: {type(error).__name__}: {error}"
+                    )
+            collection.peak_episodes, collection.peak_episode_transitions = (
+                materialize_episode_state(
+                    getattr(collection, 'namespace_peak_decisions', []),
+                    [family.to_dict() for family in cause_analysis.families],
+                    resolve_non_peak_windows=int(
+                        os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                    ),
+                    escalation_ratio=float(
+                        os.getenv('EPISODE_ESCALATION_RATIO', '1.5')
+                    ),
+                    prior_episodes=prior_episodes,
+                )
+            )
             
             # 3. Extract event timestamps
             event_timestamps = {}
@@ -555,6 +771,18 @@ def _save_report_daily(report: str, output_dir, start_date, end_date, quiet: boo
         safe_print(f"   📄 Report saved: {filepath}")
 
 
+def _merge_collection_trace_data(collections):
+    """Merge per-day ERROR timelines and enriched pattern references for reporting."""
+    trace_timelines = {}
+    trace_pattern_index = {}
+    for _date_str, collection in collections:
+        trace_timelines.update(getattr(collection, 'trace_timelines', {}) or {})
+        trace_pattern_index.update(
+            getattr(collection, 'trace_pattern_index', {}) or {}
+        )
+    return trace_timelines, trace_pattern_index
+
+
 # =============================================================================
 # MAIN BACKFILL
 # =============================================================================
@@ -568,6 +796,7 @@ def run_backfill(
     workers: int = 1,
     skip_analysis: bool = False,
     skip_processed: bool = True,
+    bootstrap: bool = False,
 ) -> dict:
     """
     Hlavní backfill funkce.
@@ -577,6 +806,7 @@ def run_backfill(
     - Používá event timestamps
     - Ukládá peaks
     """
+    build_trace_patterns = _resolve_operator_trace_analysis()
     
     # ==========================================================================
     # CALCULATE DATE RANGE
@@ -603,6 +833,7 @@ def run_backfill(
     safe_print(f" Total days: {len(dates)}")
     safe_print(f" Workers: {workers}")
     safe_print(f" Skip processed: {skip_processed}")
+    safe_print(f" Bootstrap mode: {bootstrap}")
     safe_print(f" DB insert: MAIN THREAD (not workers)")
     
     # ==========================================================================
@@ -629,7 +860,14 @@ def run_backfill(
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {}
             for date in dates:
-                future = executor.submit(process_day_worker, date, dry_run, skip_processed)
+                future = executor.submit(
+                    process_day_worker,
+                    date,
+                    dry_run,
+                    skip_processed,
+                    bootstrap,
+                    build_trace_patterns,
+                )
                 futures[future] = date
             
             safe_print(f" 📤 Submitted {len(futures)} tasks\n")
@@ -672,7 +910,13 @@ def run_backfill(
             date_str = date.strftime('%Y-%m-%d')
             safe_print(f"\n[{i}/{len(dates)}] {date_str}")
             
-            result = process_day_worker(date, dry_run, skip_processed)
+            result = process_day_worker(
+                date,
+                dry_run,
+                skip_processed,
+                bootstrap,
+                build_trace_patterns,
+            )
             results.append(result)
             
             if result['status'] in {'success', 'no_data'} and result.get('collection'):
@@ -725,7 +969,7 @@ def run_backfill(
         committed_collections = list(collections_to_save)
 
     collections_to_save = committed_collections
-    
+
     # ==========================================================================
     # UPDATE REGISTRY (CRITICAL!)
     # ==========================================================================
@@ -822,6 +1066,10 @@ def run_backfill(
         # 3. Generuj problem-centric report
         reports_dir = output_dir or str(SCRIPT_DIR / 'reports')
 
+        trace_timelines, trace_pattern_index = _merge_collection_trace_data(
+            collections_to_save
+        )
+
         generator = ProblemReportGenerator(
             problems=problems,
             trace_flows=trace_flows,
@@ -829,6 +1077,8 @@ def run_backfill(
             analysis_end=end_date,
             run_id=all_incidents_collection.run_id,
             registry_problems=_global_registry.problems if _global_registry is not None else None,
+            trace_pattern_index=trace_pattern_index,
+            trace_timelines=trace_timelines,
         )
 
         # Textový report
@@ -1159,6 +1409,11 @@ def main():
     parser.add_argument('--workers', type=int, default=1, help='Parallel workers (default: 1)')
     parser.add_argument('--no-analysis', action='store_true', help='Skip incident analysis')
     parser.add_argument('--force', action='store_true', help='Process even already processed days')
+    parser.add_argument(
+        '--bootstrap',
+        action='store_true',
+        help='Collect facts without requiring an existing Pxx/CAP threshold snapshot',
+    )
     
     args = parser.parse_args()
     
@@ -1171,6 +1426,7 @@ def main():
         workers=args.workers,
         skip_analysis=args.no_analysis,
         skip_processed=not args.force,
+        bootstrap=args.bootstrap,
     )
     
     return 0 if (

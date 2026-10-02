@@ -23,9 +23,10 @@ import atexit
 import signal
 import re
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Tuple, Optional, Any, List
+from typing import Dict, Tuple, Optional, Any, List, Iterable
 from zoneinfo import ZoneInfo
 
 _DISPLAY_TZ = ZoneInfo(os.getenv('DISPLAY_TIMEZONE', 'Europe/Prague'))
@@ -43,14 +44,29 @@ from core.fetch_unlimited import (
     fetch_trace_context,
     fetch_unlimited,
 )
-from core.problem_registry import ProblemRegistry
-from core.problem_registry import dominant_count_entry, extract_flow, is_test_peak_counts
+from core.problem_registry import ProblemRegistry, extract_flow
+from core.peak_classification import dominant_count_entry, is_test_peak_counts
 from core.streaming_aggregator import StreamingAggregator
 from core.baseline_loader import BaselineLoader
-from core.delivery_persistence import persist_notification_deliveries
-from core.run_persistence import persist_analysis_run
+from core.delivery_persistence import (
+    persist_notification_decisions,
+    persist_notification_deliveries,
+)
+from core.notification_policy import decide_notification_candidates
+from core.run_persistence import (
+    load_peak_episodes_before,
+    persist_analysis_run,
+)
+from core.namespace_contract import namespace_contract_hash
+from core.peak_decision import materialize_decision_windows
+from core.workflow_diagnostics import run_workflow_lifecycle_diagnostics
 from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
+from analysis.operational_cause import (
+    build_cause_family,
+    build_collection_cause_analysis,
+    merge_cause_families,
+)
 
 # Table exports
 try:
@@ -609,10 +625,10 @@ def _record_delivered_peak_alerts(
             alert_state = _load_alert_state_unlocked(registry)
             alert_peaks = alert_state.setdefault('peaks', {})
             for payload in delivered_payloads:
-                peak_key = payload.get('peak_key', '')
-                if not peak_key:
+                alert_identity = _alert_identity(payload)
+                if not alert_identity:
                     continue
-                alert_peaks[peak_key] = {
+                alert_peaks[alert_identity] = {
                     'last_sent_at': now_utc.isoformat(),
                     'last_sent_window': payload.get('window_key', ''),
                     'last_trend': payload.get('trend', ''),
@@ -621,6 +637,8 @@ def _record_delivered_peak_alerts(
                         now_utc + timedelta(minutes=max(cooldown_min, 0))
                     ).isoformat(),
                     'last_reason': payload.get('send_reason', ''),
+                    'peak_key': payload.get('peak_key', ''),
+                    'cause_signatures': _cause_signatures(payload),
                 }
             _save_alert_state_unlocked(registry, alert_state)
         finally:
@@ -659,6 +677,241 @@ def _sorted_count_map(counts: Optional[Dict[str, int]]) -> Dict[str, int]:
     }
 
 
+def _numeric_or_none(value: Any) -> Optional[float]:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _threshold_evidence(incidents: List[Any]) -> List[Dict[str, Any]]:
+    """Return unique namespace-level Pxx/CAP decisions used for this payload."""
+    decisions: Dict[Tuple[str, str, Optional[float]], Dict[str, Any]] = {}
+    for incident in incidents:
+        for evidence in getattr(incident, 'evidence', []) or []:
+            if getattr(evidence, 'rule', '') != 'spike_p93_cap':
+                continue
+            details = getattr(evidence, 'details', {}) or {}
+            namespace = str(details.get('namespace') or '')
+            snapshot_id = str(details.get('threshold_snapshot_id') or '')
+            observed_value = _numeric_or_none(getattr(evidence, 'current', None))
+            p93_threshold = _numeric_or_none(details.get('p93_threshold'))
+            percentile_level = _numeric_or_none(details.get('percentile_level'))
+            percentile_threshold = _numeric_or_none(details.get('percentile_threshold'))
+            cap_threshold = _numeric_or_none(details.get('cap_threshold'))
+            threshold_candidates = [
+                value for value in (percentile_threshold, p93_threshold, cap_threshold)
+                if value is not None
+            ]
+            decision = {
+                'namespace': namespace,
+                'observed_value': observed_value,
+                'p93_threshold': p93_threshold,
+                'percentile_level': percentile_level,
+                'percentile_threshold': percentile_threshold or p93_threshold,
+                'cap_threshold': cap_threshold,
+                'effective_threshold': min(threshold_candidates) if threshold_candidates else None,
+                'triggered_by': str(details.get('triggered_by') or ''),
+                'threshold_snapshot_id': snapshot_id,
+                'fingerprint_contribution': _numeric_or_none(
+                    details.get('fingerprint_contribution')
+                ),
+                'detector_version': str(details.get('detector_version') or ''),
+            }
+            decisions[(namespace, snapshot_id, observed_value)] = decision
+    return sorted(
+        decisions.values(),
+        key=lambda decision: (
+            -(decision.get('observed_value') or 0),
+            decision.get('namespace') or '',
+        ),
+    )
+
+
+def _cause_signatures(payload: Dict[str, Any]) -> List[str]:
+    signatures = {
+        str(family.get('signature') or '')
+        for family in (payload.get('cause_families') or [])
+        if isinstance(family, dict) and family.get('signature')
+    }
+    return sorted(signatures)
+
+
+def _set_alert_identity(payload: Dict[str, Any]) -> str:
+    signatures = _cause_signatures(payload)
+    if signatures:
+        payload['alert_identity'] = 'CAUSE:' + '+'.join(signatures)
+    else:
+        payload['alert_identity'] = str(
+            payload.get('peak_key') or payload.get('peak_identifier') or ''
+        )
+    return payload['alert_identity']
+
+
+def _alert_identity(payload: Dict[str, Any]) -> str:
+    return str(payload.get('alert_identity') or _set_alert_identity(payload))
+
+
+def _attach_cause_family(payload: Dict[str, Any]) -> Dict[str, Any]:
+    family = build_cause_family(payload).to_dict()
+    payload['cause_family'] = family
+    payload['cause_families'] = [family]
+    _set_alert_identity(payload)
+    return payload
+
+
+def _attach_authoritative_cause_families(
+    payload: Dict[str, Any],
+    cause_analysis: Any,
+) -> bool:
+    """Attach run-level cause evidence without hiding a scope mismatch."""
+    source_raw_lines = int(payload.get('error_count', 0) or 0)
+    payload_trace_ids = {
+        str(trace_id)
+        for trace_id in (payload.get('trace_counts') or {})
+        if trace_id
+    }
+    payload_trace_counts = {
+        str(trace_id): max(0, int(count or 0))
+        for trace_id, count in (payload.get('trace_counts') or {}).items()
+        if trace_id
+    }
+
+    def set_reconciliation(
+        status: str,
+        *,
+        represented_raw_lines: int,
+        represented_trace_ids: Iterable[str],
+        reason: str,
+    ) -> None:
+        unexplained = max(0, source_raw_lines - represented_raw_lines)
+        payload['cause_reconciliation'] = {
+            'status': status,
+            'source_raw_error_lines': source_raw_lines,
+            'represented_raw_error_lines': represented_raw_lines,
+            'unexplained_raw_lines': unexplained,
+            'source_trace_ids': len(payload_trace_ids),
+            'represented_trace_ids': len(set(represented_trace_ids)),
+            'reason': reason,
+        }
+        payload['cause_evidence_status'] = status
+        payload['unexplained_raw_lines'] = unexplained
+
+    if not payload_trace_ids or cause_analysis is None:
+        set_reconciliation(
+            'degraded',
+            represented_raw_lines=0,
+            represented_trace_ids=(),
+            reason=(
+                'trace evidence unavailable'
+                if not payload_trace_ids
+                else 'cause analysis unavailable'
+            ),
+        )
+        return False
+
+    candidates = [
+        family
+        for family in (getattr(cause_analysis, 'families', None) or ())
+        if family.trace_ids and set(family.trace_ids) & payload_trace_ids
+    ]
+    candidates.sort(
+        key=lambda family: (
+            -family.raw_error_lines,
+            family.root_app,
+            family.canonical_cause,
+            family.signature,
+        )
+    )
+    if not candidates:
+        set_reconciliation(
+            'degraded',
+            represented_raw_lines=0,
+            represented_trace_ids=(),
+            reason='cause families have no trace overlap with payload',
+        )
+        return False
+
+    represented_trace_ids = {
+        str(trace_id)
+        for family in candidates
+        for trace_id in family.trace_ids
+        if str(trace_id) in payload_trace_ids
+    }
+    represented_raw_lines = sum(family.raw_error_lines for family in candidates)
+    is_complete = (
+        represented_trace_ids == payload_trace_ids
+        and represented_raw_lines == source_raw_lines
+        and all(set(family.trace_ids).issubset(payload_trace_ids) for family in candidates)
+    )
+    if is_complete:
+        attached_families = candidates
+        set_reconciliation(
+            'complete',
+            represented_raw_lines=source_raw_lines,
+            represented_trace_ids=represented_trace_ids,
+            reason='trace and raw-line evidence reconciled',
+        )
+    else:
+        attached_families = []
+        remaining_raw_lines = source_raw_lines
+        projected_trace_ids = set()
+        for family in candidates:
+            family_trace_ids = tuple(
+                sorted(set(family.trace_ids) & payload_trace_ids)
+            )
+            trace_raw_lines = sum(
+                payload_trace_counts.get(trace_id, 0)
+                for trace_id in family_trace_ids
+            )
+            allocated_raw_lines = min(
+                max(0, int(family.raw_error_lines or 0)),
+                remaining_raw_lines,
+                trace_raw_lines,
+            )
+            if allocated_raw_lines <= 0:
+                continue
+            traced_error_lines = min(
+                allocated_raw_lines,
+                max(0, int(family.traced_error_lines or 0)),
+            )
+            attached_families.append(replace(
+                family,
+                raw_error_lines=allocated_raw_lines,
+                traced_error_lines=traced_error_lines,
+                unsegmented_error_lines=allocated_raw_lines - traced_error_lines,
+                trace_ids=family_trace_ids,
+                representative_trace_id=(
+                    family.representative_trace_id
+                    if family.representative_trace_id in family_trace_ids
+                    else (family_trace_ids[0] if family_trace_ids else '')
+                ),
+            ))
+            remaining_raw_lines -= allocated_raw_lines
+            projected_trace_ids.update(family_trace_ids)
+
+        represented_raw_lines = source_raw_lines - remaining_raw_lines
+        if not attached_families:
+            set_reconciliation(
+                'degraded',
+                represented_raw_lines=0,
+                represented_trace_ids=(),
+                reason='cause families could not be projected to current scope',
+            )
+            return False
+        set_reconciliation(
+            'partial',
+            represented_raw_lines=represented_raw_lines,
+            represented_trace_ids=projected_trace_ids,
+            reason='trace or raw-line evidence covers only part of current scope',
+        )
+
+    payload['cause_families'] = [family.to_dict() for family in attached_families]
+    payload['cause_family'] = payload['cause_families'][0]
+    _set_alert_identity(payload)
+    return is_complete
+
+
 def _should_send_peak_alert(
     payload: Dict[str, Any],
     state_entry: Dict[str, Any],
@@ -667,11 +920,6 @@ def _should_send_peak_alert(
     cooldown_min = int(os.getenv('ALERT_COOLDOWN_MIN', '45'))
     heartbeat_min = int(os.getenv('ALERT_HEARTBEAT_MIN', '120'))
     min_delta_pct = float(os.getenv('ALERT_MIN_DELTA_PCT', '30'))
-
-    if payload.get('is_test_peak'):
-        originator = str(payload.get('test_originator_application', '') or '')
-        suffix = f":{originator}" if originator else ''
-        return False, f'test_peak_suppressed{suffix}'
 
     if not state_entry:
         return True, 'first_seen_in_state'
@@ -1029,7 +1277,7 @@ def _build_peak_alert_payload(
         top_orig = sorted(originator_application_counts.items(), key=lambda kv: -kv[1])[:3]
         originator_display = ', '.join(f"{name}({count})" for name, count in top_orig)
 
-    return {
+    payload = {
         'peak_key': peak_key,
         'peak_identifier': peak_identifier,
         'peak_type': peak_type,
@@ -1059,12 +1307,15 @@ def _build_peak_alert_payload(
         'new_namespaces': new_namespaces,
         'window_key': window_start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'trace_id': trace_id,
+        'trace_counts': trace_counts,
         'root_cause_text': digest_root_cause,
         'behavior_text': behavior_text,
         'detail_message': behavior_text,
+        'threshold_evidence': _threshold_evidence(signal_incidents),
         'is_test_peak': is_test_peak,
         'test_originator_application': test_originator_application,
     }
+    return _attach_cause_family(payload)
 
 
 def _build_cluster_payload(
@@ -1097,6 +1348,16 @@ def _build_cluster_payload(
         return payload
 
     merged_behavior_steps = list(payload.get('trace_steps', []) or [])
+    primary_family = build_cause_family(payload)
+    cause_families = [primary_family]
+    threshold_decisions = {
+        (
+            str(decision.get('namespace') or ''),
+            str(decision.get('threshold_snapshot_id') or ''),
+            decision.get('observed_value'),
+        ): decision
+        for decision in (payload.get('threshold_evidence') or [])
+    }
 
     # Merge counts from other problems in cluster
     for secondary in cluster[1:]:
@@ -1111,6 +1372,28 @@ def _build_cluster_payload(
             _problems_share_event_traces(primary, secondary)
             or _problems_represent_same_events(primary, secondary)
         )
+        secondary_family = build_cause_family(sec_payload)
+        merge_index = None
+        for index, family in enumerate(cause_families):
+            if same_events or family.signature == secondary_family.signature:
+                merge_index = index
+                break
+        if merge_index is None:
+            cause_families.append(secondary_family)
+        else:
+            cause_families[merge_index] = merge_cause_families(
+                cause_families[merge_index],
+                secondary_family,
+                same_events=same_events,
+            )
+
+        for decision in sec_payload.get('threshold_evidence') or []:
+            decision_key = (
+                str(decision.get('namespace') or ''),
+                str(decision.get('threshold_snapshot_id') or ''),
+                decision.get('observed_value'),
+            )
+            threshold_decisions[decision_key] = decision
         if same_events:
             payload['error_count'] = max(
                 int(payload.get('error_count', 0)), int(sec_payload.get('error_count', 0))
@@ -1164,6 +1447,23 @@ def _build_cluster_payload(
     payload['originator_display'] = ', '.join(f"{name}({count})" for name, count in top_orig)
 
     payload['cluster_size'] = len(cluster)
+    cause_families.sort(
+        key=lambda family: (
+            -family.raw_error_lines,
+            family.root_app,
+            family.canonical_cause,
+        )
+    )
+    payload['cause_families'] = [family.to_dict() for family in cause_families]
+    payload['cause_family'] = payload['cause_families'][0]
+    _set_alert_identity(payload)
+    payload['threshold_evidence'] = sorted(
+        threshold_decisions.values(),
+        key=lambda decision: (
+            -(decision.get('observed_value') or 0),
+            decision.get('namespace') or '',
+        ),
+    )
 
     return payload
 
@@ -1180,15 +1480,73 @@ def _notification_destinations() -> List[str]:
 
 
 def _delivery_dedup_key(payload: Dict[str, Any]) -> str:
-    peak_key = str(
-        payload.get('peak_key') or payload.get('peak_identifier') or 'unknown-peak'
-    )
+    alert_identity = _alert_identity(payload) or 'unknown-cause'
     window_key = str(
         payload.get('window_key')
         or payload.get('window_start')
         or 'unknown-window'
     )
-    return f'{peak_key}:{window_key}'[:500]
+    return f'{alert_identity}:{window_key}'[:500]
+
+
+def _episode_policy_contexts(
+    payload: Dict[str, Any],
+    transitions: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Resolve a rendered payload to all event-time transitions it represents."""
+    payload_window = _parse_dt(payload.get('window_start'))
+    if payload_window is None:
+        return []
+    payload_signatures = {
+        str(family.get('signature') or '')
+        for family in (payload.get('cause_families') or [])
+        if isinstance(family, dict) and family.get('signature')
+    }
+    matches = []
+    for transition in transitions or []:
+        transition_window = _parse_dt(transition.get('window_start_utc'))
+        if transition_window is None or transition_window != payload_window:
+            continue
+        signature = str(transition.get('cause_signature') or '')
+        if payload_signatures and (not signature or signature not in payload_signatures):
+            continue
+        matches.append(transition)
+    if matches:
+        return sorted(
+            matches,
+            key=lambda transition: (
+                str(transition.get('state') or ''),
+                str(transition.get('episode_id') or ''),
+            ),
+        )
+
+    same_window = [
+        transition
+        for transition in transitions or []
+        if _parse_dt(transition.get('window_start_utc')) == payload_window
+    ]
+    return same_window if not payload_signatures else []
+
+
+def _episode_policy_context(
+    payload: Dict[str, Any],
+    transitions: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Return the primary transition for legacy single-episode callers."""
+    contexts = _episode_policy_contexts(payload, transitions)
+    return contexts[0] if contexts else None
+
+
+def _notification_decision_ids(payload: Dict[str, Any]) -> List[str]:
+    decision_ids = [
+        str(value).strip()
+        for value in (payload.get('notification_decision_ids') or ())
+        if str(value).strip()
+    ]
+    if decision_ids:
+        return list(dict.fromkeys(decision_ids))
+    decision_id = str(payload.get('notification_decision_id') or '').strip()
+    return [decision_id]
 
 
 def _policy_delivery_outcomes(
@@ -1197,19 +1555,24 @@ def _policy_delivery_outcomes(
     provider_message: str,
 ) -> List[Dict[str, Any]]:
     peak_key = str(payload.get('peak_key', '') or '')
+    alert_identity = _alert_identity(payload)
     return [
         {
             'dedup_key': _delivery_dedup_key(payload),
             'destination': destination,
             'status': status,
             'provider_message': provider_message,
+            'notification_decision_id': decision_id,
             'metadata': {
                 'attempt_kind': 'policy',
                 'peak_key': peak_key,
+                'alert_identity': alert_identity,
+                'cause_signatures': _cause_signatures(payload),
                 'window_key': payload.get('window_key', ''),
                 'error_count': int(payload.get('error_count', 0) or 0),
             },
         }
+        for decision_id in _notification_decision_ids(payload)
         for destination in _notification_destinations()
     ]
 
@@ -1232,14 +1595,20 @@ def _payload_delivery_outcomes(
     return [{
         **outcome,
         'dedup_key': _delivery_dedup_key(payload),
+        'notification_decision_id': decision_id,
         'metadata': {
             'attempt_kind': attempt_kind,
             'peak_key': payload.get('peak_key', ''),
+            'alert_identity': _alert_identity(payload),
+            'cause_signatures': _cause_signatures(payload),
             'window_key': payload.get('window_key', ''),
             'send_reason': payload.get('send_reason', ''),
             'error_count': int(payload.get('error_count', 0) or 0),
+            'notification_decision_id': decision_id,
+            'policy_outcome': payload.get('policy_outcome', ''),
+            'test_origin_label': payload.get('test_origin_label', ''),
         },
-    } for outcome in outcomes]
+    } for decision_id in _notification_decision_ids(payload) for outcome in outcomes]
 
 
 class PeakDispatchResult(list):
@@ -1270,28 +1639,41 @@ def _send_peak_alert_email(
                 'provider_message': 'Notification delivery is disabled or unconfigured',
             } for destination in _notification_destinations()]
 
-        success = email_notifier.send_regular_phase_peak_alert_detailed(
-            peak_error_class=payload.get('error_class', 'unknown'),
-            peak_error_details=payload.get('peak_error_details', ''),
-            peak_type=payload.get('peak_type', 'SPIKE'),
-            peak_identifier=payload.get('peak_identifier', ''),
-            is_known=bool(payload.get('is_known', False)),
-            is_continues=bool(payload.get('is_continues', False)),
-            peak_id=payload.get('peak_id', ''),
-            error_count=int(payload.get('error_count', 0) or 0),
-            window_start=payload.get('window_start'),
-            window_end=payload.get('window_end'),
-            affected_apps=payload.get('affected_apps', []),
-            app_counts=payload.get('app_counts', {}),
-            affected_namespaces=payload.get('affected_namespaces', []),
-            namespace_counts=payload.get('namespace_counts', {}),
-            trace_steps=payload.get('trace_steps', []),
-            behavior_text=payload.get('behavior_text', ''),
-            root_cause=payload.get('root_cause'),
-            propagation_info=payload.get('propagation_info'),
-            continuation_summary=payload.get('continuation_summary'),
-            severity_icon=payload.get('severity_icon', '⚠️'),
-        )
+        operator_digest_enabled = os.getenv(
+            'ALERT_OPERATOR_DIGEST_ENABLED', 'true'
+        ).strip().lower() not in {'0', 'false', 'no', 'off'}
+        if operator_digest_enabled:
+            success = email_notifier.send_regular_phase_peak_digest(
+                window_start=payload.get('window_start'),
+                window_end=payload.get('window_end'),
+                alerts=[payload],
+                summary={
+                    'raw_window_errors': int(payload.get('error_count', 0) or 0),
+                },
+            )
+        else:
+            success = email_notifier.send_regular_phase_peak_alert_detailed(
+                peak_error_class=payload.get('error_class', 'unknown'),
+                peak_error_details=payload.get('peak_error_details', ''),
+                peak_type=payload.get('peak_type', 'SPIKE'),
+                peak_identifier=payload.get('peak_identifier', ''),
+                is_known=bool(payload.get('is_known', False)),
+                is_continues=bool(payload.get('is_continues', False)),
+                peak_id=payload.get('peak_id', ''),
+                error_count=int(payload.get('error_count', 0) or 0),
+                window_start=payload.get('window_start'),
+                window_end=payload.get('window_end'),
+                affected_apps=payload.get('affected_apps', []),
+                app_counts=payload.get('app_counts', {}),
+                affected_namespaces=payload.get('affected_namespaces', []),
+                namespace_counts=payload.get('namespace_counts', {}),
+                trace_steps=payload.get('trace_steps', []),
+                behavior_text=payload.get('behavior_text', ''),
+                root_cause=payload.get('root_cause'),
+                propagation_info=payload.get('propagation_info'),
+                continuation_summary=payload.get('continuation_summary'),
+                severity_icon=payload.get('severity_icon', '⚠️'),
+            )
 
         if success:
             print("✅ Peak alert email sent")
@@ -1351,26 +1733,46 @@ def _dispatch_peak_alerts(
     payloads: List[Dict[str, Any]],
     digest_enabled: bool,
     digest_summary: Dict[str, Any],
+    digest_payloads: Optional[List[Dict[str, Any]]] = None,
 ) -> PeakDispatchResult:
-    if not payloads:
+    digest_alerts = digest_payloads if digest_payloads is not None else payloads
+    if not payloads and not digest_alerts:
         return PeakDispatchResult([], [])
 
     delivery_outcomes: List[Dict[str, Any]] = []
     if digest_enabled:
         digest_success, digest_results = _normalize_send_result(
             _send_peak_alert_digest(
-                window_start, window_end, payloads, digest_summary
+                window_start, window_end, digest_alerts, digest_summary
             )
         )
-        for payload in payloads:
+        for payload in digest_alerts:
             delivery_outcomes.extend(
                 _payload_delivery_outcomes(payload, digest_results, 'digest')
             )
         if digest_success:
-            return PeakDispatchResult(list(payloads), delivery_outcomes)
+            return PeakDispatchResult(list(digest_alerts), delivery_outcomes)
 
     if digest_enabled:
         print("⚠️ Digest send failed, falling back to individual alerts")
+
+    primary_payload_ids = {id(payload) for payload in payloads}
+    for payload in digest_alerts:
+        if id(payload) in primary_payload_ids:
+            continue
+        delivery_outcomes.extend(
+            _payload_delivery_outcomes(
+                payload,
+                [{
+                    'destination': destination,
+                    'status': 'not_attempted',
+                    'provider_message': (
+                        'Digest delivery failed; digest-only candidate was not attempted individually'
+                    ),
+                } for destination in _notification_destinations()],
+                'not_attempted',
+            )
+        )
 
     delivered = []
     for payload in payloads:
@@ -1641,22 +2043,161 @@ def run_incident_analysis(
 # MAIN
 # =============================================================================
 
+def _resolve_regular_window(
+    window_minutes: int,
+    replay_window_end: Optional[datetime] = None,
+) -> Tuple[datetime, datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    if replay_window_end is None:
+        quarter = (now.minute // 15) * 15
+        window_end = now.replace(minute=quarter, second=0, microsecond=0)
+    else:
+        if window_minutes != 15:
+            raise ValueError('historical replay requires window_minutes=15')
+        if replay_window_end.tzinfo is None or replay_window_end.utcoffset() is None:
+            raise ValueError('replay_window_end must be timezone-aware')
+        window_end = replay_window_end.astimezone(timezone.utc)
+        if (
+            window_end.minute % 15
+            or window_end.second
+            or window_end.microsecond
+        ):
+            raise ValueError('replay_window_end must align to a 15-minute UTC boundary')
+    return now, window_end - timedelta(minutes=window_minutes), window_end
+
+
+def _load_replay_threshold_bundle(
+    peak_detector: Any,
+    bundle_path: Path,
+    window_start: datetime,
+    monitored_namespaces: Optional[Iterable[str]] = None,
+) -> Dict[str, Any]:
+    from core.calculate_peak_thresholds import (
+        CALCULATION_VERSION,
+        PERCENTILE_METHOD,
+        POPULATION_GRAIN,
+    )
+
+    bundle = json.loads(bundle_path.read_text(encoding='utf-8'))
+    metadata = bundle.get('metadata') or {}
+    expected_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.93'))
+    expected_metadata = {
+        'population_grain': POPULATION_GRAIN,
+        'percentile_method': PERCENTILE_METHOD,
+        'calculation_version': CALCULATION_VERSION,
+    }
+    mismatches = [
+        f'{name}={metadata.get(name)} expected={expected}'
+        for name, expected in expected_metadata.items()
+        if metadata.get(name) != expected
+    ]
+    percentile_level = float(metadata.get('percentile_level', -1))
+    if abs(percentile_level - expected_percentile) >= 1e-9:
+        mismatches.append(
+            f'percentile_level={percentile_level} expected={expected_percentile}'
+        )
+    training_cutoff = datetime.fromisoformat(
+        str(metadata.get('training_cutoff', '')).replace('Z', '+00:00')
+    )
+    if training_cutoff.tzinfo is None or training_cutoff.utcoffset() is None:
+        mismatches.append('training_cutoff must be timezone-aware')
+    elif training_cutoff.astimezone(timezone.utc) > window_start:
+        mismatches.append(
+            f'training_cutoff={training_cutoff.isoformat()} exceeds '
+            f'window_start={window_start.isoformat()}'
+        )
+    expected_namespaces = tuple(sorted({
+        str(namespace).strip()
+        for namespace in (monitored_namespaces or _load_monitored_namespaces())
+        if str(namespace).strip()
+    }))
+    bundle_namespaces = tuple(sorted({
+        str(namespace).strip()
+        for namespace in (metadata.get('monitored_namespaces') or ())
+        if str(namespace).strip()
+    }))
+    if bundle_namespaces != expected_namespaces:
+        mismatches.append(
+            f'monitored_namespaces={list(bundle_namespaces)} '
+            f'expected={list(expected_namespaces)}'
+        )
+    expected_contract_hash = namespace_contract_hash(expected_namespaces)
+    if metadata.get('namespace_contract_hash') != expected_contract_hash:
+        mismatches.append(
+            f'namespace_contract_hash={metadata.get("namespace_contract_hash")} '
+            f'expected={expected_contract_hash}'
+        )
+    if mismatches:
+        raise RuntimeError('incompatible replay threshold bundle: ' + '; '.join(mismatches))
+
+    thresholds = {
+        (str(row['namespace']), int(row['day_of_week'])): {
+            'value': float(row['value']),
+            'samples': int(row['samples']),
+        }
+        for row in bundle.get('thresholds', [])
+    }
+    caps = {
+        str(namespace): {
+            'value': float(row['value']),
+            'samples': int(row['samples']),
+        }
+        for namespace, row in (bundle.get('caps') or {}).items()
+    }
+    bundle_id = str(bundle.get('bundle_id') or '')
+    if not bundle_id or not thresholds or not caps:
+        raise RuntimeError('replay threshold bundle is incomplete')
+    peak_detector.load_thresholds_direct(
+        thresholds,
+        caps,
+        snapshot_id=bundle_id,
+    )
+    return metadata
+
+
 def run_regular_phase(
     window_minutes: int = 15,
     dry_run: bool = False,
     output_dir: str = None,
+    replay_window_end: Optional[datetime] = None,
+    audit_only: bool = False,
+    replay_thresholds_json: Optional[Path] = None,
+    replay_evaluate_policy: bool = False,
+    replay_prior_episodes_json: Optional[Path] = None,
 ) -> dict:
     """
     Main regular phase function.
     
     Processes last N minutes of data and updates registry.
     """
-    now = datetime.now(timezone.utc)
-    
-    # Calculate window (align to quarter hours)
-    quarter = (now.minute // 15) * 15
-    window_end = now.replace(minute=quarter, second=0, microsecond=0)
-    window_start = window_end - timedelta(minutes=window_minutes)
+    if replay_window_end is not None and window_minutes != 15:
+        raise ValueError('historical replay requires window_minutes=15')
+    if replay_window_end is not None and not dry_run:
+        raise ValueError('historical replay requires dry_run=True')
+    if audit_only and not dry_run:
+        raise ValueError('audit_only requires dry_run=True')
+    if replay_evaluate_policy and (
+        not dry_run or replay_window_end is None or audit_only
+    ):
+        raise ValueError(
+            'replay_evaluate_policy requires historical dry-run mode without audit-only'
+        )
+    if replay_thresholds_json is not None and (
+        replay_window_end is None
+        or not dry_run
+        or (not audit_only and not replay_evaluate_policy)
+    ):
+        raise ValueError(
+            'replay_thresholds_json requires historical dry-run audit or policy replay mode'
+        )
+    if replay_prior_episodes_json is not None and not replay_evaluate_policy:
+        raise ValueError(
+            'replay_prior_episodes_json requires replay_evaluate_policy'
+        )
+    now, window_start, window_end = _resolve_regular_window(
+        window_minutes,
+        replay_window_end,
+    )
     
     print("=" * 70)
     print("🚀 REGULAR PHASE - 15-minute Pipeline")
@@ -1671,8 +2212,12 @@ def run_regular_phase(
         'window_start': window_start.isoformat(),
         'window_end': window_end.isoformat(),
         'error_count': 0,
+        'expected_count': None,
+        'fetched_count': 0,
+        'fetch_complete': False,
         'incidents': 0,
         'saved': 0,
+        'namespace_peak_audit': [],
     }
     
     # ==========================================================================
@@ -1681,6 +2226,29 @@ def run_regular_phase(
     registry = init_registry()
     print(f"📋 Registry: {len(registry.fingerprint_index)} known fingerprints")
     registry_before = _registry_snapshot(registry)
+
+    # Lifecycle evidence is INFO-level and independent of the ERROR pipeline.
+    # Its own persistence/alerting contract is fail-closed, so a diagnostic
+    # failure must not prevent normal peak collection from continuing.
+    try:
+        lifecycle_result = run_workflow_lifecycle_diagnostics(
+            window_start,
+            window_end,
+            get_db_connection,
+            dry_run=dry_run,
+        )
+        result['workflow_lifecycle'] = lifecycle_result
+        lifecycle_status = lifecycle_result.get('status', 'unknown')
+        print(f"🔄 Workflow lifecycle diagnostic: {lifecycle_status}")
+        if lifecycle_result.get('error'):
+            print(f"⚠️ Workflow lifecycle diagnostic failed closed: {lifecycle_result['error']}")
+    except Exception as e:
+        result['workflow_lifecycle'] = {
+            'status': 'failed',
+            'error': _one_line_error(e),
+            'alerted': [],
+        }
+        print(f"⚠️ Workflow lifecycle diagnostic failed closed: {_one_line_error(e)}")
     
     # ==========================================================================
     # FETCH DATA
@@ -1704,7 +2272,11 @@ def run_regular_phase(
         result['error'] = 'Fetch returned None'
         return result
 
-    if not LAST_FETCH_STATS.get('complete'):
+    result['expected_count'] = LAST_FETCH_STATS.get('expected')
+    result['fetched_count'] = LAST_FETCH_STATS.get('fetched', aggregator.total_records)
+    result['fetch_complete'] = bool(LAST_FETCH_STATS.get('complete'))
+
+    if not result['fetch_complete']:
         aggregator.close()
         reason = LAST_FETCH_STATS.get('reason') or 'source count did not reconcile'
         print(f"❌ Fetch incomplete: {reason}")
@@ -1728,6 +2300,47 @@ def run_regular_phase(
             time_range_start=window_start,
             time_range_end=window_end,
         )
+        collection.namespace_peak_decisions = [
+            decision.to_dict()
+            for decision in materialize_decision_windows(
+                [],
+                monitored_namespaces,
+                window_starts=[window_start],
+                stream_key='live',
+                contract_hash=namespace_contract_hash(monitored_namespaces),
+                run_id=run_id,
+            )
+        ]
+        try:
+            from core.peak_episode import materialize_episode_state
+            prior_episodes = []
+            if replay_prior_episodes_json is not None:
+                prior_episodes = json.loads(
+                    replay_prior_episodes_json.read_text(encoding='utf-8')
+                )
+            elif not dry_run:
+                prior_episodes = load_peak_episodes_before(
+                    get_db_connection,
+                    stream_key='live',
+                    before_window_start=window_start,
+                )
+            collection.peak_episodes, collection.peak_episode_transitions = (
+                materialize_episode_state(
+                    collection.namespace_peak_decisions,
+                    [],
+                    resolve_non_peak_windows=int(
+                        os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                    ),
+                    prior_episodes=prior_episodes,
+                )
+            )
+            result['peak_episodes'] = collection.peak_episodes
+            result['peak_episode_transitions'] = collection.peak_episode_transitions
+        except Exception as e:
+            print(f"❌ No-data episode materialization failed: {_one_line_error(e)}")
+            result['status'] = 'error'
+            result['error'] = str(e)
+            return result
         if not dry_run:
             try:
                 persistence = persist_analysis_run(
@@ -1766,6 +2379,8 @@ def run_regular_phase(
     # LOAD HISTORICAL BASELINE FROM DB
     # ==========================================================================
     historical_baseline = {}
+    namespace_fingerprint_baselines = {}
+    namespace_fingerprint_baseline_available = False
     try:
         db_conn = get_db_connection(read_only=True)
         baseline_loader = BaselineLoader(db_conn)
@@ -1779,7 +2394,22 @@ def run_regular_phase(
                     lookback_days=7,
                     min_samples=3
                 )
+                namespace_fingerprint_baselines = baseline_loader.load_namespace_fingerprint_rates(
+                    namespace_fingerprints=[
+                        (namespace, fingerprint)
+                        for fingerprint, accumulator in aggregator.acc.items()
+                        for namespace in accumulator.ns_bucket_counts
+                    ],
+                    analysis_window_start=window_start,
+                    lookback_days=7,
+                    min_samples=3,
+                )
+                namespace_fingerprint_baseline_available = True
                 print(f"   📊 Loaded baseline for {len(historical_baseline)}/{len(fingerprints)} fingerprints")
+                print(
+                    "   📊 Loaded namespace fingerprint baseline for "
+                    f"{len(namespace_fingerprint_baselines)} pairs"
+                )
         
         db_conn.close()
     except Exception as e:
@@ -1789,59 +2419,85 @@ def run_regular_phase(
     # ==========================================================================
     # RUN PIPELINE
     # ==========================================================================
-    # P93/CAP peak detection (replaces EWMA/MAD for spike detection)
+    # Pxx/CAP peak detection (replaces EWMA/MAD for spike detection)
     peak_detector = None
     try:
         from core.peak_detection import PeakDetector
-        peak_db_conn = get_db_connection(read_only=True)
-        peak_detector = PeakDetector(conn=peak_db_conn)
-        print("   P93/CAP peak detector loaded")
+        if replay_thresholds_json is not None:
+            peak_detector = PeakDetector()
+            threshold_metadata = _load_replay_threshold_bundle(
+                peak_detector,
+                replay_thresholds_json,
+                window_start,
+                monitored_namespaces,
+            )
+            result['threshold_source'] = 'replay_memory_bundle'
+            result['threshold_bundle'] = threshold_metadata
+            print("   Pxx/CAP peak detector loaded from read-only replay bundle")
+        else:
+            peak_db_conn = get_db_connection(read_only=True)
+            peak_detector = PeakDetector(conn=peak_db_conn)
+            result['threshold_source'] = 'database_snapshot'
+            print("   Pxx/CAP peak detector loaded")
     except Exception as e:
-        print(f"   P93/CAP peak detector unavailable (falling back to EWMA): {_one_line_error(e)}")
+        result['status'] = 'error'
+        result['error'] = (
+            'Pxx/CAP peak detector initialization failed: '
+            f'{_one_line_error(e)}'
+        )
+        print(f"❌ {result['error']}")
+        aggregator.close()
+        return result
 
     try:
         pipeline = Pipeline(
             ewma_alpha=float(os.getenv('EWMA_ALPHA', 0.3)),
             peak_detector=peak_detector,
-            build_trace_patterns=True,
+            monitored_namespaces=monitored_namespaces,
+            stream_key='live',
+            namespace_contract_hash=namespace_contract_hash(monitored_namespaces),
+            build_trace_patterns=not audit_only,
         )
 
         pipeline.phase_b.historical_baseline = historical_baseline
+        pipeline.phase_c.namespace_fingerprint_baselines = namespace_fingerprint_baselines
+        pipeline.phase_c.namespace_fingerprint_baseline_available = (
+            namespace_fingerprint_baseline_available
+        )
 
         # ← KRITICKÉ: Inject registry do Phase C (aby mohl dělat is_problem_key_known lookup!)
         pipeline.phase_c.registry = registry
         pipeline.phase_c.known_fingerprints = registry.get_all_known_fingerprints().copy()
 
         collection = pipeline.run_streaming(aggregator, run_id=run_id)
+        result['namespace_peak_audit'] = pipeline.phase_c.namespace_peak_audit
+        result['family_baseline_available'] = namespace_fingerprint_baseline_available
+        result['family_baseline_pairs'] = len(namespace_fingerprint_baselines)
     finally:
         aggregator.close()
 
-    if not dry_run:
-        try:
-            persistence = persist_analysis_run(
-                connection_factory=get_db_connection,
-                collection=collection,
-                run_type='regular',
-                window_start=window_start,
-                window_end=window_end,
-                monitored_namespaces=monitored_namespaces,
-                expected_count=LAST_FETCH_STATS.get('expected'),
-                fetched_count=result['error_count'],
-                source_index=INDICES,
-            )
-            result.update(persistence)
-            result['saved'] = persistence['incident_rows']
-            print(
-                f"\n💾 Committed complete run: {persistence['persisted_events']:,} events, "
-                f"{persistence['fact_rows']:,} facts, "
-                f"{persistence['namespace_rows']:,} namespace rows, "
-                f"{persistence['incident_rows']:,} incidents"
-            )
-        except Exception as e:
-            print(f"❌ Run persistence failed: {_one_line_error(e)}")
-            result['status'] = 'error'
-            result['error'] = str(e)
-            return result
+    result['incidents'] = collection.total_incidents
+    result['spike_incidents'] = [
+        {
+            'fingerprint': incident.fingerprint,
+            'error_type': incident.error_type,
+            'normalized_message': incident.normalized_message[:500],
+            'apps': sorted(incident.apps),
+            'namespaces': sorted(incident.namespaces),
+            'current_count': incident.stats.current_count,
+            'namespace_event_counts': incident.namespace_event_counts,
+            'evidence': [
+                evidence.to_dict()
+                for evidence in incident.evidence
+                if evidence.rule == 'spike_p93_cap'
+            ],
+        }
+        for incident in collection.incidents
+        if incident.flags.is_spike
+    ]
+    if audit_only:
+        result['status'] = 'success'
+        return result
 
     # #3: pro reprezentativní trace top problémů dotáhni VŠECHNY levely (WARN/INFO
     # před ERROR) a přepočítej root cause/propagaci z bohatší časové osy. Opt-in
@@ -1863,8 +2519,87 @@ def run_regular_phase(
                 print("   ✅ Enriched representative traces with full-level context (#3)")
             except Exception as e:
                 print(f"   ⚠️ Trace context enrichment failed (non-blocking): {_one_line_error(e)}")
-    
-    result['incidents'] = collection.total_incidents
+
+    try:
+        cause_analysis = build_collection_cause_analysis(collection)
+        print(
+            f"   ✅ Built {len(cause_analysis.families)} reconciled cause families "
+            f"from {cause_analysis.source_raw_error_lines:,} ERROR lines"
+        )
+    except Exception as e:
+        print(f"❌ Cause-family analysis failed: {_one_line_error(e)}")
+        result['status'] = 'error'
+        result['error'] = str(e)
+        return result
+
+    try:
+        from core.peak_episode import materialize_episode_state
+        prior_episodes = []
+        if replay_prior_episodes_json is not None:
+            try:
+                prior_episodes = json.loads(
+                    replay_prior_episodes_json.read_text(encoding='utf-8')
+                )
+            except (OSError, json.JSONDecodeError) as error:
+                raise RuntimeError(
+                    f'cannot load replay prior episodes: {error}'
+                ) from error
+        elif not dry_run:
+            try:
+                prior_episodes = load_peak_episodes_before(
+                    get_db_connection,
+                    stream_key='live',
+                    before_window_start=window_start,
+                )
+            except Exception as error:
+                print(
+                    '⚠️ Historical episode state unavailable; '
+                    f'continuing with current run only: {_one_line_error(error)}'
+                )
+        collection.peak_episodes, collection.peak_episode_transitions = (
+            materialize_episode_state(
+                collection.namespace_peak_decisions,
+                [family.to_dict() for family in cause_analysis.families],
+                resolve_non_peak_windows=int(os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')),
+                escalation_ratio=float(os.getenv('EPISODE_ESCALATION_RATIO', '1.5')),
+                prior_episodes=prior_episodes,
+            )
+        )
+        result['peak_episodes'] = collection.peak_episodes
+        result['peak_episode_transitions'] = collection.peak_episode_transitions
+    except Exception as e:
+        print(f"❌ Peak episode correlation failed: {_one_line_error(e)}")
+        result['status'] = 'error'
+        result['error'] = str(e)
+        return result
+
+    if not dry_run:
+        try:
+            persistence = persist_analysis_run(
+                connection_factory=get_db_connection,
+                collection=collection,
+                run_type='regular',
+                window_start=window_start,
+                window_end=window_end,
+                monitored_namespaces=monitored_namespaces,
+                expected_count=LAST_FETCH_STATS.get('expected'),
+                fetched_count=result['error_count'],
+                source_index=INDICES,
+            )
+            result.update(persistence)
+            result['saved'] = persistence['incident_rows']
+            print(
+                f"\n💾 Committed complete run: {persistence['persisted_events']:,} events, "
+                f"{persistence['fact_rows']:,} facts, "
+                f"{persistence['namespace_rows']:,} namespace rows, "
+                f"{persistence['incident_rows']:,} incidents, "
+                f"{persistence['cause_family_rows']:,} cause families"
+            )
+        except Exception as e:
+            print(f"❌ Run persistence failed: {_one_line_error(e)}")
+            result['status'] = 'error'
+            result['error'] = str(e)
+            return result
     
     # ==========================================================================
     # EXTRACT EVENT TIMESTAMPS
@@ -2054,7 +2789,7 @@ def run_regular_phase(
     # ==========================================================================
     # SEND PEAKS NOTIFICATION (EMAIL ONLY)
     # ==========================================================================
-    if collection.incidents and not dry_run:
+    if collection.incidents and (not dry_run or replay_evaluate_policy):
         try:
             # Detect peaks: spike OR burst OR high-score anomalies
             peaks_detected = sum(
@@ -2093,8 +2828,7 @@ def run_regular_phase(
                 })
                 clusters = _merge_peak_clusters(peak_problems)
                 print(f"ℹ️ Peak problems: {len(peak_problems)} → {len(clusters)} correlated alert(s)")
-                omitted_alerts = max(len(clusters) - max_alerts, 0)
-                
+
                 sent_alerts = 0
                 suppressed_alerts = 0
                 delivery_outcomes: List[Dict[str, Any]] = []
@@ -2102,9 +2836,13 @@ def run_regular_phase(
                 alert_peaks = alert_state.get('peaks', {})
                 now_utc = datetime.now(timezone.utc)
                 cooldown_min = int(os.getenv('ALERT_COOLDOWN_MIN', '45'))
-                dispatch_payloads: List[Dict[str, Any]] = []
+                policy_payloads: List[Dict[str, Any]] = []
+                policy_candidates: List[Dict[str, Any]] = []
+                episode_transitions = list(
+                    getattr(collection, 'peak_episode_transitions', None) or []
+                )
 
-                for cluster_index, cluster in enumerate(clusters):
+                for cluster in clusters:
                     payload = _build_cluster_payload(
                         cluster,
                         peak_trace_flows or {},
@@ -2116,48 +2854,239 @@ def run_regular_phase(
                     if not payload:
                         continue
 
-                    peak_key = payload.get('peak_key', '')
-                    if cluster_index >= max_alerts:
-                        delivery_outcomes.extend(
-                            _policy_delivery_outcomes(
-                                payload,
-                                'skipped',
-                                f'MAX_PEAK_ALERTS_PER_WINDOW limit ({max_alerts})',
-                            )
-                        )
-                        continue
+                    _attach_authoritative_cause_families(payload, cause_analysis)
 
-                    state_entry = alert_peaks.get(peak_key, {}) if peak_key else {}
+                    peak_key = payload.get('peak_key', '')
+                    alert_identity = _alert_identity(payload)
+                    state_entry = (
+                        alert_peaks.get(alert_identity, {})
+                        if alert_identity else {}
+                    )
                     should_send, reason = _should_send_peak_alert(payload, state_entry, now_utc)
 
-                    if not should_send:
-                        suppressed_alerts += 1
-                        delivery_outcomes.extend(
-                            _policy_delivery_outcomes(payload, 'suppressed', reason)
-                        )
-                        if peak_key:
-                            print(f"ℹ️ Peak alert suppressed for {peak_key}: {reason}")
-                        continue
+                    episode_contexts = _episode_policy_contexts(
+                        payload,
+                        episode_transitions,
+                    )
+                    if not episode_contexts:
+                        episode_contexts = [None]
 
                     # Trend override: if no alert was sent to user recently,
                     # this is effectively the "first alert" → always "rising"
                     last_sent = _parse_dt(state_entry.get('last_sent_at'))
                     if not last_sent or (now_utc - last_sent) > timedelta(minutes=window_minutes * 2):
                         if payload.get('trend') and payload['trend'] != 'rising':
-                            print(f"ℹ️ Trend override for {peak_key}: {payload['trend']} → rising (first alert)")
+                            print(
+                                f"ℹ️ Trend override for {alert_identity}: "
+                                f"{payload['trend']} → rising (first alert)"
+                            )
                             payload['trend'] = 'rising'
 
                     payload['send_reason'] = reason
-                    dispatch_payloads.append(payload)
+                    policy_payloads.append(payload)
+                    for episode_context in episode_contexts:
+                        if episode_context:
+                            episode_state = str(
+                                episode_context.get('state') or 'CONTINUATION'
+                            )
+                        elif not state_entry:
+                            episode_state = 'START'
+                        elif payload.get('new_namespaces'):
+                            episode_state = 'EXPANSION'
+                        elif reason in {
+                            'trend_changed',
+                            'count_delta',
+                            'scope_changed',
+                            'heartbeat',
+                        } or reason.startswith('count_delta_'):
+                            episode_state = 'ESCALATION'
+                        else:
+                            episode_state = 'CONTINUATION'
+
+                        candidate_id = (
+                            episode_context.get('episode_id')
+                            if episode_context else
+                            alert_identity or peak_key or payload.get('window_key', '')
+                        )
+                        window_decision_id = str(
+                            episode_context.get('window_decision_id')
+                            if episode_context else
+                            f"{payload.get('window_key', '')}:{candidate_id}"
+                        )
+                        material_change_reasons = (
+                            list(episode_context.get('material_change_reasons') or [])
+                            if episode_context
+                            and episode_context.get('material_change_reasons')
+                            else [reason]
+                            if should_send and reason not in {'first_seen_in_state', 'new_peak'}
+                            else []
+                        )
+                        cause_family = payload.get('cause_family') or {}
+                        if episode_context:
+                            cause_family = next(
+                                (
+                                    family
+                                    for family in (payload.get('cause_families') or [])
+                                    if family.get('signature') == episode_context.get(
+                                        'cause_signature'
+                                    )
+                                ),
+                                cause_family,
+                            )
+                        policy_candidates.append({
+                            'episode_id': str(candidate_id),
+                            'window_decision_id': window_decision_id,
+                            'stream_key': 'live',
+                            'episode_state': episode_state,
+                            'assessment': cause_family.get('assessment', 'unknown'),
+                            'confidence': cause_family.get('confidence', 'low'),
+                            'namespace_ratio': max(
+                                (
+                                    float(item.get('observed_value') or 0)
+                                    / float(item.get('effective_threshold') or 1)
+                                )
+                                for item in (payload.get('threshold_evidence') or [])
+                                if float(item.get('effective_threshold') or 0) > 0
+                            ) if any(
+                                float(item.get('effective_threshold') or 0) > 0
+                                for item in (payload.get('threshold_evidence') or [])
+                            ) else 0,
+                            'unique_operation_occurrences': cause_family.get(
+                                'unique_operations'
+                            ),
+                            'material_change_reasons': material_change_reasons,
+                            'no_material_change': reason == 'no_material_change',
+                            'no_material_change_reason': reason,
+                            'test_originator_application': payload.get(
+                                'test_originator_application', ''
+                            ),
+                            '_payload': payload,
+                            '_policy_context_available': bool(episode_context),
+                        })
+                        payload.setdefault('policy_episode_states', []).append(
+                            episode_state
+                        )
+                        payload.setdefault('material_change_reasons', []).extend(
+                            material_change_reasons
+                        )
+                        payload.setdefault('policy_candidate_reasons', {})[
+                            str(candidate_id)
+                        ] = reason
+                        if 'policy_episode_state' not in payload:
+                            payload['policy_episode_state'] = episode_state
+                            payload['policy_candidate_reason'] = reason
+                notification_decisions = decide_notification_candidates(
+                    policy_candidates,
+                    detail_limit=max_alerts,
+                )
+                payload_by_candidate_id = {
+                    candidate['episode_id']: candidate['_payload']
+                    for candidate in policy_candidates
+                }
+                context_by_candidate_id = {
+                    candidate['episode_id']: candidate['_policy_context_available']
+                    for candidate in policy_candidates
+                }
+                dispatch_payloads: List[Dict[str, Any]] = []
+                digest_payloads: List[Dict[str, Any]] = []
+                dispatch_payload_ids = set()
+                digest_payload_ids = set()
+                policy_summary = {
+                    'candidates': len(notification_decisions),
+                    'primary_send': 0,
+                    'digest_only': 0,
+                    'route_suppressed': 0,
+                    'no_material_change': 0,
+                }
+                for decision in notification_decisions:
+                    payload = payload_by_candidate_id[decision.episode_id]
+                    payload.setdefault('notification_decision_ids', []).append(
+                        decision.notification_decision_id
+                    )
+                    payload.setdefault('policy_outcomes_by_decision', {})[
+                        decision.notification_decision_id
+                    ] = decision.policy_outcome
+                    payload.setdefault('policy_candidate_reasons', {})[
+                        decision.notification_decision_id
+                    ] = decision.candidate_reason
+                    payload['notification_decision_id'] = payload[
+                        'notification_decision_ids'
+                    ][0]
+                    payload['policy_outcome'] = decision.policy_outcome
+                    payload['policy_detail_rank'] = decision.detail_rank
+                    payload['policy_detail_limit'] = decision.detail_limit
+                    payload['test_origin_label'] = decision.test_origin_label
+                    policy_summary[decision.policy_outcome] += 1
+                    if decision.policy_outcome == 'primary_send':
+                        payload_id = id(payload)
+                        if payload_id not in dispatch_payload_ids:
+                            dispatch_payloads.append(payload)
+                            dispatch_payload_ids.add(payload_id)
+                        if payload_id not in digest_payload_ids:
+                            digest_payloads.append(payload)
+                            digest_payload_ids.add(payload_id)
+                    elif decision.policy_outcome == 'digest_only':
+                        payload_id = id(payload)
+                        if payload_id not in digest_payload_ids:
+                            digest_payloads.append(payload)
+                            digest_payload_ids.add(payload_id)
+                    else:
+                        suppressed_alerts += 1
+
+                for payload in policy_payloads:
+                    if not any(
+                        id(payload) == id(candidate)
+                        for candidate in dispatch_payloads + digest_payloads
+                    ):
+                        delivery_outcomes.extend(
+                            _policy_delivery_outcomes(
+                                payload,
+                                'not_attempted',
+                                'all_episode_candidates_suppressed',
+                            )
+                        )
+
+                missing_context_count = sum(
+                    not context_by_candidate_id[decision.episode_id]
+                    for decision in notification_decisions
+                )
+                if missing_context_count:
+                    result['status'] = 'error'
+                    result['error'] = (
+                        'Notification policy context missing for '
+                        f'{missing_context_count} candidate(s)'
+                    )
+                    print(f"❌ {result['error']}")
+                    return result
+                persistable_decisions = [
+                    decision.to_dict() for decision in notification_decisions
+                ]
+                if not dry_run:
+                    try:
+                        persist_notification_decisions(
+                            get_db_connection,
+                            persistable_decisions,
+                        )
+                    except Exception as e:
+                        result['status'] = 'error'
+                        result['error'] = (
+                            'Notification decision persistence failed: '
+                            f'{_one_line_error(e)}'
+                        )
+                        print(f"❌ {result['error']}")
+                        return result
+                result['notification_policy'] = policy_summary
+                result['notification_decisions'] = persistable_decisions
 
                 digest_summary = {
                     'raw_window_errors': int(result.get('error_count', 0) or 0),
                     'detected_peak_problems': len(peak_problems),
                     'suppressed_alerts': suppressed_alerts,
-                    'omitted_alerts': omitted_alerts,
+                    'omitted_alerts': 0,
                     'max_alerts': max_alerts,
                     'affected_apps': all_peak_apps,
                     'affected_namespaces': all_peak_namespaces,
+                    'notification_policy': policy_summary,
                 }
 
                 peak_enrichment_updates: Dict[str, Dict[str, Any]] = {}
@@ -2176,23 +3105,43 @@ def run_regular_phase(
                     if updates:
                         peak_enrichment_updates[peak_key] = updates
 
-                if peak_enrichment_updates and not registry.merge_enrichment_and_save(
-                    {}, peak_enrichment_updates
-                ):
-                    print("❌ Peak registry enrichment merge failed")
-                    result['status'] = 'error'
-                    result['error'] = 'Peak registry enrichment merge failed'
-                    return result
+                if not dry_run and peak_enrichment_updates:
+                    if not registry.merge_enrichment_and_save(
+                        {}, peak_enrichment_updates
+                    ):
+                        print("❌ Peak registry enrichment merge failed")
+                        result['status'] = 'error'
+                        result['error'] = 'Peak registry enrichment merge failed'
+                        return result
 
-                delivered_payloads = _dispatch_peak_alerts(
-                    window_start,
-                    window_end,
-                    dispatch_payloads,
-                    digest_enabled,
-                    digest_summary,
-                )
+                if replay_evaluate_policy:
+                    replay_payloads = []
+                    replay_payload_ids = set()
+                    for payload in dispatch_payloads + digest_payloads:
+                        payload_id = id(payload)
+                        if payload_id in replay_payload_ids:
+                            continue
+                        replay_payload_ids.add(payload_id)
+                        replay_payloads.extend(
+                            _policy_delivery_outcomes(
+                                payload,
+                                'not_attempted',
+                                'historical_replay',
+                            )
+                        )
+                    delivered_payloads = PeakDispatchResult([], replay_payloads)
+                else:
+                    delivered_payloads = _dispatch_peak_alerts(
+                        window_start,
+                        window_end,
+                        dispatch_payloads,
+                        digest_enabled,
+                        digest_summary,
+                        digest_payloads=digest_payloads,
+                    )
                 delivery_outcomes.extend(delivered_payloads.delivery_outcomes)
-                if delivery_outcomes:
+                result['delivery_outcomes'] = delivery_outcomes
+                if delivery_outcomes and not dry_run:
                     try:
                         persist_notification_deliveries(
                             get_db_connection,
@@ -2236,6 +3185,8 @@ def run_regular_phase(
                     for outcome in delivery_outcomes
                 ):
                     result['delivery_status'] = 'partial'
+                elif replay_evaluate_policy:
+                    result['delivery_status'] = 'not_attempted'
                 elif sent_alerts:
                     result['delivery_status'] = 'complete'
                 elif suppressed_alerts:
@@ -2285,18 +3236,90 @@ signal.signal(signal.SIGTERM, signal_handler)
 # =============================================================================
 
 def main():
+    def parse_replay_window_end(value: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(
+                'must be an ISO-8601 UTC timestamp, for example 2026-09-22T03:45:00Z'
+            ) from error
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise argparse.ArgumentTypeError('must include a UTC offset or Z suffix')
+        return parsed
+
     parser = argparse.ArgumentParser(description='Regular Phase - 15-minute Pipeline')
     parser.add_argument('--window', type=int, default=15, help='Window size in minutes (default: 15)')
     parser.add_argument('--dry-run', action='store_true', help='No DB writes')
     parser.add_argument('--output', type=str, help='Output directory for reports')
+    parser.add_argument(
+        '--replay-window-end',
+        type=parse_replay_window_end,
+        help='UTC end of a historical replay; requires --dry-run',
+    )
+    parser.add_argument(
+        '--audit-only',
+        action='store_true',
+        help='Stop after detector evidence is collected; requires --dry-run',
+    )
+    parser.add_argument(
+        '--replay-evaluate-policy',
+        action='store_true',
+        help='Evaluate episodes and notification policy without DB writes or delivery',
+    )
+    parser.add_argument(
+        '--replay-prior-episodes-json',
+        type=Path,
+        help='Read prior episode state for a chained historical replay window',
+    )
+    parser.add_argument(
+        '--result-json',
+        type=Path,
+        help='Write the structured run result to this JSON file',
+    )
+    parser.add_argument(
+        '--replay-thresholds-json',
+        type=Path,
+        help='Read-only in-memory thresholds for historical audit replay',
+    )
     
     args = parser.parse_args()
+    if args.replay_window_end is not None and not args.dry_run:
+        parser.error('--replay-window-end requires --dry-run')
+    if args.audit_only and not args.dry_run:
+        parser.error('--audit-only requires --dry-run')
+    if args.replay_evaluate_policy and (
+        not args.dry_run or args.replay_window_end is None or args.audit_only
+    ):
+        parser.error(
+            '--replay-evaluate-policy requires --replay-window-end, --dry-run, and no --audit-only'
+        )
+    if args.replay_prior_episodes_json is not None and not args.replay_evaluate_policy:
+        parser.error('--replay-prior-episodes-json requires --replay-evaluate-policy')
+    if args.replay_thresholds_json is not None and (
+        args.replay_window_end is None
+        or not args.dry_run
+        or (not args.audit_only and not args.replay_evaluate_policy)
+    ):
+        parser.error(
+            '--replay-thresholds-json requires historical dry-run audit or policy replay mode'
+        )
     
     result = run_regular_phase(
         window_minutes=args.window,
         dry_run=args.dry_run,
         output_dir=args.output,
+        replay_window_end=args.replay_window_end,
+        audit_only=args.audit_only,
+        replay_thresholds_json=args.replay_thresholds_json,
+        replay_evaluate_policy=args.replay_evaluate_policy,
+        replay_prior_episodes_json=args.replay_prior_episodes_json,
     )
+    if args.result_json:
+        args.result_json.parent.mkdir(parents=True, exist_ok=True)
+        args.result_json.write_text(
+            json.dumps(result, indent=2, ensure_ascii=False, default=str),
+            encoding='utf-8',
+        )
     
     return 0 if result['status'] in ('success', 'no_data') else 1
 

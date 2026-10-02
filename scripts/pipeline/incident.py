@@ -455,6 +455,13 @@ class IncidentCollection:
 
     # Exact observed facts at (15m, namespace, application, fingerprint) grain
     error_kind_facts: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Dense authoritative namespace verdicts materialized by Phase C.
+    namespace_peak_decisions: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Event-time lifecycle, independent of notification delivery.
+    peak_episodes: List[Dict[str, Any]] = field(default_factory=list)
+    peak_episode_transitions: List[Dict[str, Any]] = field(default_factory=list)
     
     # Summary
     total_incidents: int = 0
@@ -491,6 +498,9 @@ class IncidentCollection:
                 "by_category": self.by_category,
             },
             "error_kind_facts": self.error_kind_facts,
+            "namespace_peak_decisions": self.namespace_peak_decisions,
+            "peak_episodes": self.peak_episodes,
+            "peak_episode_transitions": self.peak_episode_transitions,
             "incidents": [inc.to_dict() for inc in self.incidents],
         }
     
@@ -514,6 +524,9 @@ class IncidentCollection:
         collection.input_file = data.get("input_file", "")
         collection.input_records = data.get("input_records", 0)
         collection.error_kind_facts = data.get("error_kind_facts", [])
+        collection.namespace_peak_decisions = data.get("namespace_peak_decisions", [])
+        collection.peak_episodes = data.get("peak_episodes", [])
+        collection.peak_episode_transitions = data.get("peak_episode_transitions", [])
         
         for inc_data in data.get("incidents", []):
             collection.add_incident(Incident.from_dict(inc_data))

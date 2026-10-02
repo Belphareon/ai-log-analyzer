@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import json
+import os
 
 from .problem_aggregator import ProblemAggregate, sort_problems_by_priority
 from .trace_analysis import (
@@ -34,6 +35,7 @@ from .root_cause import enrich_problems_with_root_cause
 from .propagation import enrich_problems_with_propagation, get_propagation_summary
 from .version_analysis import enrich_problems_with_version_analysis, get_version_summary
 from .category_refinement import refine_all_problems, get_refinement_stats
+from .operational_cause import CauseFamilyAnalysis, build_daily_cause_analysis
 
 
 # =============================================================================
@@ -88,9 +90,16 @@ class ProblemReportGenerator:
         self.trace_timelines = trace_timelines or {}
         # problem_key -> OwnershipSummary (naplní _assign_trace_ownership)
         self.ownership: Dict[str, Any] = {}
+        self.cause_analysis: Optional[CauseFamilyAnalysis] = None
 
         # Enrich problems with analysis
         self._enrich_problems()
+        self.cause_analysis = build_daily_cause_analysis(
+            self.problems,
+            self.trace_timelines,
+            self.ownership,
+            self.trace_pattern_index,
+        )
 
     def _get_registry_problem(self, problem: ProblemAggregate) -> Optional[Any]:
         return self.registry_problems.get(problem.problem_key)
@@ -175,6 +184,12 @@ class ProblemReportGenerator:
         Returns:
             Formátovaný text report
         """
+        operator_report_enabled = os.getenv(
+            'OPERATOR_DAILY_REPORT_ENABLED', 'true'
+        ).strip().lower() not in {'0', 'false', 'no', 'off'}
+        if operator_report_enabled:
+            return self._generate_operator_report(max_families=max_problems)
+
         lines = []
 
         # Header
@@ -190,6 +205,151 @@ class ProblemReportGenerator:
         lines.extend(self._format_statistics())
 
         return "\n".join(lines)
+
+    def _generate_operator_report(self, max_families: int = 20) -> str:
+        analysis = self.cause_analysis
+        if analysis is None:
+            raise ValueError('operator report requires cause-family analysis')
+        analysis.validate()
+
+        lines = self._format_header()
+        lines.extend(self._format_operator_executive_summary(analysis))
+        lines.extend(self._format_cause_family_list(analysis, max_families))
+        lines.extend(self._format_statistics())
+        return "\n".join(lines)
+
+    def _format_operator_executive_summary(
+        self,
+        analysis: CauseFamilyAnalysis,
+    ) -> List[str]:
+        assessment_counts: Dict[str, int] = {}
+        for family in analysis.families:
+            assessment_counts[family.assessment] = (
+                assessment_counts.get(family.assessment, 0) + 1
+            )
+
+        coverage_pct = (
+            analysis.segmented_error_lines / analysis.source_raw_error_lines * 100
+            if analysis.source_raw_error_lines else 0.0
+        )
+        if analysis.source_raw_error_lines and not analysis.segmented_error_lines:
+            operation_impact = "N/A (trace coverage unavailable)"
+        elif analysis.unique_operations is None:
+            operation_impact = (
+                "N/A (one or more traced families have ambiguous request boundaries)"
+            )
+        else:
+            operation_impact = f"{analysis.unique_operations:,}"
+        return [
+            "-" * 70,
+            "EXECUTIVE SUMMARY",
+            "-" * 70,
+            "",
+            f"Cause families: {len(analysis.families):,}",
+            f"  - Actionable technical: {assessment_counts.get('technical_failure', 0):,}",
+            f"  - Business/data rejection: {assessment_counts.get('business_rejection', 0):,}",
+            f"  - Likely expected outcome logged as ERROR: {assessment_counts.get('expected_outcome_logged_as_error', 0):,}",
+            f"  - Needs triage: {assessment_counts.get('unknown', 0):,}",
+            "",
+            "Impact and evidence coverage:",
+            f"  - Raw ERROR lines: {analysis.source_raw_error_lines:,}",
+            f"  - Operation occurrences: {operation_impact}",
+            f"  - Trace-segmented ERROR lines: {analysis.segmented_error_lines:,} ({coverage_pct:.1f}%)",
+            f"  - Unsegmented ERROR lines: {analysis.unsegmented_error_lines:,}",
+            "",
+            "Counts are current-period facts. Historical Known Error counts are not mixed into this report.",
+            "",
+        ]
+
+    def _format_cause_family_list(
+        self,
+        analysis: CauseFamilyAnalysis,
+        max_families: int,
+    ) -> List[str]:
+        labels = {
+            'technical_failure': 'TECHNICAL FAILURE',
+            'business_rejection': 'BUSINESS / DATA REJECTION',
+            'expected_outcome_logged_as_error': 'LIKELY EXPECTED OUTCOME',
+            'unknown': 'NEEDS TRIAGE',
+        }
+        lines = [
+            "-" * 70,
+            "PROBLEM DETAILS",
+            "-" * 70,
+            "",
+        ]
+        for index, family in enumerate(analysis.families[:max_families], start=1):
+            label = labels.get(family.assessment, family.assessment.upper())
+            lines.extend([
+                "─" * 50,
+                f"#{index} [{label}] {family.canonical_cause}",
+                "─" * 50,
+                f"  Root application: {family.root_app}",
+                f"  Assessment: {label} ({family.confidence} confidence)",
+                f"  Operation: {family.operation}",
+                f"  Outward status: {family.outward_status or 'N/A'}",
+                "",
+                "  Impact (current period):",
+            ])
+            if family.unique_operations is not None:
+                lines.append(f"    Unique operations: {family.unique_operations:,}")
+                lines.append(f"    Logging amplification: {family.amplification:.1f}x")
+            else:
+                reason = (
+                    family.operation_count_reason
+                    or "operation boundaries unavailable"
+                )
+                lines.append(f"    Unique operations: N/A ({reason})")
+            lines.append(
+                "    Operation count evidence: "
+                f"{family.operation_count_method} "
+                f"({family.operation_count_confidence} confidence)"
+            )
+            lines.append(f"    Traced ERROR lines: {family.traced_error_lines:,}")
+            lines.append(f"    Raw ERROR lines: {family.raw_error_lines:,}")
+            if family.unsegmented_error_lines:
+                lines.append(
+                    f"    Unsegmented ERROR lines: {family.unsegmented_error_lines:,}"
+                )
+
+            if family.app_counts:
+                apps = sorted(
+                    family.app_counts.items(),
+                    key=lambda item: (-item[1], item[0]),
+                )[:5]
+                lines.append(
+                    "    Applications: "
+                    + ", ".join(f"{app} ({count:,})" for app, count in apps)
+                )
+            if family.namespace_counts:
+                namespaces = sorted(
+                    family.namespace_counts.items(),
+                    key=lambda item: (-item[1], item[0]),
+                )[:5]
+                lines.append(
+                    "    Namespaces: "
+                    + ", ".join(
+                        f"{namespace} ({count:,})"
+                        for namespace, count in namespaces
+                    )
+                )
+
+            lines.extend([
+                "",
+                "  Evidence:",
+                f"    Representative trace: {family.representative_trace_id or 'N/A'}",
+                "",
+                "  Next action:",
+                f"    {family.next_action}",
+                "",
+            ])
+
+        if len(analysis.families) > max_families:
+            lines.append(
+                f"... and {len(analysis.families) - max_families} more cause families"
+            )
+            lines.append("")
+        return lines
 
     def _format_header(self) -> List[str]:
         """Formátuje header reportu."""

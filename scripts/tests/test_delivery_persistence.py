@@ -93,6 +93,45 @@ def test_persists_one_immutable_row_per_destination(monkeypatch):
     connection.close.assert_called_once_with()
 
 
+def test_persists_notification_decision_before_delivery(monkeypatch):
+    connection = MagicMock()
+    cursor = connection.cursor.return_value.__enter__.return_value
+    captured = {}
+
+    def capture_values(actual_cursor, statement, rows, page_size):
+        captured['cursor'] = actual_cursor
+        captured['rows'] = rows
+
+    monkeypatch.setattr(delivery_persistence, 'execute_values', capture_values)
+
+    inserted = delivery_persistence.persist_notification_decisions(
+        lambda: connection,
+        [{
+            'notification_decision_id': 'decision-1',
+            'episode_id': 'episode-1',
+            'window_decision_id': 'window-1',
+            'stream_key': 'live',
+            'destination': 'operator_primary',
+            'policy_outcome': 'primary_send',
+            'episode_state': 'START',
+            'candidate_reason': 'new_peak',
+            'detail_rank': 1,
+            'detail_limit': 3,
+            'test_origin_label': 'MochaXTestApp',
+            'metadata': {'is_test_origin': True},
+        }],
+    )
+
+    assert inserted == 1
+    assert captured['cursor'] is cursor
+    assert captured['rows'][0][0:6] == (
+        'decision-1', 'episode-1', 'window-1', 'live',
+        'operator_primary', 'primary_send',
+    )
+    connection.commit.assert_called_once_with()
+    connection.close.assert_called_once_with()
+
+
 @pytest.mark.parametrize('field', ['dedup_key', 'destination'])
 def test_rejects_missing_delivery_identity_without_connecting(field):
     delivery = {

@@ -96,6 +96,8 @@ spec:
                   value: {{ .Values.env.ES_INDEX | quote }}
                 - name: MONITORED_NAMESPACES
                   value: {{ required "env.MONITORED_NAMESPACES is required" .Values.env.MONITORED_NAMESPACES | quote }}
+                - name: NAMESPACE_CONTRACT_STRICT
+                  value: {{ .Values.env.NAMESPACE_CONTRACT_STRICT | default "true" | quote }}
                 - name: ES_USER
                   valueFrom:
                     secretKeyRef:
@@ -146,6 +148,20 @@ spec:
                   value: {{ .Values.env.MAX_PEAK_ALERTS_PER_WINDOW | quote }}
                 - name: ALERT_DIGEST_ENABLED
                   value: {{ .Values.env.ALERT_DIGEST_ENABLED | quote }}
+                - name: ALERT_OPERATOR_DIGEST_ENABLED
+                  value: {{ .Values.env.ALERT_OPERATOR_DIGEST_ENABLED | default "true" | quote }}
+                - name: OPERATOR_DAILY_REPORT_ENABLED
+                  value: {{ .Values.env.OPERATOR_DAILY_REPORT_ENABLED | default "true" | quote }}
+                - name: REP_TRACE_CONTEXT
+                  value: {{ .Values.env.REP_TRACE_CONTEXT | default "true" | quote }}
+                - name: REP_TRACE_CONTEXT_TOPN
+                  value: {{ .Values.env.REP_TRACE_CONTEXT_TOPN | default "10" | quote }}
+                - name: REP_TRACE_CONTEXT_LOOKBACK_MIN
+                  value: {{ .Values.env.REP_TRACE_CONTEXT_LOOKBACK_MIN | default "5" | quote }}
+                - name: OPERATION_TRACE_FALLBACK_MAX_ERRORS
+                  value: {{ .Values.env.OPERATION_TRACE_FALLBACK_MAX_ERRORS | default "100" | quote }}
+                - name: OPERATION_TRACE_FALLBACK_MAX_DURATION_MIN
+                  value: {{ .Values.env.OPERATION_TRACE_FALLBACK_MAX_DURATION_MIN | default "15" | quote }}
                 - name: ALERT_COOLDOWN_MIN
                   value: {{ .Values.env.ALERT_COOLDOWN_MIN | quote }}
                 - name: ALERT_HEARTBEAT_MIN
@@ -154,6 +170,20 @@ spec:
                   value: {{ .Values.env.ALERT_MIN_DELTA_PCT | quote }}
                 - name: ALERT_CONTINUATION_LOOKBACK_MIN
                   value: {{ .Values.env.ALERT_CONTINUATION_LOOKBACK_MIN | quote }}
+                - name: LIFECYCLE_ANALYSIS_ENABLED
+                  value: {{ .Values.env.LIFECYCLE_ANALYSIS_ENABLED | default "false" | quote }}
+                - name: LIFECYCLE_ALERT_ENABLED
+                  value: {{ .Values.env.LIFECYCLE_ALERT_ENABLED | default "false" | quote }}
+                - name: LIFECYCLE_PROBE_MAX_HITS
+                  value: {{ .Values.env.LIFECYCLE_PROBE_MAX_HITS | default "200" | quote }}
+                - name: LIFECYCLE_FETCH_BATCH_SIZE
+                  value: {{ .Values.env.LIFECYCLE_FETCH_BATCH_SIZE | default "1000" | quote }}
+                - name: LIFECYCLE_MAX_RECORDS_PER_QUERY
+                  value: {{ .Values.env.LIFECYCLE_MAX_RECORDS_PER_QUERY | default "50000" | quote }}
+                - name: LIFECYCLE_MAX_PREDECESSOR_IDS
+                  value: {{ .Values.env.LIFECYCLE_MAX_PREDECESSOR_IDS | default "500" | quote }}
+                - name: LIFECYCLE_MIN_RETRIES
+                  value: {{ .Values.env.LIFECYCLE_MIN_RETRIES | default "3" | quote }}
                 - name: TEAMS_WEBHOOK_URL
                   value: {{ .Values.teams.webhook_url | quote }}
                 - name: TEAMS_EMAIL
@@ -368,6 +398,8 @@ spec:
                   value: {{ .Values.env.ES_INDEX | quote }}
                 - name: MONITORED_NAMESPACES
                   value: {{ required "env.MONITORED_NAMESPACES is required" .Values.env.MONITORED_NAMESPACES | quote }}
+                - name: NAMESPACE_CONTRACT_STRICT
+                  value: {{ .Values.env.NAMESPACE_CONTRACT_STRICT | default "true" | quote }}
                 - name: ES_USER
                   valueFrom:
                     secretKeyRef:
@@ -423,6 +455,20 @@ spec:
                   value: {{ .Values.env.MAX_PEAK_ALERTS_PER_WINDOW | quote }}
                 - name: ALERT_DIGEST_ENABLED
                   value: {{ .Values.env.ALERT_DIGEST_ENABLED | quote }}
+                - name: OPERATOR_DAILY_REPORT_ENABLED
+                  value: {{ .Values.env.OPERATOR_DAILY_REPORT_ENABLED | default "true" | quote }}
+                - name: OPERATOR_DAILY_TRACE_ANALYSIS_ENABLED
+                  value: {{ .Values.env.OPERATOR_DAILY_TRACE_ANALYSIS_ENABLED | default "true" | quote }}
+                - name: REP_TRACE_CONTEXT
+                  value: {{ .Values.env.REP_TRACE_CONTEXT | default "true" | quote }}
+                - name: REP_TRACE_CONTEXT_TOPN
+                  value: {{ .Values.env.REP_TRACE_CONTEXT_TOPN | default "10" | quote }}
+                - name: REP_TRACE_CONTEXT_LOOKBACK_MIN
+                  value: {{ .Values.env.REP_TRACE_CONTEXT_LOOKBACK_MIN | default "5" | quote }}
+                - name: OPERATION_TRACE_FALLBACK_MAX_ERRORS
+                  value: {{ .Values.env.OPERATION_TRACE_FALLBACK_MAX_ERRORS | default "100" | quote }}
+                - name: OPERATION_TRACE_FALLBACK_MAX_DURATION_MIN
+                  value: {{ .Values.env.OPERATION_TRACE_FALLBACK_MAX_DURATION_MIN | default "15" | quote }}
                 - name: ALERT_COOLDOWN_MIN
                   value: {{ .Values.env.ALERT_COOLDOWN_MIN | quote }}
                 - name: ALERT_HEARTBEAT_MIN
@@ -551,6 +597,8 @@ spec:
                       key: DB_DDL_PASSWORD
                 - name: MONITORED_NAMESPACES
                   value: {{ required "env.MONITORED_NAMESPACES is required" .Values.env.MONITORED_NAMESPACES | quote }}
+                - name: NAMESPACE_CONTRACT_STRICT
+                  value: {{ .Values.env.NAMESPACE_CONTRACT_STRICT | default "true" | quote }}
 
                 # === Peak Detection Config ===
                 - name: PERCENTILE_LEVEL

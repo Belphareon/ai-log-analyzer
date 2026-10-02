@@ -24,6 +24,7 @@ import os
 import sys
 import argparse
 import uuid
+import statistics
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
@@ -40,6 +41,11 @@ try:
 except ImportError:
     pass
 
+try:
+    from .namespace_contract import load_monitored_namespaces as _load_namespace_contract
+except ImportError:  # pragma: no cover - direct script execution
+    from namespace_contract import load_monitored_namespaces as _load_namespace_contract
+
 # Database configuration (uses DDL user for INSERT/DELETE operations)
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'P050TD01.DEV.KB.CZ'),
@@ -52,13 +58,18 @@ DB_CONFIG = {
 # Day names for display
 DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-def load_monitored_namespaces() -> list[str]:
-    return [
-        namespace.strip()
-        for namespace in os.getenv('MONITORED_NAMESPACES', '').split(',')
-        if namespace.strip()
-    ]
+POPULATION_GRAIN = 'namespace/15m/day_of_week/active_windows'
+PERCENTILE_METHOD = 'configured_percentile_capped_by_median_plus_6_scaled_mad'
+CALCULATION_VERSION = '4.0'
+MAD_SCALE_FACTOR = 1.4826
+ROBUST_MAD_MULTIPLIER = 6.0
 
+
+def load_monitored_namespaces() -> list[str]:
+    strict = os.getenv('NAMESPACE_CONTRACT_STRICT', '').strip().lower() in {
+        '1', 'true', 'yes', 'on'
+    }
+    return _load_namespace_contract(strict=strict)
 
 
 def percentile(values: list, p: float) -> float:
@@ -69,6 +80,15 @@ def percentile(values: list, p: float) -> float:
     idx = int(len(s) * p)
     idx = min(idx, len(s) - 1)  # Ensure we don't go out of bounds
     return float(s[idx])
+
+
+def robust_upper_bound(values: list) -> float:
+    """Return an outlier-resistant upper bound for an active-window population."""
+    if not values:
+        return 0.0
+    median_value = float(statistics.median(values))
+    mad = float(statistics.median(abs(value - median_value) for value in values))
+    return median_value + (ROBUST_MAD_MULTIPLIER * MAD_SCALE_FACTOR * mad)
 
 
 def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
@@ -145,18 +165,23 @@ def calculate_p93_thresholds(data: dict, percentile_level: float = 0.93) -> dict
     thresholds = {}
     
     for (ns, dow), values in data.items():
-        if not values:
+        active_values = [value for value in values if value > 0]
+        if not active_values:
             continue
         
-        s = sorted(values)
+        s = sorted(active_values)
         n = len(s)
         
+        raw_percentile = percentile(active_values, percentile_level)
+        robust_limit = robust_upper_bound(active_values)
         thresholds[(ns, dow)] = {
-            'p93': percentile(values, percentile_level),
+            'p93': min(raw_percentile, robust_limit),
+            'raw_percentile': raw_percentile,
+            'robust_upper_bound': robust_limit,
             'count': n,
-            'median': s[n // 2],
-            'mean': sum(values) / n,
-            'max': max(values),
+            'median': float(statistics.median(active_values)),
+            'mean': sum(active_values) / n,
+            'max': max(active_values),
         }
     
     return thresholds
@@ -220,6 +245,9 @@ def save_thresholds_to_db(
     start_date = training_start.date() if training_start else None
     end_date = date_range['max'].date() if date_range['max'] else None
     sample_count = sum(stats['count'] for stats in thresholds.values())
+    monitored_namespaces = sorted(load_monitored_namespaces())
+    if not monitored_namespaces:
+        raise ValueError('MONITORED_NAMESPACES is required for threshold snapshot metadata')
     
     if dry_run:
         print("\n🔍 DRY RUN - would save:")
@@ -266,15 +294,19 @@ def save_thresholds_to_db(
             INSERT INTO ailog_peak.threshold_snapshot_runs
                 (snapshot_id, percentile_level, population_grain,
                  training_start, training_end, sample_count,
-                 percentile_method, calculation_version, status)
-            VALUES (%s, %s, 'namespace/15m/day_of_week', %s, %s, %s,
-                    'sorted_floor_n_times_p', '2.0', 'running')
+                 percentile_method, calculation_version,
+                 monitored_namespaces, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'running')
         """, (
             snapshot_id,
             percentile_level,
+            POPULATION_GRAIN,
             training_start,
             training_end,
             sample_count,
+            PERCENTILE_METHOD,
+            CALCULATION_VERSION,
+            monitored_namespaces,
         ))
         conn.commit()
         running_committed = True

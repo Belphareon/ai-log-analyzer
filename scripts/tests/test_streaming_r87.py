@@ -36,6 +36,8 @@ sys.path.insert(0, SCRIPTS)
 
 from pipeline import Pipeline  # noqa: E402
 from phase_a_parse import PhaseA_Parser  # noqa: E402
+from phase_b_measure import MeasurementResult  # noqa: E402
+from phase_c_detect import PhaseC_Detect  # noqa: E402
 from streaming_aggregator import StreamingAggregator  # noqa: E402
 import fetch_unlimited as fetch_module  # noqa: E402
 
@@ -68,6 +70,7 @@ def make_errors(n_fingerprints=25, seed=42, base=None):
             ns = namespaces[(fp_i + e) % len(namespaces)]
             app = apps[(fp_i * 2 + e) % len(apps)]
             tid = f"trace-{fp_i}-{e % 7}"
+            span_id = f"span-{fp_i}-{e}"
             errors.append({
                 'message': msg_tmpl.format(code=rnd.randint(400, 599), id=rnd.randint(1, 9999)),
                 'application': app,
@@ -75,6 +78,8 @@ def make_errors(n_fingerprints=25, seed=42, base=None):
                 'namespace': ns,
                 'timestamp': _ts(base, sec),
                 'trace_id': tid,
+                'span_id': span_id,
+                'parent_span_id': f"root-{tid}",
                 'originator_application': f"orig-{fp_i % 3}",
                 'pcbs_master': f"eam-{fp_i % 6}",
                 '_error_type_hint': etype,
@@ -119,21 +124,45 @@ def collection_signature(collection):
     return sig
 
 
-def _new_pipeline(peak_detector=None, build_trace_patterns=False):
-    return Pipeline(peak_detector=peak_detector, build_trace_patterns=build_trace_patterns)
+def _new_pipeline(
+    peak_detector=None,
+    build_trace_patterns=False,
+    namespace_fingerprint_baseline_available=False,
+):
+    pipeline = Pipeline(
+        peak_detector=peak_detector,
+        build_trace_patterns=build_trace_patterns,
+    )
+    pipeline.phase_c.namespace_fingerprint_baseline_available = (
+        namespace_fingerprint_baseline_available
+    )
+    return pipeline
 
 
-def run_batch(errors, peak_detector=None, build_trace_patterns=False):
-    return _new_pipeline(peak_detector, build_trace_patterns).run(errors, run_id="batch")
+def run_batch(
+    errors,
+    peak_detector=None,
+    build_trace_patterns=False,
+    namespace_fingerprint_baseline_available=False,
+):
+    return _new_pipeline(
+        peak_detector,
+        build_trace_patterns,
+        namespace_fingerprint_baseline_available,
+    ).run(errors, run_id="batch")
 
 
 def run_streaming(errors, page_size=1000, peak_detector=None, build_trace_patterns=False,
-                  sqlite_path=None):
+                  sqlite_path=None, namespace_fingerprint_baseline_available=False):
     agg = StreamingAggregator(sqlite_path=sqlite_path)
     for i in range(0, len(errors), page_size):
         agg.ingest_page(errors[i:i + page_size])
     agg.finalize()
-    pipe = _new_pipeline(peak_detector, build_trace_patterns)
+    pipe = _new_pipeline(
+        peak_detector,
+        build_trace_patterns,
+        namespace_fingerprint_baseline_available,
+    )
     col = pipe.run_streaming(agg, run_id="streaming")
     return col, agg
 
@@ -172,10 +201,25 @@ def test_golden_regression():
 # ============================================================================ 1b
 def test_golden_regression_with_peak_and_traces():
     errors = make_errors(n_fingerprints=30, seed=11)
+    base = datetime(2026, 1, 20, 8, 0, 0, tzinfo=timezone.utc)
+    errors.extend({
+        'message': 'Payment routing service unavailable',
+        'application': 'svc-a',
+        'namespace': 'ns-alpha',
+        'timestamp': _ts(base, 1800 + event_index),
+        'trace_id': f'peak-trace-{event_index}',
+    } for event_index in range(60))
+    errors.sort(key=lambda error: error['timestamp'])
     pd = FakePeakDetector(threshold=2.0)
-    batch = run_batch(errors, peak_detector=pd, build_trace_patterns=True)
+    batch = run_batch(
+        errors,
+        peak_detector=pd,
+        build_trace_patterns=True,
+        namespace_fingerprint_baseline_available=True,
+    )
     stream, agg = run_streaming(errors, page_size=500, peak_detector=FakePeakDetector(2.0),
-                                build_trace_patterns=True)
+                                build_trace_patterns=True,
+                                namespace_fingerprint_baseline_available=True)
     b, s = collection_signature(batch), collection_signature(stream)
     assert set(b) == set(s)
     diffs = {fp: (b[fp], s[fp]) for fp in b if b[fp] != s[fp]}
@@ -190,8 +234,9 @@ def test_golden_regression_with_peak_and_traces():
 def test_namespace_total_peak_is_not_split_by_fingerprint():
     base = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
     errors = []
-    for fingerprint_index in range(10):
-        for event_index in range(10):
+    family_sizes = [60, 8, 8, 8, 8, 8]
+    for fingerprint_index, family_size in enumerate(family_sizes):
+        for event_index in range(family_size):
             errors.append({
                 'message': f'Error family {fingerprint_index} failed',
                 'application': 'svc-a',
@@ -200,12 +245,17 @@ def test_namespace_total_peak_is_not_split_by_fingerprint():
                 'trace_id': f'trace-{fingerprint_index}-{event_index}',
             })
 
-    batch = run_batch(errors, peak_detector=FakePeakDetector(threshold=50))
-    streaming, aggregator = run_streaming(
-        errors,
-        page_size=7,
-        peak_detector=FakePeakDetector(threshold=50),
-    )
+    batch_pipeline = _new_pipeline(peak_detector=FakePeakDetector(threshold=50))
+    batch_pipeline.phase_c.namespace_fingerprint_baseline_available = True
+    batch = batch_pipeline.run(errors, run_id='batch')
+
+    aggregator = StreamingAggregator()
+    for index in range(0, len(errors), 7):
+        aggregator.ingest_page(errors[index:index + 7])
+    aggregator.finalize()
+    streaming_pipeline = _new_pipeline(peak_detector=FakePeakDetector(threshold=50))
+    streaming_pipeline.phase_c.namespace_fingerprint_baseline_available = True
+    streaming = streaming_pipeline.run_streaming(aggregator, run_id='streaming')
     aggregator.close()
     for collection in (batch, streaming):
         spikes = [incident for incident in collection.incidents if incident.flags.is_spike]
@@ -213,7 +263,163 @@ def test_namespace_total_peak_is_not_split_by_fingerprint():
         evidence = next(item for item in spikes[0].evidence if item.rule == 'spike_p93_cap')
         assert evidence.current == 100
     assert collection_signature(batch) == collection_signature(streaming)
-    print("✅ 1c. Namespace total peak: 10 fingerprintů × 10 eventů => total=100")
+    print("✅ 1c. Namespace total peak: dominantní 60-event family owns total=100")
+
+
+def test_namespace_peak_remains_visible_without_anomalous_family():
+    bucket = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    detector = PhaseC_Detect(peak_detector=FakePeakDetector(threshold=39))
+    detector.namespace_fingerprint_baseline_available = True
+    detector.namespace_fingerprint_baselines = {
+        ('pcb-prod-01-app', 'routine-family'): [7.0, 7.0, 8.0, 6.0],
+    }
+    measurement = MeasurementResult(
+        fingerprint='routine-family',
+        current_count=8,
+        current_rate=8,
+        baseline_ewma=7,
+        baseline_median=7,
+        baseline_mad=1,
+    )
+    detector.prepare_namespace_peak_results({
+        'routine-family': {'pcb-prod-01-app': {bucket: 8}},
+        'other-1': {'pcb-prod-01-app': {bucket: 7}},
+        'other-2': {'pcb-prod-01-app': {bucket: 7}},
+        'other-3': {'pcb-prod-01-app': {bucket: 6}},
+        'other-4': {'pcb-prod-01-app': {bucket: 6}},
+        'other-5': {'pcb-prod-01-app': {bucket: 6}},
+    }, {'routine-family': measurement})
+
+    result = detector.detect(measurement)
+
+    assert result.flags.is_spike
+    evidence = next(item for item in result.evidence if item.rule == 'spike_p93_cap')
+    assert '[UNDIAGNOSED]' in evidence.message
+    assert evidence.details['diagnosis_status'] == 'undiagnosed'
+    assert evidence.details['owner_fingerprint'] is None
+    assert len(detector.namespace_peak_audit) == 1
+    audit = detector.namespace_peak_audit[0]
+    assert audit['window_start'] == bucket.isoformat()
+    assert audit['namespace'] == 'pcb-prod-01-app'
+    assert audit['namespace_total'] == 40
+    assert audit['is_namespace_peak'] is True
+    assert audit['p93_threshold'] == 39
+    assert audit['family_baseline_available'] is True
+    assert audit['owner_fingerprint'] is None
+    assert audit['suppressed_reason'] == 'no_anomalous_family'
+    decisions = {
+        decision['fingerprint']: decision
+        for decision in audit['family_decisions']
+    }
+    assert decisions['routine-family'] == {
+        'fingerprint': 'routine-family',
+        'contribution': 8,
+        'is_anomalous': False,
+        'threshold': 20.0,
+        'baseline': 7.0,
+        'anomaly_score': 0.4,
+        'method': 'namespace_fingerprint_median_mad',
+    }
+
+
+def test_namespace_peak_uses_namespace_specific_family_history():
+    bucket = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    detector = PhaseC_Detect(peak_detector=FakePeakDetector(threshold=39))
+    detector.namespace_fingerprint_baselines = {
+        ('ns-routine', 'shared-family'): [7.0, 8.0, 7.0, 9.0],
+        ('ns-anomalous', 'shared-family'): [0.0, 1.0, 0.0, 1.0],
+    }
+    detector.namespace_fingerprint_baseline_available = True
+    detector.prepare_namespace_peak_results({
+        'shared-family': {
+            'ns-routine': {bucket: 8},
+            'ns-anomalous': {bucket: 60},
+        },
+    })
+
+    result = detector.detect(MeasurementResult(fingerprint='shared-family'))
+
+    assert result.flags.is_spike
+    evidence = next(item for item in result.evidence if item.rule == 'spike_p93_cap')
+    assert evidence.details['namespace'] == 'ns-anomalous'
+    assert evidence.details['fingerprint_gate_method'] == 'namespace_fingerprint_median_mad'
+
+
+def test_namespace_peak_keeps_all_anomalous_contributors():
+    bucket = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    detector = PhaseC_Detect(peak_detector=FakePeakDetector(threshold=39))
+    detector.namespace_fingerprint_baseline_available = True
+    detector.namespace_fingerprint_baselines = {
+        ('ns-a', 'family-a'): [1.0, 1.0, 1.0, 1.0],
+        ('ns-a', 'family-b'): [1.0, 1.0, 1.0, 1.0],
+    }
+    detector.prepare_namespace_peak_results({
+        'family-a': {'ns-a': {bucket: 25}},
+        'family-b': {'ns-a': {bucket: 22}},
+    })
+
+    results = {
+        fingerprint: detector.detect(
+            MeasurementResult(fingerprint=fingerprint)
+        )
+        for fingerprint in ('family-a', 'family-b')
+    }
+
+    for fingerprint, expected_contribution in (('family-a', 25), ('family-b', 22)):
+        assert results[fingerprint].flags.is_spike
+        evidence = next(
+            item for item in results[fingerprint].evidence
+            if item.rule == 'spike_p93_cap'
+        )
+        assert evidence.details['fingerprint_contribution'] == expected_contribution
+        assert {
+            contributor['fingerprint']
+            for contributor in evidence.details['anomalous_contributors']
+        } == {'family-a', 'family-b'}
+
+
+def test_namespace_peak_audit_includes_family_identity():
+    base = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    errors = [
+        {
+            'message': 'Payment routing service unavailable',
+            'application': 'svc-a',
+            'namespace': 'ns-a',
+            'timestamp': _ts(base, event_index),
+            'trace_id': f'trace-{event_index}',
+        }
+        for event_index in range(60)
+    ]
+    pipeline = _new_pipeline(peak_detector=FakePeakDetector(threshold=50))
+    pipeline.phase_c.namespace_fingerprint_baseline_available = True
+
+    pipeline.run(errors, run_id='audit-family-identity')
+
+    audit = pipeline.phase_c.namespace_peak_audit[0]
+    assert audit['peak_identifier'] == 'SPIKE:NS:ns-a:2026-09-20T10:00:00+00:00'
+    owner = next(
+        decision
+        for decision in audit['family_decisions']
+        if decision['fingerprint'] == audit['owner_fingerprint']
+    )
+    assert owner['error_type']
+    assert owner['normalized_message']
+    assert owner['apps'] == ['svc-a']
+
+
+def test_namespace_peak_does_not_fallback_when_family_baseline_loading_failed():
+    bucket = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    detector = PhaseC_Detect(peak_detector=FakePeakDetector(threshold=39))
+    detector.prepare_namespace_peak_results({
+        'new-family': {'ns-a': {bucket: 100}},
+    })
+
+    result = detector.detect(MeasurementResult(fingerprint='new-family'))
+
+    assert result.flags.is_spike
+    evidence = next(item for item in result.evidence if item.rule == 'spike_p93_cap')
+    assert evidence.details['diagnosis_status'] == 'undiagnosed'
+    assert evidence.details['owner_fingerprint'] is None
 
 
 def test_error_kind_fact_grain_matches_batch_and_streaming():
@@ -383,6 +589,15 @@ def test_sqlite_detail_matches_batch():
         f"Trace event counts se liší: "
         f"only_b={set(b_counts)-set(s_counts)}, only_s={set(s_counts)-set(b_counts)}"
     )
+    b_ancestry = {
+        tid: [(event.span_id, event.parent_span_id) for event in timeline.events]
+        for tid, timeline in batch_timelines.items()
+    }
+    s_ancestry = {
+        tid: [(event.span_id, event.parent_span_id) for event in timeline.events]
+        for tid, timeline in stream_timelines.items()
+    }
+    assert b_ancestry == s_ancestry
     assert len(batch_patterns) == len(stream_patterns), (
         f"Počet trace patternů se liší: batch={len(batch_patterns)} stream={len(stream_patterns)}"
     )

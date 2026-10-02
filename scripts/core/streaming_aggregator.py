@@ -374,8 +374,8 @@ class StreamingAggregator:
             placeholders = ','.join('?' * len(chunk))
             if max_events_per_trace > 0:
                 rows = self._conn.execute(
-                    'SELECT trace_id, ts, ns, app, msg, etype, norm FROM ('
-                    'SELECT trace_id, ts, ns, app, msg, etype, norm, '
+                    'SELECT trace_id, ts, ns, app, span, parent, msg, etype, norm FROM ('
+                    'SELECT trace_id, ts, ns, app, span, parent, msg, etype, norm, '
                     'ROW_NUMBER() OVER (PARTITION BY trace_id ORDER BY ts) AS event_rank '
                     f'FROM ev WHERE trace_id IN ({placeholders})'
                     ') WHERE event_rank <= ?',
@@ -383,11 +383,11 @@ class StreamingAggregator:
                 )
             else:
                 rows = self._conn.execute(
-                    f'SELECT trace_id, ts, ns, app, msg, etype, norm '
+                    f'SELECT trace_id, ts, ns, app, span, parent, msg, etype, norm '
                     f'FROM ev WHERE trace_id IN ({placeholders})',
                     chunk,
                 )
-            for tid, ts, ns, app, msg, etype, norm in rows:
+            for tid, ts, ns, app, span, parent, msg, etype, norm in rows:
                 if max_total_events > 0 and yielded_events >= max_total_events:
                     return
                 try:
@@ -399,6 +399,8 @@ class StreamingAggregator:
                     timestamp=dt,
                     app_name=app or '?',
                     namespace=ns or '',
+                    span_id=span or None,
+                    parent_span_id=parent or None,
                     normalized_message=norm or '',
                     error_type=etype or '',
                     raw_message=msg or '',

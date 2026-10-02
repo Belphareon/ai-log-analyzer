@@ -18,6 +18,7 @@ Environment Variables:
 import os
 import smtplib
 import requests
+from html import escape
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
@@ -229,6 +230,11 @@ Results:
         """
         
         return self._send_email(subject, body, html_body)
+
+    def send_workflow_lifecycle_alert(self, diagnostic_message: str) -> bool:
+        """Send a persisted, high-confidence workflow lifecycle alert."""
+        subject = "[AI Log Analyzer] WORKFLOW LIFECYCLE ALERT"
+        return self._send_email(subject, f"{diagnostic_message.strip()}\n")
 
     def send_regular_phase_peak_alert_detailed(
         self,
@@ -516,6 +522,437 @@ Results:
         return self._send_email(subject, body, html_body)
 
     def send_regular_phase_peak_digest(
+        self,
+        window_start: datetime,
+        window_end: datetime,
+        alerts: List[Dict[str, Any]],
+        summary: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Send an operator-centered digest with auditable cause-family impact."""
+        operator_digest_enabled = os.getenv(
+            'ALERT_OPERATOR_DIGEST_ENABLED', 'true'
+        ).strip().lower() not in {'0', 'false', 'no', 'off'}
+        if not operator_digest_enabled:
+            return self._send_legacy_regular_phase_peak_digest(
+                window_start, window_end, alerts, summary
+            )
+        if not self.is_enabled():
+            return False
+
+        summary = summary or {}
+        prague_tz = ZoneInfo('Europe/Prague')
+        ws_local = window_start.astimezone(prague_tz) if window_start else None
+        we_local = window_end.astimezone(prague_tz) if window_end else None
+        local_time_range = (
+            f"{ws_local.strftime('%H:%M')} - {we_local.strftime('%H:%M')}"
+            if ws_local and we_local else 'N/A'
+        )
+        local_date = (
+            f"{ws_local.day}.{ws_local.month}.{ws_local.year}"
+            if ws_local else 'N/A'
+        )
+        subject = f"AI Log Analyzer | {local_time_range} | {local_date}"
+
+        def _metric(value: Any) -> str:
+            if value is None:
+                return 'n/a'
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if number.is_integer():
+                return f"{int(number):,}"
+            return f"{number:,.1f}"
+
+        def _scope(counts: Any, limit: int = 4) -> str:
+            if not isinstance(counts, dict) or not counts:
+                return 'n/a'
+            ranked = sorted(
+                counts.items(),
+                key=lambda item: (-int(item[1] or 0), str(item[0])),
+            )
+            parts = [f"{name} ({_metric(count)})" for name, count in ranked[:limit]]
+            if len(ranked) > limit:
+                parts.append(f"+{len(ranked) - limit} more")
+            return ', '.join(parts)
+
+        def _families(alert: Dict[str, Any]) -> List[Dict[str, Any]]:
+            families = [
+                dict(family)
+                for family in (alert.get('cause_families') or [])
+                if isinstance(family, dict)
+            ]
+            if families:
+                return families
+            root_cause = alert.get('root_cause') or {}
+            app_counts = alert.get('app_counts') or {}
+            top_app = next(iter(app_counts), 'unknown-app')
+            root_app = (
+                root_cause.get('service', top_app)
+                if isinstance(root_cause, dict) else top_app
+            )
+            return [{
+                'canonical_cause': (
+                    alert.get('root_cause_text')
+                    or alert.get('error_class')
+                    or 'Unknown cause'
+                ),
+                'root_app': root_app,
+                'operation': 'unknown-operation',
+                'outward_status': None,
+                'assessment': 'unknown',
+                'confidence': 'low',
+                'next_action': 'Inspect the representative trace and assign an owner classification.',
+                'raw_error_lines': int(alert.get('error_count', 0) or 0),
+                'unique_operations': None,
+                'amplification': None,
+                'app_counts': app_counts,
+                'namespace_counts': alert.get('namespace_counts') or {},
+                'representative_trace_id': alert.get('trace_id') or '',
+                'trace_ids': (),
+                'operation_count_method': 'unavailable',
+                'operation_count_confidence': 'low',
+                'operation_count_reason': 'trace coverage unavailable',
+            }]
+
+        assessment_labels = {
+            'technical_failure': 'TECHNICAL FAILURE',
+            'business_rejection': 'BUSINESS / DATA REJECTION',
+            'expected_outcome_logged_as_error': 'LIKELY EXPECTED OUTCOME',
+            'unknown': 'NEEDS TRIAGE',
+        }
+        assessment_colors = {
+            'technical_failure': '#b42318',
+            'business_rejection': '#b54708',
+            'expected_outcome_logged_as_error': '#175cd3',
+            'unknown': '#475467',
+        }
+
+        normalized_alerts = [(alert, _families(alert)) for alert in alerts]
+        all_trace_ids = {
+            str(trace_id)
+            for _alert, families in normalized_alerts
+            for family in families
+            for trace_id in (family.get('trace_ids') or ())
+            if trace_id
+        }
+        represented_families = [
+            family
+            for _alert, families in normalized_alerts
+            for family in families
+        ]
+        operation_counts = [
+            int(family.get('unique_operations') or 0)
+            for family in represented_families
+            if family.get('unique_operations') is not None
+        ]
+        represented_operations = (
+            None
+            if any(
+                family.get('unique_operations') is None
+                for family in represented_families
+            )
+            else sum(operation_counts)
+        )
+        represented_operation_text = (
+            f'{represented_operations:,}'
+            if represented_operations is not None
+            else 'n/a (one or more families have unavailable operation boundaries)'
+        )
+        raw_window_errors = int(summary.get('raw_window_errors', 0) or 0)
+        family_count = sum(len(families) for _alert, families in normalized_alerts)
+        represented_raw_lines = sum(
+            int(alert.get('error_count', 0) or 0) for alert in alerts
+        )
+        reconciliation_rows = [
+            alert.get('cause_reconciliation') or {}
+            for alert in alerts
+            if alert.get('cause_reconciliation')
+        ]
+        unexplained_raw_lines = sum(
+            int(row.get('unexplained_raw_lines', 0) or 0)
+            for row in reconciliation_rows
+        )
+        reconciliation_statuses = sorted({
+            str(row.get('status') or alert.get('cause_evidence_status') or 'unknown')
+            for alert, row in (
+                (alert, alert.get('cause_reconciliation') or {})
+                for alert in alerts
+            )
+            if row or alert.get('cause_evidence_status')
+        })
+        policy_summary = summary.get('notification_policy') or {}
+        primary_count = int(
+            policy_summary.get(
+                'primary_send',
+                sum(alert.get('policy_outcome') == 'primary_send' for alert in alerts),
+            )
+            or 0
+        )
+        digest_only_count = int(
+            policy_summary.get(
+                'digest_only',
+                sum(alert.get('policy_outcome') == 'digest_only' for alert in alerts),
+            )
+            or 0
+        )
+        route_suppressed_count = int(
+            policy_summary.get('route_suppressed', 0) or 0
+        )
+
+        lines = [
+            'Operator Peak Report',
+            f'Window: {local_date} {local_time_range} Europe/Prague',
+            '',
+            'WINDOW SIGNAL',
+            f'  Raw ERROR lines fetched: {_metric(raw_window_errors)}' if raw_window_errors else '  Raw ERROR lines fetched: n/a',
+            f'  Alert candidates: {len(alerts):,}',
+            f'  Primary updates: {primary_count:,}',
+            f'  Digest-only updates: {digest_only_count:,}',
+            f'  Route-suppressed candidates: {route_suppressed_count:,}',
+            f'  Cause families represented: {family_count:,}',
+            f'  Raw lines represented by alerts: {represented_raw_lines:,}',
+            f'  Operation occurrences represented: {represented_operation_text}',
+            f'  Trace IDs represented as evidence: {len(all_trace_ids):,}',
+        ]
+        if reconciliation_rows:
+            lines.extend([
+                f'  Cause evidence status: {", ".join(reconciliation_statuses)}',
+                f'  Cause unexplained raw lines: {unexplained_raw_lines:,}',
+            ])
+
+        html_alerts = []
+        for alert_index, (alert, families) in enumerate(normalized_alerts, start=1):
+            peak_type = str(alert.get('peak_type') or 'SPIKE')
+            status = 'KNOWN' if alert.get('is_known') else 'NEW'
+            policy_outcome = str(alert.get('policy_outcome') or 'primary_send')
+            origin_label = str(
+                alert.get('test_origin_label')
+                or alert.get('test_originator_application')
+                or ''
+            )
+            if policy_outcome != 'primary_send':
+                summary_line = (
+                    f'  {alert_index}. {alert.get("error_class", "unknown")} | '
+                    f'{policy_outcome.upper()} | '
+                    f'state={alert.get("policy_episode_state", "n/a")} | '
+                    f'errors={int(alert.get("error_count", 0) or 0):,}'
+                )
+                if origin_label:
+                    summary_line += f' | origin={origin_label}'
+                lines.append(summary_line)
+                html_alerts.append(
+                    '<section style="margin-top:14px;padding:10px 12px;'
+                    'border-top:1px solid #d0d5dd;">'
+                    f'<strong>Candidate {alert_index}: '
+                    f'{escape(str(alert.get("error_class", "unknown")))}</strong> '
+                    f'<span>{escape(policy_outcome.upper())} | '
+                    f'state={escape(str(alert.get("policy_episode_state", "n/a")))}, '
+                    f'errors={int(alert.get("error_count", 0) or 0):,}'
+                    f'{f" | origin={escape(origin_label)}" if origin_label else ""}'
+                    '</span></section>'
+                )
+                continue
+            reconciliation = alert.get('cause_reconciliation') or {}
+            evidence_status = str(
+                alert.get('cause_evidence_status')
+                or reconciliation.get('status')
+                or 'unknown'
+            )
+            evidence_reason = str(reconciliation.get('reason') or '')
+            unexplained = int(
+                reconciliation.get(
+                    'unexplained_raw_lines',
+                    alert.get('unexplained_raw_lines', 0),
+                )
+                or 0
+            )
+            threshold_decisions = [
+                decision
+                for decision in (alert.get('threshold_evidence') or [])
+                if isinstance(decision, dict)
+            ]
+            why_lines = []
+            if threshold_decisions:
+                for decision in threshold_decisions:
+                    observed = decision.get('observed_value')
+                    effective = decision.get('effective_threshold')
+                    ratio = None
+                    if isinstance(observed, (int, float)) and isinstance(effective, (int, float)) and effective > 0:
+                        ratio = observed / effective
+                    ratio_text = f", {ratio:.1f}x" if ratio is not None else ''
+                    snapshot = str(decision.get('threshold_snapshot_id') or 'n/a')
+                    percentile_level = decision.get('percentile_level')
+                    try:
+                        percentile_label = f"P{int(float(percentile_level) * 100)}"
+                    except (TypeError, ValueError):
+                        percentile_label = 'P93'
+                    why_lines.append(
+                        f"{decision.get('namespace') or 'unknown namespace'}: "
+                        f"{_metric(observed)} ERROR lines vs effective threshold "
+                        f"{_metric(effective)}{ratio_text}; {percentile_label}={_metric(decision.get('percentile_threshold'))}, "
+                        f"CAP={_metric(decision.get('cap_threshold'))}, "
+                        f"trigger={decision.get('triggered_by') or 'n/a'}, snapshot={snapshot}"
+                    )
+            else:
+                why_lines.append(
+                    f'{peak_type} detector triggered; structured P93/CAP evidence is unavailable.'
+                )
+
+            lines.extend([
+                '',
+                f'ALERT {alert_index}: {peak_type} | {status} | {policy_outcome.upper()}',
+                'WHY ALERTED',
+            ])
+            lines.append(
+                f'  Cause evidence: {evidence_status.upper()}; '
+                f'unexplained raw lines={unexplained:,}'
+                + (f'; {evidence_reason}' if evidence_reason else '')
+            )
+            if origin_label:
+                lines.append(f'  Test origin: {origin_label}')
+            lines.extend(f'  {line}' for line in why_lines)
+
+            html_why = ''.join(
+                f'<li style="margin:4px 0;">{escape(line)}</li>'
+                for line in why_lines
+            )
+            html_why += (
+                '<li style="margin:4px 0;">'
+                f'Cause evidence: {escape(evidence_status.upper())}; '
+                f'unexplained raw lines={unexplained:,}'
+                f'{f"; {escape(evidence_reason)}" if evidence_reason else ""}'
+                '</li>'
+            )
+            html_families = []
+            for family_index, family in enumerate(families, start=1):
+                assessment = str(family.get('assessment') or 'unknown')
+                assessment_label = assessment_labels.get(assessment, assessment.upper())
+                canonical_cause = str(family.get('canonical_cause') or 'Unknown cause')
+                root_app = str(family.get('root_app') or 'unknown-app')
+                operation = str(family.get('operation') or 'unknown-operation')
+                outward_status = family.get('outward_status')
+                confidence = str(family.get('confidence') or 'low')
+                raw_lines = int(family.get('raw_error_lines', 0) or 0)
+                traced_lines_value = family.get('traced_error_lines')
+                traced_lines = (
+                    int(traced_lines_value or 0)
+                    if traced_lines_value is not None else
+                    (raw_lines if family.get('unique_operations') is not None else 0)
+                )
+                unsegmented_lines_value = family.get('unsegmented_error_lines')
+                unsegmented_lines = (
+                    int(unsegmented_lines_value or 0)
+                    if unsegmented_lines_value is not None else
+                    max(0, raw_lines - traced_lines)
+                )
+                unique_operations = family.get('unique_operations')
+                operation_count_method = str(
+                    family.get('operation_count_method')
+                    or ('trace_id' if unique_operations is not None else 'unavailable')
+                )
+                operation_count_confidence = str(
+                    family.get('operation_count_confidence')
+                    or ('medium' if unique_operations is not None else 'low')
+                )
+                operation_count_reason = str(
+                    family.get('operation_count_reason') or ''
+                )
+                amplification = family.get('amplification')
+                amplification_text = (
+                    f"{float(amplification):.1f}"
+                    if isinstance(amplification, (int, float)) else 'n/a'
+                )
+                trace_id = str(family.get('representative_trace_id') or '')
+                next_action = str(
+                    family.get('next_action')
+                    or 'Inspect the representative trace and assign an owner classification.'
+                )
+                impact = (
+                    f"{_metric(unique_operations)} unique operations | "
+                    f"{raw_lines:,} raw ERROR lines | {amplification_text}x amplification | "
+                    f"coverage: {traced_lines:,} traced, {unsegmented_lines:,} unsegmented ERROR lines"
+                    if unique_operations is not None else
+                    f"Unique operations n/a ({operation_count_reason or 'operation boundaries unavailable'}) | "
+                    f"{raw_lines:,} raw ERROR lines | "
+                    f"coverage: {traced_lines:,} traced, {unsegmented_lines:,} unsegmented ERROR lines"
+                )
+                operation_evidence = (
+                    f"method={operation_count_method}, "
+                    f"confidence={operation_count_confidence}"
+                )
+                outcome = (
+                    f"operation={operation}, outward_status={outward_status or 'n/a'}"
+                )
+                scope = (
+                    f"apps: {_scope(family.get('app_counts'))}; "
+                    f"namespaces: {_scope(family.get('namespace_counts'))}"
+                )
+
+                lines.extend([
+                    '',
+                    f'CAUSE {alert_index}.{family_index}: [{assessment_label}] {canonical_cause}',
+                    'WHAT ACTUALLY FAILED',
+                    f'  {root_app}: {canonical_cause}',
+                    f'  {outcome}',
+                    'IMPACT',
+                    f'  {impact}',
+                    f'  Operation count evidence: {operation_evidence}',
+                    f'  Current scope - {scope}',
+                    'ASSESSMENT',
+                    f'  {assessment_label} ({confidence} confidence)',
+                    'EVIDENCE',
+                    f"  Representative trace: {trace_id or 'n/a'}",
+                    'NEXT ACTION',
+                    f'  {next_action}',
+                ])
+
+                color = assessment_colors.get(assessment, '#475467')
+                html_families.append(f'''
+<div style="margin-top:14px;border:1px solid #d0d5dd;border-left:5px solid {color};padding:14px;background:#ffffff;">
+  <div style="font-size:16px;font-weight:700;color:{color};">{escape(assessment_label)}</div>
+  <div style="font-size:17px;font-weight:700;margin-top:4px;">{escape(canonical_cause)}</div>
+  <div style="margin-top:12px;"><strong>WHAT ACTUALLY FAILED</strong><br>{escape(root_app)}: {escape(canonical_cause)}<br>{escape(outcome)}</div>
+    <div style="margin-top:10px;"><strong>IMPACT</strong><br>{escape(impact)}<br>Operation count evidence: {escape(operation_evidence)}<br>{escape(scope)}</div>
+  <div style="margin-top:10px;"><strong>ASSESSMENT</strong><br>{escape(assessment_label)} ({escape(confidence)} confidence)</div>
+  <div style="margin-top:10px;"><strong>EVIDENCE</strong><br>Representative trace: {escape(trace_id or 'n/a')}</div>
+  <div style="margin-top:10px;"><strong>NEXT ACTION</strong><br>{escape(next_action)}</div>
+</div>''')
+
+            html_alerts.append(f'''
+<section style="margin-top:20px;padding-top:16px;border-top:2px solid #344054;">
+  <div style="font-size:18px;font-weight:700;">Alert {alert_index}: {escape(peak_type)} | {escape(status)}</div>
+  <div style="margin-top:10px;font-weight:700;">WHY ALERTED</div>
+  <ul style="margin:6px 0 0 20px;padding:0;">{html_why}</ul>
+  {''.join(html_families)}
+</section>''')
+
+        body = '\n'.join(lines)
+        html_body = f'''
+<html>
+<body style="font-family:'Segoe UI',Arial,sans-serif;color:#101828;background:#f2f4f7;margin:0;padding:20px;">
+  <main style="max-width:900px;margin:0 auto;background:#ffffff;border:1px solid #d0d5dd;padding:22px;">
+    <h1 style="font-size:23px;margin:0;">Operator Peak Report</h1>
+    <div style="margin-top:4px;color:#475467;">{escape(local_date)} {escape(local_time_range)} Europe/Prague</div>
+    <div style="margin-top:18px;padding:14px;background:#f9fafb;border:1px solid #eaecf0;">
+      <strong>WINDOW SIGNAL</strong><br>
+      Raw ERROR lines fetched: {escape(_metric(raw_window_errors) if raw_window_errors else 'n/a')}<br>
+      Alert groups sent: {len(alerts):,}<br>
+      Cause families represented: {family_count:,}<br>
+      Raw lines represented by alerts: {represented_raw_lines:,}<br>
+    Operation occurrences represented: {escape(represented_operation_text)}<br>
+    Trace IDs represented as evidence: {len(all_trace_ids):,}
+    </div>
+    {''.join(html_alerts)}
+    <div style="margin-top:20px;padding-top:12px;border-top:1px solid #d0d5dd;font-size:12px;color:#667085;">
+      Generated {escape(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))} | AI Log Analyzer
+    </div>
+  </main>
+</body>
+</html>'''
+        return self._send_email(subject, body, html_body)
+
+    def _send_legacy_regular_phase_peak_digest(
         self,
         window_start: datetime,
         window_end: datetime,
