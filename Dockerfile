@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r98 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r99 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r98 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r99 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r98"
-LABEL description="AI Log Analyzer - r98: restore peak alert trust and usability"
+LABEL version="r99"
+LABEL description="AI Log Analyzer - r99: preserve applied migration checksums"
 
 # Set working directory
 WORKDIR /app
