@@ -303,7 +303,32 @@ def build_peak_episode_rows(collection) -> List[tuple]:
             int(episode.get('non_peak_windows') or 0),
             episode.get('previous_episode_id') or None,
         ))
-    return sorted(rows, key=lambda row: row[0])
+    rows_by_id = {row[0]: row for row in rows}
+    visiting = set()
+    visited = set()
+    ordered = []
+
+    def visit(row: tuple) -> None:
+        episode_id = row[0]
+        if episode_id in visited:
+            return
+        if episode_id in visiting:
+            raise PersistenceInvariantError(
+                f'cyclic episode predecessor chain: {episode_id}'
+            )
+        visiting.add(episode_id)
+        previous_episode_id = row[16]
+        if previous_episode_id is not None:
+            previous_row = rows_by_id.get(str(previous_episode_id))
+            if previous_row is not None:
+                visit(previous_row)
+        visiting.remove(episode_id)
+        visited.add(episode_id)
+        ordered.append(row)
+
+    for row in sorted(rows, key=lambda item: item[0]):
+        visit(row)
+    return ordered
 
 
 def build_peak_episode_window_rows(collection) -> List[tuple]:

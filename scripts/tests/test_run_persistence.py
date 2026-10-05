@@ -10,6 +10,7 @@ from scripts.core.run_persistence import (
     build_detection_rows,
     build_error_kind_rows,
     build_namespace_rows,
+    build_peak_episode_rows,
     build_peak_episode_transition_rows,
     persist_analysis_run,
     stream_advisory_lock,
@@ -224,6 +225,34 @@ def test_episode_transition_rows_keep_reason_and_previous_raw_lines():
         180,
         280,
     )]
+
+
+def test_episode_rows_insert_predecessor_before_recurrence():
+    rows = build_peak_episode_rows(SimpleNamespace(
+        peak_episodes=[
+            {
+                'episode_id': 'a-child',
+                'stream_key': 'backfill',
+                'cause_signature': 'cause',
+                'state': 'RECURRENCE',
+                'first_window_start_utc': '2026-09-28T03:00:00+00:00',
+                'last_window_start_utc': '2026-09-28T03:00:00+00:00',
+                'diagnosis_confidence': 'low',
+                'previous_episode_id': 'z-parent',
+            },
+            {
+                'episode_id': 'z-parent',
+                'stream_key': 'backfill',
+                'cause_signature': 'cause',
+                'state': 'RESOLVED',
+                'first_window_start_utc': '2026-09-28T01:00:00+00:00',
+                'last_window_start_utc': '2026-09-28T02:00:00+00:00',
+                'diagnosis_confidence': 'low',
+            },
+        ],
+    ))
+
+    assert [row[0] for row in rows] == ['z-parent', 'a-child']
 
 
 def test_detection_rows_keep_threshold_snapshot_and_flags():

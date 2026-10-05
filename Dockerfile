@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r100 .
+#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r101 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r100 python scripts/regular_phase.py
+#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r101 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r100"
-LABEL description="AI Log Analyzer - r100: suppress idempotent replay persistence duplicates"
+LABEL version="r101"
+LABEL description="AI Log Analyzer - r101: persist episode predecessors before recurrences"
 
 # Set working directory
 WORKDIR /app
