@@ -1,5 +1,6 @@
 """Deterministic event-time correlation for 15-minute peak episodes."""
 
+
 from __future__ import annotations
 
 import hashlib
@@ -335,7 +336,8 @@ class PeakEpisodeCorrelator:
                 transition = self._apply_recovery(episode, observation)
             else:
                 continue
-            transitions.append(transition)
+            if transition.correlation_method != "idempotent_replay":
+                transitions.append(transition)
 
         # An episode can receive multiple observations for one window (one per
         # namespace). Its final object is the deterministic state after all of them.

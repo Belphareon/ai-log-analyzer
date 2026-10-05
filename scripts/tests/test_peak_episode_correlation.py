@@ -5,6 +5,7 @@ from scripts.core.peak_episode import (
     PeakObservation,
     materialize_episode_state,
 )
+from scripts.core.run_persistence import build_peak_episode_window_rows
 
 
 START = datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
@@ -54,6 +55,25 @@ def test_same_cause_continues_and_new_namespace_expands():
     }
     states = [transition.state for transition in correlator.last_transitions]
     assert states == ["START", "EXPANSION", "EXPANSION"]
+
+
+def test_duplicate_observation_is_a_noop_for_persistence_transitions():
+    current = observation(0)
+    correlator = PeakEpisodeCorrelator()
+
+    episodes = correlator.correlate([current, current])
+
+    assert len(episodes) == 1
+    assert len(correlator.last_transitions) == 1
+    assert correlator.last_transitions[0].correlation_method == "new_cause"
+    collection = type(
+        "Collection",
+        (),
+        {"peak_episode_transitions": [
+            transition.to_dict() for transition in correlator.last_transitions
+        ]},
+    )()
+    assert len(build_peak_episode_window_rows(collection)) == 1
 
 
 def test_multi_namespace_family_counts_are_added_once_per_window():
