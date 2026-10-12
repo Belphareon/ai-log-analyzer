@@ -296,10 +296,17 @@ class PeakEpisodeCorrelator:
         }
         transitions: list[EpisodeTransition] = []
         active_by_stream_cause: dict[tuple[str, str], list[str]] = {}
+        active_by_stream: dict[str, list[str]] = {}
+        active_by_stream_namespace: dict[tuple[str, str], list[str]] = {}
         for episode in episodes.values():
             active_by_stream_cause.setdefault(
                 (episode.stream_key, episode.cause_signature), []
             ).append(episode.episode_id)
+            active_by_stream.setdefault(episode.stream_key, []).append(episode.episode_id)
+            for namespace in episode.active_namespaces:
+                active_by_stream_namespace.setdefault(
+                    (episode.stream_key, namespace), []
+                ).append(episode.episode_id)
         for observation in ordered:
             cause_signature = observation.normalized_cause_signature()
             if observation.is_peak:
@@ -312,17 +319,20 @@ class PeakEpisodeCorrelator:
                 ]
             else:
                 active_episodes = [
-                    episode
-                    for episode in episodes.values()
-                    if episode.stream_key == observation.stream_key
-                    and episode.state != "RESOLVED"
+                    episodes[episode_id]
+                    for episode_id in active_by_stream.get(observation.stream_key, ())
+                    if episodes[episode_id].state != "RESOLVED"
                 ]
-                candidates = [
-                    episode
-                    for episode in active_episodes
-                    if observation.signal_namespace in episode.active_namespaces
-                    or len(active_episodes) == 1
-                ]
+                if len(active_episodes) == 1:
+                    candidates = active_episodes
+                else:
+                    candidates = [
+                        episodes[episode_id]
+                        for episode_id in active_by_stream_namespace.get(
+                            (observation.stream_key, observation.signal_namespace), ()
+                        )
+                        if episodes[episode_id].state != "RESOLVED"
+                    ]
             episode = self._select_candidate(candidates, observation)
             if observation.is_peak:
                 transition = self._apply_peak(
@@ -332,6 +342,14 @@ class PeakEpisodeCorrelator:
                     episodes,
                     active_by_stream_cause,
                 )
+                active_by_stream.setdefault(observation.stream_key, [])
+                if transition.episode_id not in active_by_stream[observation.stream_key]:
+                    active_by_stream[observation.stream_key].append(transition.episode_id)
+                namespace_index = active_by_stream_namespace.setdefault(
+                    (observation.stream_key, observation.signal_namespace), []
+                )
+                if transition.episode_id not in namespace_index:
+                    namespace_index.append(transition.episode_id)
             elif episode is not None:
                 transition = self._apply_recovery(episode, observation)
             else:
@@ -420,7 +438,15 @@ class PeakEpisodeCorrelator:
             )
         previous_lines = episode.current_raw_error_lines if episode is not None else None
         if episode is None:
-            previous = self._previous_resolved(episodes, observation, cause_signature)
+            previous = self._previous_resolved(
+                (
+                    episodes[episode_id]
+                    for episode_id in active_by_stream_cause.get(
+                        (observation.stream_key, cause_signature), ()
+                    )
+                ),
+                observation,
+            )
             episode = self._new_episode(
                 observation,
                 cause_signature,
@@ -565,16 +591,13 @@ class PeakEpisodeCorrelator:
 
     @staticmethod
     def _previous_resolved(
-        episodes: Mapping[str, PeakEpisode],
+        candidates: Iterable[PeakEpisode],
         observation: PeakObservation,
-        cause_signature: str,
     ) -> Optional[PeakEpisode]:
         previous = [
             episode
-            for episode in episodes.values()
-            if episode.stream_key == observation.stream_key
-            and episode.cause_signature == cause_signature
-            and episode.state == "RESOLVED"
+            for episode in candidates
+            if episode.state == "RESOLVED"
             and episode.last_window_start_utc < observation.window_start_utc
         ]
         return max(previous, key=lambda item: (item.last_window_start_utc, item.episode_id), default=None)
@@ -663,33 +686,44 @@ def materialize_episode_state(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Correlate decision payloads with current-run cause-family evidence."""
     families = tuple(cause_families or ())
-    enriched_decisions = []
-    for decision in decisions:
-        namespace = str(
-            decision.get("signal_namespace") or decision.get("namespace") or ""
+    families_by_namespace: dict[str, list[dict[str, Any]]] = {}
+    for family in families:
+        namespace_counts = family.get("namespace_counts") or {}
+        family_namespaces = sorted(
+            str(key)
+            for key, value in namespace_counts.items()
+            if int(value or 0) > 0
         )
-        matching_families = []
-        for family in families:
-            namespace_counts = family.get("namespace_counts") or {}
-            namespace_lines = int(namespace_counts.get(namespace, 0) or 0)
+        if not family_namespaces:
+            continue
+        first_namespace = family_namespaces[0]
+        for family_namespace, value in namespace_counts.items():
+            namespace_lines = int(value or 0)
             if namespace_lines <= 0:
                 continue
-            family_namespaces = sorted(
-                str(key)
-                for key, value in namespace_counts.items()
-                if int(value or 0) > 0
-            )
             namespace_family = dict(family)
             namespace_family["raw_error_lines"] = namespace_lines
             if family.get("unique_operations") is not None:
                 namespace_family["unique_operations"] = (
                     int(family["unique_operations"])
-                    if namespace == family_namespaces[0]
+                    if str(family_namespace) == first_namespace
                     else 0
                 )
-            matching_families.append(namespace_family)
+            families_by_namespace.setdefault(str(family_namespace), []).append(
+                namespace_family
+            )
+
+    enriched_decisions = []
+    for decision in decisions:
+        namespace = str(
+            decision.get("signal_namespace") or decision.get("namespace") or ""
+        )
         enriched = dict(decision)
-        enriched["cause_families"] = matching_families
+        enriched["cause_families"] = (
+            families_by_namespace.get(namespace, ())
+            if bool(decision.get("is_peak", decision.get("is_namespace_peak", False)))
+            else ()
+        )
         enriched_decisions.append(enriched)
 
     observations = observations_from_decisions(enriched_decisions)

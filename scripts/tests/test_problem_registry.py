@@ -2,7 +2,7 @@ import multiprocessing
 from datetime import datetime
 from types import SimpleNamespace
 
-from scripts.core.problem_registry import ProblemRegistry
+from scripts.core.problem_registry import PeakEntry, ProblemRegistry
 
 
 def _incident(fingerprint, category, app):
@@ -99,3 +99,24 @@ def test_enrichment_merge_preserves_concurrent_registry_update(tmp_path):
     assert problem.behavior == 'request rejected'
     assert problem.enriched_severity == 'high'
     assert problem.enriched_score == 87.5
+
+
+def test_peak_enrichment_round_trips_root_cause_and_behavior(tmp_path):
+    registry = ProblemRegistry(str(tmp_path))
+    peak_key = 'BUSINESS:card_servicing:SPIKE'
+    registry.peaks[peak_key] = PeakEntry(
+        id='PK-000001',
+        problem_key=peak_key,
+        peak_type='SPIKE',
+    )
+    assert registry.save()
+
+    assert registry.merge_enrichment_and_save(
+        {},
+        {peak_key: {'root_cause': 'database contention', 'behavior': 'requests timed out'}},
+    )
+
+    reloaded = ProblemRegistry(str(tmp_path))
+    assert reloaded.load()
+    assert reloaded.peaks[peak_key].root_cause == 'database contention'
+    assert reloaded.peaks[peak_key].behavior == 'requests timed out'

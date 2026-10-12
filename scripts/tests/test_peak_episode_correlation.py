@@ -111,6 +111,68 @@ def test_multi_namespace_family_counts_are_added_once_per_window():
     assert [item["allocated_raw_error_lines"] for item in transitions] == [60, 40]
 
 
+def test_materialize_episode_state_reuses_namespace_family_index():
+    window = START.isoformat()
+    decisions = [
+        {
+            "window_decision_id": f"decision-{namespace}",
+            "stream_key": "replay-1",
+            "signal_namespace": namespace,
+            "window_start_utc": window,
+            "is_peak": True,
+            "namespace_raw_lines": 10,
+        }
+        for namespace in ("ns-a", "ns-b")
+    ]
+    families = [
+        {
+            "signature": "cause-a",
+            "unique_operations": 4,
+            "namespace_counts": {"ns-a": 10, "ns-b": 20},
+        },
+        {
+            "signature": "cause-b",
+            "unique_operations": 3,
+            "namespace_counts": {"ns-b": 30},
+        },
+    ]
+
+    _, transitions = materialize_episode_state(decisions, families)
+
+    assert [item["cause_signature"] for item in transitions] == [
+        "cause-a", "cause-a", "cause-b"
+    ]
+    assert [item["allocated_raw_error_lines"] for item in transitions] == [10, 10, 10]
+
+
+def test_materialize_episode_state_does_not_fan_out_families_to_recovery_windows(monkeypatch):
+    captured = []
+
+    def capture_observations(_correlator, observations, prior_episodes=()):
+        captured.extend(observations)
+        _correlator.last_transitions = ()
+        return ()
+
+    monkeypatch.setattr(PeakEpisodeCorrelator, "correlate", capture_observations)
+    materialize_episode_state(
+        [{
+            "window_decision_id": "recovery",
+            "stream_key": "replay-1",
+            "signal_namespace": "ns-a",
+            "window_start_utc": START.isoformat(),
+            "is_peak": False,
+            "namespace_raw_lines": 0,
+        }],
+        [
+            {"signature": f"cause-{index}", "namespace_counts": {"ns-a": 10}}
+            for index in range(3)
+        ],
+    )
+
+    assert len(captured) == 1
+    assert captured[0].is_peak is False
+
+
 def test_different_cause_does_not_merge_even_in_same_window():
     correlator = PeakEpisodeCorrelator()
     episodes = correlator.correlate([

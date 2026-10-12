@@ -3,7 +3,7 @@ from scripts import recent_incidents_publisher as publisher
 
 def test_operator_report_renders_structured_and_escaped_confluence_html():
     report_data = {
-        'header': ('2026-08-25 08:00 - 2026-08-25 08:15', 'now', 'run-1'),
+        'header': ('2026-08-25 08:00 - 2026-08-25 08:15', 'now', '<img src=x onerror=alert(1)>'),
         'has_summary': True,
         'executive_summary': (
             'Cause families: 1\n'
@@ -46,3 +46,5 @@ def test_operator_report_renders_structured_and_escaped_confluence_html():
     assert 'Inspect concurrent updates.' in html
     assert '<script>' not in html
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
+    assert '<img' not in html
+    assert '&lt;img src=x onerror=alert(1)&gt;' in html

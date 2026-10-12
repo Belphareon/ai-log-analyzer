@@ -8,6 +8,7 @@ from scripts.core.peak_decision import (
     materialize_namespace_decisions,
     materialize_decision_windows,
 )
+from scripts.pipeline.phase_c_detect import PhaseC_Detect
 
 
 WINDOW = datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
@@ -49,6 +50,19 @@ def _audit(namespace="pcb-sit-01-app", peak=True):
             },
         ],
     }
+
+
+class _PeakDetector:
+    def is_peak(self, value, namespace, day_of_week):
+        return {
+            "is_peak": True,
+            "p93_threshold": 10,
+            "percentile_level": 0.93,
+            "percentile_threshold": 10,
+            "cap_threshold": 20,
+            "triggered_by": "p93",
+            "threshold_snapshot_id": "snapshot-1",
+        }
 
 
 def test_decision_identity_is_idempotent_and_keeps_all_contributors():
@@ -146,3 +160,28 @@ def test_densify_preserves_existing_peak_and_adds_missing_window_rows():
         if item.window_start_utc == WINDOW.replace(minute=15)
         and item.signal_namespace == "pcb-uat-01-app"
     ).verdict_reason == "below_min_volume"
+
+
+def test_phase_c_peak_audit_carries_identifier_into_materialization():
+    detector = PhaseC_Detect(
+        peak_detector=_PeakDetector(),
+        monitored_namespaces=["ns-a"],
+        min_namespace_peak_value=1,
+        fingerprint_spike_min_count=1,
+        fingerprint_spike_mad_multiplier=1,
+    )
+    detector.namespace_fingerprint_baseline_available = True
+    detector.namespace_fingerprint_baselines[("ns-a", "fp-a")] = [1, 1, 1]
+
+    detector.prepare_namespace_peak_results(
+        {"fp-a": {"ns-a": {WINDOW: 100}}},
+        measurements={},
+    )
+
+    decisions = materialize_decision_windows(
+        detector.namespace_peak_audit,
+        ["ns-a"],
+        window_starts=[WINDOW],
+    )
+
+    assert decisions[0].peak_identifier == "SPIKE:NS:ns-a:2026-09-30T13:00:00+00:00"

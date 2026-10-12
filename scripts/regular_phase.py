@@ -23,10 +23,10 @@ import atexit
 import signal
 import re
 import uuid
-from dataclasses import replace
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Tuple, Optional, Any, List, Iterable
+from typing import Dict, Tuple, Optional, Any, List
 from zoneinfo import ZoneInfo
 
 _DISPLAY_TZ = ZoneInfo(os.getenv('DISPLAY_TIMEZONE', 'Europe/Prague'))
@@ -765,152 +765,45 @@ def _attach_authoritative_cause_families(
     payload: Dict[str, Any],
     cause_analysis: Any,
 ) -> bool:
-    """Attach run-level cause evidence without hiding a scope mismatch."""
-    source_raw_lines = int(payload.get('error_count', 0) or 0)
+    """Use run-level facts only when trace and raw-line evidence reconcile exactly."""
     payload_trace_ids = {
         str(trace_id)
         for trace_id in (payload.get('trace_counts') or {})
         if trace_id
     }
-    payload_trace_counts = {
-        str(trace_id): max(0, int(count or 0))
-        for trace_id, count in (payload.get('trace_counts') or {}).items()
-        if trace_id
-    }
-
-    def set_reconciliation(
-        status: str,
-        *,
-        represented_raw_lines: int,
-        represented_trace_ids: Iterable[str],
-        reason: str,
-    ) -> None:
-        unexplained = max(0, source_raw_lines - represented_raw_lines)
-        payload['cause_reconciliation'] = {
-            'status': status,
-            'source_raw_error_lines': source_raw_lines,
-            'represented_raw_error_lines': represented_raw_lines,
-            'unexplained_raw_lines': unexplained,
-            'source_trace_ids': len(payload_trace_ids),
-            'represented_trace_ids': len(set(represented_trace_ids)),
-            'reason': reason,
-        }
-        payload['cause_evidence_status'] = status
-        payload['unexplained_raw_lines'] = unexplained
-
     if not payload_trace_ids or cause_analysis is None:
-        set_reconciliation(
-            'degraded',
-            represented_raw_lines=0,
-            represented_trace_ids=(),
-            reason=(
-                'trace evidence unavailable'
-                if not payload_trace_ids
-                else 'cause analysis unavailable'
-            ),
-        )
         return False
 
     candidates = [
         family
         for family in (getattr(cause_analysis, 'families', None) or ())
-        if family.trace_ids and set(family.trace_ids) & payload_trace_ids
+        if family.trace_ids
+        and set(family.trace_ids).issubset(payload_trace_ids)
     ]
+    represented_trace_ids = {
+        str(trace_id)
+        for family in candidates
+        for trace_id in family.trace_ids
+        if trace_id
+    }
+    represented_raw_lines = sum(family.raw_error_lines for family in candidates)
+    if (
+        represented_trace_ids != payload_trace_ids
+        or represented_raw_lines != int(payload.get('error_count', 0) or 0)
+    ):
+        return False
+
     candidates.sort(
         key=lambda family: (
             -family.raw_error_lines,
             family.root_app,
             family.canonical_cause,
-            family.signature,
         )
     )
-    if not candidates:
-        set_reconciliation(
-            'degraded',
-            represented_raw_lines=0,
-            represented_trace_ids=(),
-            reason='cause families have no trace overlap with payload',
-        )
-        return False
-
-    represented_trace_ids = {
-        str(trace_id)
-        for family in candidates
-        for trace_id in family.trace_ids
-        if str(trace_id) in payload_trace_ids
-    }
-    represented_raw_lines = sum(family.raw_error_lines for family in candidates)
-    is_complete = (
-        represented_trace_ids == payload_trace_ids
-        and represented_raw_lines == source_raw_lines
-        and all(set(family.trace_ids).issubset(payload_trace_ids) for family in candidates)
-    )
-    if is_complete:
-        attached_families = candidates
-        set_reconciliation(
-            'complete',
-            represented_raw_lines=source_raw_lines,
-            represented_trace_ids=represented_trace_ids,
-            reason='trace and raw-line evidence reconciled',
-        )
-    else:
-        attached_families = []
-        remaining_raw_lines = source_raw_lines
-        projected_trace_ids = set()
-        for family in candidates:
-            family_trace_ids = tuple(
-                sorted(set(family.trace_ids) & payload_trace_ids)
-            )
-            trace_raw_lines = sum(
-                payload_trace_counts.get(trace_id, 0)
-                for trace_id in family_trace_ids
-            )
-            allocated_raw_lines = min(
-                max(0, int(family.raw_error_lines or 0)),
-                remaining_raw_lines,
-                trace_raw_lines,
-            )
-            if allocated_raw_lines <= 0:
-                continue
-            traced_error_lines = min(
-                allocated_raw_lines,
-                max(0, int(family.traced_error_lines or 0)),
-            )
-            attached_families.append(replace(
-                family,
-                raw_error_lines=allocated_raw_lines,
-                traced_error_lines=traced_error_lines,
-                unsegmented_error_lines=allocated_raw_lines - traced_error_lines,
-                trace_ids=family_trace_ids,
-                representative_trace_id=(
-                    family.representative_trace_id
-                    if family.representative_trace_id in family_trace_ids
-                    else (family_trace_ids[0] if family_trace_ids else '')
-                ),
-            ))
-            remaining_raw_lines -= allocated_raw_lines
-            projected_trace_ids.update(family_trace_ids)
-
-        represented_raw_lines = source_raw_lines - remaining_raw_lines
-        if not attached_families:
-            set_reconciliation(
-                'degraded',
-                represented_raw_lines=0,
-                represented_trace_ids=(),
-                reason='cause families could not be projected to current scope',
-            )
-            return False
-        set_reconciliation(
-            'partial',
-            represented_raw_lines=represented_raw_lines,
-            represented_trace_ids=projected_trace_ids,
-            reason='trace or raw-line evidence covers only part of current scope',
-        )
-
-    payload['cause_families'] = [family.to_dict() for family in attached_families]
+    payload['cause_families'] = [family.to_dict() for family in candidates]
     payload['cause_family'] = payload['cause_families'][0]
     _set_alert_identity(payload)
-    return is_complete
+    return True
 
 
 def _should_send_peak_alert(
@@ -1509,7 +1402,7 @@ def _episode_policy_contexts(
         if transition_window is None or transition_window != payload_window:
             continue
         signature = str(transition.get('cause_signature') or '')
-        if payload_signatures and (not signature or signature not in payload_signatures):
+        if payload_signatures and signature and signature not in payload_signatures:
             continue
         matches.append(transition)
     if matches:
@@ -1526,7 +1419,7 @@ def _episode_policy_contexts(
         for transition in transitions or []
         if _parse_dt(transition.get('window_start_utc')) == payload_window
     ]
-    return same_window if not payload_signatures else []
+    return same_window if len(same_window) == 1 else []
 
 
 def _episode_policy_context(
@@ -2071,7 +1964,6 @@ def _load_replay_threshold_bundle(
     peak_detector: Any,
     bundle_path: Path,
     window_start: datetime,
-    monitored_namespaces: Optional[Iterable[str]] = None,
 ) -> Dict[str, Any]:
     from core.calculate_peak_thresholds import (
         CALCULATION_VERSION,
@@ -2107,27 +1999,6 @@ def _load_replay_threshold_bundle(
             f'training_cutoff={training_cutoff.isoformat()} exceeds '
             f'window_start={window_start.isoformat()}'
         )
-    expected_namespaces = tuple(sorted({
-        str(namespace).strip()
-        for namespace in (monitored_namespaces or _load_monitored_namespaces())
-        if str(namespace).strip()
-    }))
-    bundle_namespaces = tuple(sorted({
-        str(namespace).strip()
-        for namespace in (metadata.get('monitored_namespaces') or ())
-        if str(namespace).strip()
-    }))
-    if bundle_namespaces != expected_namespaces:
-        mismatches.append(
-            f'monitored_namespaces={list(bundle_namespaces)} '
-            f'expected={list(expected_namespaces)}'
-        )
-    expected_contract_hash = namespace_contract_hash(expected_namespaces)
-    if metadata.get('namespace_contract_hash') != expected_contract_hash:
-        mismatches.append(
-            f'namespace_contract_hash={metadata.get("namespace_contract_hash")} '
-            f'expected={expected_contract_hash}'
-        )
     if mismatches:
         raise RuntimeError('incompatible replay threshold bundle: ' + '; '.join(mismatches))
 
@@ -2156,41 +2027,6 @@ def _load_replay_threshold_bundle(
     return metadata
 
 
-def _validate_regular_phase_args(
-    window_minutes: int,
-    dry_run: bool,
-    replay_window_end: Optional[datetime],
-    audit_only: bool,
-    replay_thresholds_json: Optional[Path],
-    replay_evaluate_policy: bool,
-    replay_prior_episodes_json: Optional[Path],
-) -> None:
-    if replay_window_end is not None and window_minutes != 15:
-        raise ValueError('historical replay requires window_minutes=15')
-    if replay_window_end is not None and not dry_run:
-        raise ValueError('historical replay requires dry_run=True')
-    if audit_only and not dry_run:
-        raise ValueError('audit_only requires dry_run=True')
-    if replay_evaluate_policy and (
-        not dry_run or replay_window_end is None or audit_only
-    ):
-        raise ValueError(
-            'replay_evaluate_policy requires historical dry-run mode without audit-only'
-        )
-    if replay_thresholds_json is not None and (
-        replay_window_end is None
-        or not dry_run
-        or (not audit_only and not replay_evaluate_policy)
-    ):
-        raise ValueError(
-            'replay_thresholds_json requires historical dry-run audit or policy replay mode'
-        )
-    if replay_prior_episodes_json is not None and not replay_evaluate_policy:
-        raise ValueError(
-            'replay_prior_episodes_json requires replay_evaluate_policy'
-        )
-
-
 def run_regular_phase(
     window_minutes: int = 15,
     dry_run: bool = False,
@@ -2198,68 +2034,24 @@ def run_regular_phase(
     replay_window_end: Optional[datetime] = None,
     audit_only: bool = False,
     replay_thresholds_json: Optional[Path] = None,
-    replay_evaluate_policy: bool = False,
-    replay_prior_episodes_json: Optional[Path] = None,
-) -> dict:
-    _validate_regular_phase_args(
-        window_minutes,
-        dry_run,
-        replay_window_end,
-        audit_only,
-        replay_thresholds_json,
-        replay_evaluate_policy,
-        replay_prior_episodes_json,
-    )
-    if dry_run:
-        return _run_regular_phase(
-            window_minutes=window_minutes,
-            dry_run=dry_run,
-            output_dir=output_dir,
-            replay_window_end=replay_window_end,
-            audit_only=audit_only,
-            replay_thresholds_json=replay_thresholds_json,
-            replay_evaluate_policy=replay_evaluate_policy,
-            replay_prior_episodes_json=replay_prior_episodes_json,
-        )
-    with stream_advisory_lock(get_db_connection, 'live') as persistence_connection:
-        return _run_regular_phase(
-            window_minutes=window_minutes,
-            dry_run=dry_run,
-            output_dir=output_dir,
-            replay_window_end=replay_window_end,
-            audit_only=audit_only,
-            replay_thresholds_json=replay_thresholds_json,
-            replay_evaluate_policy=replay_evaluate_policy,
-            replay_prior_episodes_json=replay_prior_episodes_json,
-            persistence_connection=persistence_connection,
-        )
-
-
-def _run_regular_phase(
-    window_minutes: int = 15,
-    dry_run: bool = False,
-    output_dir: str = None,
-    replay_window_end: Optional[datetime] = None,
-    audit_only: bool = False,
-    replay_thresholds_json: Optional[Path] = None,
-    replay_evaluate_policy: bool = False,
-    replay_prior_episodes_json: Optional[Path] = None,
-    persistence_connection: Optional[Any] = None,
 ) -> dict:
     """
     Main regular phase function.
 
     Processes last N minutes of data and updates registry.
     """
-    _validate_regular_phase_args(
-        window_minutes,
-        dry_run,
-        replay_window_end,
-        audit_only,
-        replay_thresholds_json,
-        replay_evaluate_policy,
-        replay_prior_episodes_json,
-    )
+    if replay_window_end is not None and window_minutes != 15:
+        raise ValueError('historical replay requires window_minutes=15')
+    if replay_window_end is not None and not dry_run:
+        raise ValueError('historical replay requires dry_run=True')
+    if audit_only and not dry_run:
+        raise ValueError('audit_only requires dry_run=True')
+    if replay_thresholds_json is not None and (
+        replay_window_end is None or not dry_run or not audit_only
+    ):
+        raise ValueError(
+            'replay_thresholds_json requires historical dry-run audit-only mode'
+        )
     now, window_start, window_end = _resolve_regular_window(
         window_minutes,
         replay_window_end,
@@ -2379,54 +2171,48 @@ def _run_regular_phase(
         ]
         try:
             from core.peak_episode import materialize_episode_state
-            prior_episodes = []
-            if replay_prior_episodes_json is not None:
-                prior_episodes = json.loads(
-                    replay_prior_episodes_json.read_text(encoding='utf-8')
-                )
-            elif not dry_run:
-                prior_episodes = load_peak_episodes_before(
-                    get_db_connection,
-                    stream_key='live',
-                    before_window_start=window_start,
-                )
-            collection.peak_episodes, collection.peak_episode_transitions = (
-                materialize_episode_state(
-                    collection.namespace_peak_decisions,
-                    [],
-                    resolve_non_peak_windows=int(
-                        os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
-                    ),
-                    prior_episodes=prior_episodes,
-                )
+            persistence_scope = (
+                stream_advisory_lock(get_db_connection, 'live')
+                if not dry_run else nullcontext()
             )
-            result['peak_episodes'] = collection.peak_episodes
-            result['peak_episode_transitions'] = collection.peak_episode_transitions
+            with persistence_scope as persistence_connection:
+                prior_episodes = []
+                if persistence_connection is not None:
+                    prior_episodes = load_peak_episodes_before(
+                        get_db_connection,
+                        stream_key='live',
+                        before_window_start=window_start,
+                        connection=persistence_connection,
+                    )
+                collection.peak_episodes, collection.peak_episode_transitions = (
+                    materialize_episode_state(
+                        collection.namespace_peak_decisions,
+                        [],
+                        resolve_non_peak_windows=int(
+                            os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
+                        ),
+                        prior_episodes=prior_episodes,
+                    )
+                )
+                if persistence_connection is not None:
+                    persistence = persist_analysis_run(
+                        connection_factory=get_db_connection,
+                        collection=collection,
+                        run_type='regular',
+                        window_start=window_start,
+                        window_end=window_end,
+                        monitored_namespaces=monitored_namespaces,
+                        expected_count=LAST_FETCH_STATS.get('expected'),
+                        fetched_count=0,
+                        source_index=INDICES,
+                        connection=persistence_connection,
+                    )
+                    result.update(persistence)
         except Exception as e:
             print(f"❌ No-data episode materialization failed: {_one_line_error(e)}")
             result['status'] = 'error'
             result['error'] = str(e)
             return result
-        if not dry_run:
-            try:
-                persistence = persist_analysis_run(
-                    connection_factory=get_db_connection,
-                    collection=collection,
-                    run_type='regular',
-                    window_start=window_start,
-                    window_end=window_end,
-                    monitored_namespaces=monitored_namespaces,
-                    expected_count=LAST_FETCH_STATS.get('expected'),
-                    fetched_count=0,
-                    source_index=INDICES,
-                    connection=persistence_connection,
-                )
-                result.update(persistence)
-            except Exception as e:
-                print(f"❌ No-data run persistence failed: {_one_line_error(e)}")
-                result['status'] = 'error'
-                result['error'] = str(e)
-                return result
         print("⚪ No errors in window; complete zero facts persisted")
         result['status'] = 'no_data'
         return result
@@ -2496,7 +2282,6 @@ def _run_regular_phase(
                 peak_detector,
                 replay_thresholds_json,
                 window_start,
-                monitored_namespaces,
             )
             result['threshold_source'] = 'replay_memory_bundle'
             result['threshold_bundle'] = threshold_metadata
@@ -2601,73 +2386,57 @@ def _run_regular_phase(
 
     try:
         from core.peak_episode import materialize_episode_state
-        prior_episodes = []
-        if replay_prior_episodes_json is not None:
-            try:
-                prior_episodes = json.loads(
-                    replay_prior_episodes_json.read_text(encoding='utf-8')
-                )
-            except (OSError, json.JSONDecodeError) as error:
-                raise RuntimeError(
-                    f'cannot load replay prior episodes: {error}'
-                ) from error
-        elif not dry_run:
-            try:
+        persistence_scope = (
+            stream_advisory_lock(get_db_connection, 'live')
+            if not dry_run else nullcontext()
+        )
+        with persistence_scope as persistence_connection:
+            prior_episodes = []
+            if persistence_connection is not None:
                 prior_episodes = load_peak_episodes_before(
                     get_db_connection,
                     stream_key='live',
                     before_window_start=window_start,
+                    connection=persistence_connection,
                 )
-            except Exception as error:
-                print(
-                    '⚠️ Historical episode state unavailable; '
-                    f'continuing with current run only: {_one_line_error(error)}'
+            collection.peak_episodes, collection.peak_episode_transitions = (
+                materialize_episode_state(
+                    collection.namespace_peak_decisions,
+                    [family.to_dict() for family in cause_analysis.families],
+                    resolve_non_peak_windows=int(os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')),
+                    escalation_ratio=float(os.getenv('EPISODE_ESCALATION_RATIO', '1.5')),
+                    prior_episodes=prior_episodes,
                 )
-        collection.peak_episodes, collection.peak_episode_transitions = (
-            materialize_episode_state(
-                collection.namespace_peak_decisions,
-                [family.to_dict() for family in cause_analysis.families],
-                resolve_non_peak_windows=int(os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')),
-                escalation_ratio=float(os.getenv('EPISODE_ESCALATION_RATIO', '1.5')),
-                prior_episodes=prior_episodes,
             )
-        )
-        result['peak_episodes'] = collection.peak_episodes
-        result['peak_episode_transitions'] = collection.peak_episode_transitions
+            result['peak_episodes'] = collection.peak_episodes
+            result['peak_episode_transitions'] = collection.peak_episode_transitions
+            if persistence_connection is not None:
+                persistence = persist_analysis_run(
+                    connection_factory=get_db_connection,
+                    collection=collection,
+                    run_type='regular',
+                    window_start=window_start,
+                    window_end=window_end,
+                    monitored_namespaces=monitored_namespaces,
+                    expected_count=LAST_FETCH_STATS.get('expected'),
+                    fetched_count=result['error_count'],
+                    source_index=INDICES,
+                    connection=persistence_connection,
+                )
+                result.update(persistence)
+                result['saved'] = persistence['incident_rows']
+                print(
+                    f"\n💾 Committed complete run: {persistence['persisted_events']:,} events, "
+                    f"{persistence['fact_rows']:,} facts, "
+                    f"{persistence['namespace_rows']:,} namespace rows, "
+                    f"{persistence['incident_rows']:,} incidents, "
+                    f"{persistence['cause_family_rows']:,} cause families"
+                )
     except Exception as e:
-        print(f"❌ Peak episode correlation failed: {_one_line_error(e)}")
+        print(f"❌ Peak episode correlation/persistence failed: {_one_line_error(e)}")
         result['status'] = 'error'
         result['error'] = str(e)
         return result
-
-    if not dry_run:
-        try:
-            persistence = persist_analysis_run(
-                connection_factory=get_db_connection,
-                collection=collection,
-                run_type='regular',
-                window_start=window_start,
-                window_end=window_end,
-                monitored_namespaces=monitored_namespaces,
-                expected_count=LAST_FETCH_STATS.get('expected'),
-                fetched_count=result['error_count'],
-                source_index=INDICES,
-                connection=persistence_connection,
-            )
-            result.update(persistence)
-            result['saved'] = persistence['incident_rows']
-            print(
-                f"\n💾 Committed complete run: {persistence['persisted_events']:,} events, "
-                f"{persistence['fact_rows']:,} facts, "
-                f"{persistence['namespace_rows']:,} namespace rows, "
-                f"{persistence['incident_rows']:,} incidents, "
-                f"{persistence['cause_family_rows']:,} cause families"
-            )
-        except Exception as e:
-            print(f"❌ Run persistence failed: {_one_line_error(e)}")
-            result['status'] = 'error'
-            result['error'] = str(e)
-            return result
     
     # ==========================================================================
     # EXTRACT EVENT TIMESTAMPS
@@ -2857,7 +2626,7 @@ def _run_regular_phase(
     # ==========================================================================
     # SEND PEAKS NOTIFICATION (EMAIL ONLY)
     # ==========================================================================
-    if collection.incidents and (not dry_run or replay_evaluate_policy):
+    if collection.incidents and not dry_run:
         try:
             # Detect peaks: spike OR burst OR high-score anomalies
             peaks_detected = sum(
@@ -3023,8 +2792,6 @@ def _run_regular_phase(
                                 'unique_operations'
                             ),
                             'material_change_reasons': material_change_reasons,
-                            'no_material_change': reason == 'no_material_change',
-                            'no_material_change_reason': reason,
                             'test_originator_application': payload.get(
                                 'test_originator_application', ''
                             ),
@@ -3114,22 +2881,12 @@ def _run_regular_phase(
                             )
                         )
 
-                missing_context_count = sum(
-                    not context_by_candidate_id[decision.episode_id]
-                    for decision in notification_decisions
-                )
-                if missing_context_count:
-                    result['status'] = 'error'
-                    result['error'] = (
-                        'Notification policy context missing for '
-                        f'{missing_context_count} candidate(s)'
-                    )
-                    print(f"❌ {result['error']}")
-                    return result
                 persistable_decisions = [
-                    decision.to_dict() for decision in notification_decisions
+                    decision.to_dict()
+                    for decision in notification_decisions
+                    if context_by_candidate_id[decision.episode_id]
                 ]
-                if not dry_run:
+                if persistable_decisions:
                     try:
                         persist_notification_decisions(
                             get_db_connection,
@@ -3143,8 +2900,12 @@ def _run_regular_phase(
                         )
                         print(f"❌ {result['error']}")
                         return result
-                result['notification_policy'] = policy_summary
-                result['notification_decisions'] = persistable_decisions
+                if len(persistable_decisions) != len(notification_decisions):
+                    print(
+                        '⚠️ Notification policy context missing for '
+                        f'{len(notification_decisions) - len(persistable_decisions)} '
+                        'candidate(s); delivery audit remains available'
+                    )
 
                 digest_summary = {
                     'raw_window_errors': int(result.get('error_count', 0) or 0),
@@ -3173,43 +2934,24 @@ def _run_regular_phase(
                     if updates:
                         peak_enrichment_updates[peak_key] = updates
 
-                if not dry_run and peak_enrichment_updates:
-                    if not registry.merge_enrichment_and_save(
-                        {}, peak_enrichment_updates
-                    ):
-                        print("❌ Peak registry enrichment merge failed")
-                        result['status'] = 'error'
-                        result['error'] = 'Peak registry enrichment merge failed'
-                        return result
+                if peak_enrichment_updates and not registry.merge_enrichment_and_save(
+                    {}, peak_enrichment_updates
+                ):
+                    print("❌ Peak registry enrichment merge failed")
+                    result['status'] = 'error'
+                    result['error'] = 'Peak registry enrichment merge failed'
+                    return result
 
-                if replay_evaluate_policy:
-                    replay_payloads = []
-                    replay_payload_ids = set()
-                    for payload in dispatch_payloads + digest_payloads:
-                        payload_id = id(payload)
-                        if payload_id in replay_payload_ids:
-                            continue
-                        replay_payload_ids.add(payload_id)
-                        replay_payloads.extend(
-                            _policy_delivery_outcomes(
-                                payload,
-                                'not_attempted',
-                                'historical_replay',
-                            )
-                        )
-                    delivered_payloads = PeakDispatchResult([], replay_payloads)
-                else:
-                    delivered_payloads = _dispatch_peak_alerts(
-                        window_start,
-                        window_end,
-                        dispatch_payloads,
-                        digest_enabled,
-                        digest_summary,
-                        digest_payloads=digest_payloads,
-                    )
+                delivered_payloads = _dispatch_peak_alerts(
+                    window_start,
+                    window_end,
+                    dispatch_payloads,
+                    digest_enabled,
+                    digest_summary,
+                    digest_payloads=digest_payloads,
+                )
                 delivery_outcomes.extend(delivered_payloads.delivery_outcomes)
-                result['delivery_outcomes'] = delivery_outcomes
-                if delivery_outcomes and not dry_run:
+                if delivery_outcomes:
                     try:
                         persist_notification_deliveries(
                             get_db_connection,
@@ -3253,8 +2995,6 @@ def _run_regular_phase(
                     for outcome in delivery_outcomes
                 ):
                     result['delivery_status'] = 'partial'
-                elif replay_evaluate_policy:
-                    result['delivery_status'] = 'not_attempted'
                 elif sent_alerts:
                     result['delivery_status'] = 'complete'
                 elif suppressed_alerts:
@@ -3330,16 +3070,6 @@ def main():
         help='Stop after detector evidence is collected; requires --dry-run',
     )
     parser.add_argument(
-        '--replay-evaluate-policy',
-        action='store_true',
-        help='Evaluate episodes and notification policy without DB writes or delivery',
-    )
-    parser.add_argument(
-        '--replay-prior-episodes-json',
-        type=Path,
-        help='Read prior episode state for a chained historical replay window',
-    )
-    parser.add_argument(
         '--result-json',
         type=Path,
         help='Write the structured run result to this JSON file',
@@ -3355,21 +3085,11 @@ def main():
         parser.error('--replay-window-end requires --dry-run')
     if args.audit_only and not args.dry_run:
         parser.error('--audit-only requires --dry-run')
-    if args.replay_evaluate_policy and (
-        not args.dry_run or args.replay_window_end is None or args.audit_only
-    ):
-        parser.error(
-            '--replay-evaluate-policy requires --replay-window-end, --dry-run, and no --audit-only'
-        )
-    if args.replay_prior_episodes_json is not None and not args.replay_evaluate_policy:
-        parser.error('--replay-prior-episodes-json requires --replay-evaluate-policy')
     if args.replay_thresholds_json is not None and (
-        args.replay_window_end is None
-        or not args.dry_run
-        or (not args.audit_only and not args.replay_evaluate_policy)
+        args.replay_window_end is None or not args.dry_run or not args.audit_only
     ):
         parser.error(
-            '--replay-thresholds-json requires historical dry-run audit or policy replay mode'
+            '--replay-thresholds-json requires --replay-window-end, --dry-run, and --audit-only'
         )
     
     result = run_regular_phase(
@@ -3379,8 +3099,6 @@ def main():
         replay_window_end=args.replay_window_end,
         audit_only=args.audit_only,
         replay_thresholds_json=args.replay_thresholds_json,
-        replay_evaluate_policy=args.replay_evaluate_policy,
-        replay_prior_episodes_json=args.replay_prior_episodes_json,
     )
     if args.result_json:
         args.result_json.parent.mkdir(parents=True, exist_ok=True)

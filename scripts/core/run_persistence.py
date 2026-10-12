@@ -72,11 +72,13 @@ def load_peak_episodes_before(
     *,
     stream_key: str,
     before_window_start: datetime,
+    connection: Optional[Any] = None,
 ) -> List[dict[str, Any]]:
     """Load event-time episode state used to seed the next correlation run."""
     if before_window_start.tzinfo is None or before_window_start.utcoffset() is None:
         raise PersistenceInvariantError('before_window_start must be timezone-aware')
-    connection = connection_factory()
+    owns_connection = connection is None
+    connection = connection or connection_factory()
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -105,7 +107,8 @@ def load_peak_episodes_before(
             )
             rows = cursor.fetchall()
     finally:
-        connection.close()
+        if owns_connection:
+            connection.close()
 
     return [
         {
@@ -708,6 +711,7 @@ def persist_analysis_run(
     peak_episode_rows = build_peak_episode_rows(collection)
     peak_episode_window_rows = build_peak_episode_window_rows(collection)
     peak_episode_transition_rows = build_peak_episode_transition_rows(collection)
+    window_decision_ids = [row[1] for row in namespace_peak_decision_rows]
     execute_values_fn = execute_values_fn or _default_execute_values
 
     owns_connection = connection is None
@@ -726,12 +730,11 @@ def persist_analysis_run(
             for row in peak_episode_rows
             if row[1]
         )
-        if owns_connection:
-            for stream_key in sorted(stream_keys):
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                    (stream_key,),
-                )
+        for stream_key in sorted(stream_keys):
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (stream_key,),
+            )
         cursor.execute(
             """
             UPDATE ailog_peak.analysis_runs
@@ -774,9 +777,9 @@ def persist_analysis_run(
         )
         if owns_connection:
             connection.commit()
+            running_committed = True
         else:
             cursor.execute(f'SAVEPOINT {savepoint_name}')
-        running_committed = True
 
         if error_kind_rows:
             execute_values_fn(cursor, """
@@ -834,6 +837,22 @@ def persist_analysis_run(
                     contract_hash = EXCLUDED.contract_hash,
                     peak_identifier = EXCLUDED.peak_identifier
             """, namespace_peak_decision_rows, page_size=1000)
+
+            cursor.execute(
+                "DELETE FROM ailog_peak.namespace_peak_contributors "
+                "WHERE window_decision_id = ANY(%s)",
+                (window_decision_ids,),
+            )
+            cursor.execute(
+                "DELETE FROM ailog_peak.peak_episode_transitions "
+                "WHERE window_decision_id = ANY(%s)",
+                (window_decision_ids,),
+            )
+            cursor.execute(
+                "DELETE FROM ailog_peak.peak_episode_windows "
+                "WHERE window_decision_id = ANY(%s)",
+                (window_decision_ids,),
+            )
 
         if namespace_peak_contributor_rows:
             execute_values_fn(cursor, """
@@ -1153,6 +1172,8 @@ def persist_analysis_run(
             raise PersistenceInvariantError('running ledger row was not completed exactly once')
         if owns_connection:
             connection.commit()
+        else:
+            cursor.execute(f'RELEASE SAVEPOINT {savepoint_name}')
         return {
             'persisted_events': persisted_event_count,
             'fact_rows': len(error_kind_rows),
@@ -1169,10 +1190,23 @@ def persist_analysis_run(
     except Exception as exc:
         if owns_connection:
             connection.rollback()
-        if running_committed:
+            if running_committed:
+                try:
+                    cursor.execute(
+                        """
+                        UPDATE ailog_peak.analysis_runs
+                        SET status = 'failed', completed_at = NOW(),
+                            error_code = %s, error_message = %s
+                        WHERE run_id = %s AND status = 'running'
+                        """,
+                        (exc.__class__.__name__, str(exc)[:2000], run_id),
+                    )
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+        else:
             try:
-                if not owns_connection:
-                    cursor.execute(f'ROLLBACK TO SAVEPOINT {savepoint_name}')
+                cursor.execute(f'ROLLBACK TO SAVEPOINT {savepoint_name}')
                 cursor.execute(
                     """
                     UPDATE ailog_peak.analysis_runs
@@ -1180,12 +1214,13 @@ def persist_analysis_run(
                         error_code = %s, error_message = %s
                     WHERE run_id = %s AND status = 'running'
                     """,
-                    (exc.__class__.__name__, str(exc)[:2000], run_id),
+                    (
+                        exc.__class__.__name__, str(exc)[:2000], run_id,
+                    ),
                 )
-                if owns_connection:
-                    connection.commit()
+                cursor.execute(f'RELEASE SAVEPOINT {savepoint_name}')
             except Exception:
-                connection.rollback()
+                cursor.execute('ROLLBACK')
         raise
     finally:
         cursor.close()

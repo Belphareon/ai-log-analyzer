@@ -182,6 +182,91 @@ def test_bulk_failure_rolls_back_data_and_marks_run_failed():
     assert not any("SET status = 'complete'" in statement for statement in statements)
 
 
+def test_replay_cleans_decision_children_before_episode_rows():
+    window_start = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
+    window_end = window_start.replace(minute=15)
+    incident = Incident(id='inc-a', fingerprint='fp-a')
+    incident.error_type = 'RuntimeError'
+    incident.normalized_message = 'fp-a failure'
+    incident.stats.current_count = 1
+    incident.apps = ['app-a']
+    incident.namespaces = ['ns-a']
+    collection = SimpleNamespace(
+        run_id='run-replay-children',
+        pipeline_version='test',
+        input_records=1,
+        error_kind_facts=[_fact(window_start, 'fp-a', 'app-a', 1)],
+        incidents=[incident],
+    )
+    collection.namespace_peak_decisions = [{
+            'window_decision_id': 'decision-a',
+            'stream_key': 'backfill',
+            'signal_namespace': 'ns-a',
+            'window_start_utc': window_start.isoformat(),
+            'window_end_utc': window_end.isoformat(),
+            'detector_version': 'namespace_pxx_cap_decision_v1',
+            'threshold_snapshot_id': '',
+            'namespace_raw_lines': 1,
+            'is_peak': False,
+            'verdict_reason': 'below_min_volume',
+            'diagnosis_status': 'undiagnosed',
+        }]
+    collection.peak_episodes = [{
+            'episode_id': 'episode-a',
+            'stream_key': 'backfill',
+            'cause_signature': 'cause-a',
+            'state': 'RECOVERY',
+            'first_window_start_utc': window_start.isoformat(),
+            'last_window_start_utc': window_start.isoformat(),
+            'diagnosis_confidence': 'low',
+        }]
+    collection.peak_episode_transitions = [{
+            'episode_id': 'episode-a',
+            'window_decision_id': 'decision-a',
+            'cause_signature': 'cause-a',
+            'previous_state': None,
+            'state': 'RECOVERY',
+            'correlation_method': 'event_time_recovery',
+            'current_raw_error_lines': 0,
+            'cumulative_raw_error_lines': 1,
+        }]
+    connection = FakeConnection()
+    bulk_calls = 0
+    bulk_statements = []
+
+    def fail_after_episode_cleanup(cursor, statement, rows, page_size):
+        nonlocal bulk_calls
+        bulk_calls += 1
+        bulk_statements.append(' '.join(statement.split()))
+        if bulk_calls == 6:
+            raise RuntimeError('stop after decision children cleanup')
+
+    with pytest.raises(RuntimeError, match='stop after decision children cleanup'):
+        persist_analysis_run(
+            connection_factory=lambda: connection,
+            collection=collection,
+            run_type='backfill',
+            window_start=window_start,
+            window_end=window_end,
+            monitored_namespaces=['ns-a'],
+            expected_count=1,
+            fetched_count=1,
+            source_index='logs-*',
+            execute_values_fn=fail_after_episode_cleanup,
+        )
+
+    statements = [statement for statement, _ in connection.cursor_instance.statements]
+    cleanup = [
+        index for index, statement in enumerate(statements)
+        if statement.startswith('DELETE FROM ailog_peak.')
+    ]
+    assert len(cleanup) == 3
+    assert bulk_calls == 6
+    assert bulk_statements[5].startswith(
+        'INSERT INTO ailog_peak.peak_episodes'
+    )
+
+
 def test_incident_evidence_details_survive_json_round_trip():
     incident = Incident(id='inc-1', fingerprint='fp-a')
     incident.add_evidence(

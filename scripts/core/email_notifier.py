@@ -664,23 +664,6 @@ Results:
         represented_raw_lines = sum(
             int(alert.get('error_count', 0) or 0) for alert in alerts
         )
-        reconciliation_rows = [
-            alert.get('cause_reconciliation') or {}
-            for alert in alerts
-            if alert.get('cause_reconciliation')
-        ]
-        unexplained_raw_lines = sum(
-            int(row.get('unexplained_raw_lines', 0) or 0)
-            for row in reconciliation_rows
-        )
-        reconciliation_statuses = sorted({
-            str(row.get('status') or alert.get('cause_evidence_status') or 'unknown')
-            for alert, row in (
-                (alert, alert.get('cause_reconciliation') or {})
-                for alert in alerts
-            )
-            if row or alert.get('cause_evidence_status')
-        })
         policy_summary = summary.get('notification_policy') or {}
         primary_count = int(
             policy_summary.get(
@@ -715,11 +698,6 @@ Results:
             f'  Operation occurrences represented: {represented_operation_text}',
             f'  Trace IDs represented as evidence: {len(all_trace_ids):,}',
         ]
-        if reconciliation_rows:
-            lines.extend([
-                f'  Cause evidence status: {", ".join(reconciliation_statuses)}',
-                f'  Cause unexplained raw lines: {unexplained_raw_lines:,}',
-            ])
 
         html_alerts = []
         for alert_index, (alert, families) in enumerate(normalized_alerts, start=1):
@@ -753,20 +731,6 @@ Results:
                     '</span></section>'
                 )
                 continue
-            reconciliation = alert.get('cause_reconciliation') or {}
-            evidence_status = str(
-                alert.get('cause_evidence_status')
-                or reconciliation.get('status')
-                or 'unknown'
-            )
-            evidence_reason = str(reconciliation.get('reason') or '')
-            unexplained = int(
-                reconciliation.get(
-                    'unexplained_raw_lines',
-                    alert.get('unexplained_raw_lines', 0),
-                )
-                or 0
-            )
             threshold_decisions = [
                 decision
                 for decision in (alert.get('threshold_evidence') or [])
@@ -804,11 +768,6 @@ Results:
                 f'ALERT {alert_index}: {peak_type} | {status} | {policy_outcome.upper()}',
                 'WHY ALERTED',
             ])
-            lines.append(
-                f'  Cause evidence: {evidence_status.upper()}; '
-                f'unexplained raw lines={unexplained:,}'
-                + (f'; {evidence_reason}' if evidence_reason else '')
-            )
             if origin_label:
                 lines.append(f'  Test origin: {origin_label}')
             lines.extend(f'  {line}' for line in why_lines)
@@ -816,13 +775,6 @@ Results:
             html_why = ''.join(
                 f'<li style="margin:4px 0;">{escape(line)}</li>'
                 for line in why_lines
-            )
-            html_why += (
-                '<li style="margin:4px 0;">'
-                f'Cause evidence: {escape(evidence_status.upper())}; '
-                f'unexplained raw lines={unexplained:,}'
-                f'{f"; {escape(evidence_reason)}" if evidence_reason else ""}'
-                '</li>'
             )
             html_families = []
             for family_index, family in enumerate(families, start=1):

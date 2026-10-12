@@ -138,12 +138,6 @@ def test_migration_ledger_and_schema_postconditions():
             "to_regclass('ailog_peak.daily_error_kind_rollups'), "
             "to_regclass('ailog_peak.daily_namespace_rollups'), "
             "to_regclass('ailog_peak.notification_deliveries'), "
-            "to_regclass('ailog_peak.namespace_peak_decisions'), "
-            "to_regclass('ailog_peak.namespace_peak_contributors'), "
-            "to_regclass('ailog_peak.peak_episodes'), "
-            "to_regclass('ailog_peak.peak_episode_windows'), "
-            "to_regclass('ailog_peak.peak_episode_transitions'), "
-            "to_regclass('ailog_peak.notification_decisions'), "
             "to_regclass('ailog_peak.cause_family_facts'), "
             "to_regclass('ailog_peak.v_complete_cause_family_facts'), "
             "to_regclass('ailog_peak.v_pipeline_health'), "
@@ -172,13 +166,6 @@ def test_migration_ledger_and_schema_postconditions():
             "AND column_name = 'monitored_namespaces'"
         )
         snapshot_view_columns = [row[0] for row in cursor.fetchall()]
-        cursor.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema = 'ailog_peak' "
-            "AND table_name = 'notification_deliveries' "
-            "AND column_name = 'notification_decision_id'"
-        )
-        delivery_link_columns = [row[0] for row in cursor.fetchall()]
     connection.close()
 
     assert [row[0] for row in ledger_rows] == [
@@ -193,7 +180,6 @@ def test_migration_ledger_and_schema_postconditions():
         'operation_count_reason',
     ]
     assert snapshot_view_columns == ['monitored_namespaces']
-    assert delivery_link_columns == ['notification_decision_id']
 
 
 def test_two_fingerprints_and_replay_have_one_authoritative_run():

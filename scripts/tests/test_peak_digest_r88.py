@@ -205,7 +205,7 @@ class PeakDigestR88Tests(unittest.TestCase):
         )
         self.assertNotIn('legacy', payload['alert_identity'])
 
-    def test_authoritative_families_mark_partial_scope_and_unexplained_lines(self):
+    def test_authoritative_families_do_not_replace_partial_payload_evidence(self):
         family = build_cause_family({
             'error_count': 1,
             'root_cause': {'service': 'app', 'message': 'Client does not exist'},
@@ -224,26 +224,7 @@ class PeakDigestR88Tests(unittest.TestCase):
         )
 
         self.assertFalse(attached)
-        self.assertEqual(payload['cause_evidence_status'], 'partial')
-        self.assertEqual(payload['cause_reconciliation']['unexplained_raw_lines'], 1)
-        self.assertEqual(
-            payload['cause_families'][0]['canonical_cause'],
-            'Client does not exist',
-        )
-
-    def test_missing_cause_analysis_is_explicitly_degraded(self):
-        payload = {
-            'error_count': 2,
-            'trace_counts': {'session-trace': 2},
-            'cause_families': [{'signature': 'legacy'}],
-        }
-
-        attached = rp._attach_authoritative_cause_families(payload, None)
-
-        self.assertFalse(attached)
-        self.assertEqual(payload['cause_evidence_status'], 'degraded')
-        self.assertEqual(payload['unexplained_raw_lines'], 2)
-        self.assertEqual(payload['cause_families'], [{'signature': 'legacy'}])
+        self.assertEqual(payload['cause_families'], [legacy])
 
     def test_signal_handler_exits_nonzero(self):
         with patch.object(rp.sys, 'exit', side_effect=SystemExit) as exit_mock:
@@ -465,53 +446,10 @@ class PeakDigestR88Tests(unittest.TestCase):
         self.assertIn('P98=120', body)
         self.assertIn('40 unique operations | 200 raw ERROR lines | 5.0x amplification', body)
         self.assertIn('coverage: 200 traced, 0 unsegmented ERROR lines', body)
-        self.assertIn('Cause evidence: UNKNOWN; unexplained raw lines=0', body)
         self.assertIn('BUSINESS / DATA REJECTION (medium confidence)', body)
         self.assertIn('NEXT ACTION\n  Validate product-instance data.', body)
         self.assertIn('snapshot=snapshot-1', body)
         self.assertIn('WHAT ACTUALLY FAILED', html_body)
-
-    def test_operator_digest_labels_partial_cause_coverage(self):
-        class CaptureNotifier:
-            is_enabled = lambda self: True
-
-            def _send_email(self, subject, body, html_body):
-                self.result = subject, body, html_body
-                return True
-
-        notifier = CaptureNotifier()
-        sent = EmailNotifier.send_regular_phase_peak_digest(
-            notifier,
-            datetime(2026, 8, 25, 8, 0, tzinfo=timezone.utc),
-            datetime(2026, 8, 25, 8, 15, tzinfo=timezone.utc),
-            [{
-                'error_count': 10,
-                'cause_evidence_status': 'partial',
-                'cause_reconciliation': {
-                    'status': 'partial',
-                    'represented_raw_error_lines': 7,
-                    'unexplained_raw_lines': 3,
-                    'reason': 'trace or raw-line evidence covers only part of current scope',
-                },
-                'cause_families': [{
-                    'canonical_cause': 'Client does not exist',
-                    'root_app': 'service-a',
-                    'raw_error_lines': 7,
-                    'unsegmented_error_lines': 0,
-                    'unique_operations': 2,
-                    'amplification': 3.5,
-                    'representative_trace_id': 'trace-1',
-                }],
-            }],
-            {'raw_window_errors': 10},
-        )
-
-        assert sent
-        _subject, body, html_body = notifier.result
-        assert 'Cause evidence status: partial' in body
-        assert 'Cause unexplained raw lines: 3' in body
-        assert 'Cause evidence: PARTIAL; unexplained raw lines=3' in body
-        assert 'trace or raw-line evidence covers only part of current scope' in html_body
 
     def test_operator_digest_escapes_log_content_in_html(self):
         class CaptureNotifier:

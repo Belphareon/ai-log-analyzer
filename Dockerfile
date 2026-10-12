@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   docker build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r101 .
+#   podman build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r106 .
 #
 # Run:
-#   docker run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r101 python scripts/regular_phase.py
+#   podman run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r106 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r101"
-LABEL description="AI Log Analyzer - r101: persist episode predecessors before recurrences"
+LABEL version="r106"
+LABEL description="AI Log Analyzer - r106: bounded backfill persistence and episode correlation fixes"
 
 # Set working directory
 WORKDIR /app

@@ -222,8 +222,6 @@ class PhaseC_Detect:
                 if isinstance(t, (int, float))
             ]
             threshold_value = min(threshold_candidates) if threshold_candidates else None
-            diagnosis_status = str(peak_result.get('diagnosis_status') or 'diagnosed')
-            diagnosis_suffix = ' [UNDIAGNOSED]' if diagnosis_status == 'undiagnosed' else ''
             result.flags.is_spike = True
             result.add_evidence(
                 rule="spike_p93_cap",
@@ -234,13 +232,9 @@ class PhaseC_Detect:
                     f"P93={peak_result.get('p93_threshold', 0):.0f} / "
                     f"CAP={peak_result.get('cap_threshold', 0):.0f} "
                     f"(triggered_by={peak_result.get('triggered_by')}, peak_id={peak_result.get('peak_identifier')})"
-                    f"{diagnosis_suffix}"
                 ),
                 details={
                     'namespace': peak_result.get('namespace'),
-                    'diagnosis_status': diagnosis_status,
-                    'owner_fingerprint': peak_result.get('owner_fingerprint'),
-                    'anomalous_contributors': peak_result.get('anomalous_contributors', []),
                     'fingerprint_contribution': peak_result.get('fingerprint_contribution'),
                     'contributing_fingerprints': peak_result.get('contributing_fingerprints'),
                     'fingerprint_threshold': peak_result.get('fingerprint_threshold'),
@@ -541,6 +535,11 @@ class PhaseC_Detect:
                 check = self.peak_detector.is_peak(
                     float(namespace_total), namespace, bucket.weekday()
                 )
+                peak_identifier = (
+                    f"SPIKE:NS:{namespace}:{bucket.isoformat()}"
+                    if check.get('is_peak')
+                    else None
+                )
                 audit_entry = {
                     'window_start': bucket.isoformat(),
                     'namespace': namespace,
@@ -552,16 +551,13 @@ class PhaseC_Detect:
                     'cap_threshold': check.get('cap_threshold'),
                     'triggered_by': check.get('triggered_by'),
                     'threshold_snapshot_id': check.get('threshold_snapshot_id'),
+                    'peak_identifier': peak_identifier,
                     'family_baseline_available': self.namespace_fingerprint_baseline_available,
                     'family_decisions': [],
                     'owner_fingerprint': None,
                     'suppressed_reason': None,
                     'verdict_reason': 'below_threshold',
                     'diagnosis_status': 'undiagnosed',
-                    'peak_identifier': (
-                        f"SPIKE:NS:{namespace}:{bucket.isoformat()}"
-                        if check.get('is_peak') else None
-                    ),
                 }
                 if not check.get('is_peak'):
                     self.namespace_peak_audit.append(audit_entry)
@@ -602,34 +598,23 @@ class PhaseC_Detect:
                     )
                 )
                 audit_entry['family_decisions'] = family_decisions
-                if qualified_contributors:
-                    owner, owner_contribution, owner_gate = min(
-                        qualified_contributors,
-                        key=lambda item: (-item[2]['anomaly_score'], -item[1], item[0]),
-                    )
-                    candidate_fingerprints = {
-                        item[0]: (item[1], item[2])
-                        for item in qualified_contributors
-                    }
-                    audit_entry['owner_fingerprint'] = owner
-                    audit_entry['verdict_reason'] = 'peak_diagnosed'
-                    audit_entry['diagnosis_status'] = 'diagnosed'
-                else:
+                if not qualified_contributors:
                     audit_entry['suppressed_reason'] = (
                         'family_baseline_unavailable'
                         if not self.namespace_fingerprint_baseline_available
                         else 'no_anomalous_family'
                     )
                     audit_entry['verdict_reason'] = 'peak_undiagnosed'
-                    owner = None
-                    owner_contribution, owner_gate = None, {}
-                    anchor = min(
-                        bucket_contributors.items(),
-                        key=lambda item: (-item[1], item[0]),
-                    ) if bucket_contributors else None
-                    candidate_fingerprints = {
-                        anchor[0]: (anchor[1], {})
-                    } if anchor else {}
+                    self.namespace_peak_audit.append(audit_entry)
+                    continue
+
+                owner, owner_contribution, owner_gate = min(
+                    qualified_contributors,
+                    key=lambda item: (-item[2]['anomaly_score'], -item[1], item[0]),
+                )
+                audit_entry['owner_fingerprint'] = owner
+                audit_entry['verdict_reason'] = 'peak_diagnosed'
+                audit_entry['diagnosis_status'] = 'diagnosed'
                 self.namespace_peak_audit.append(audit_entry)
                 trigger_score = max(
                     namespace_total / check.get('p93_threshold', 1.0)
@@ -643,35 +628,14 @@ class PhaseC_Detect:
                     'value': float(namespace_total),
                     'fingerprint_contribution': owner_contribution,
                     'contributing_fingerprints': len(bucket_contributors),
-                    'fingerprint_threshold': owner_gate.get('threshold'),
-                    'fingerprint_baseline': owner_gate.get('baseline'),
-                    'fingerprint_anomaly_score': owner_gate.get('anomaly_score'),
-                    'fingerprint_gate_method': owner_gate.get('method'),
-                    'owner_fingerprint': owner,
-                    'diagnosis_status': audit_entry['diagnosis_status'],
-                    'anomalous_contributors': [
-                        {
-                            'fingerprint': fingerprint,
-                            'contribution': contribution,
-                            **gate,
-                        }
-                        for fingerprint, contribution, gate in qualified_contributors
-                    ],
-                    'peak_identifier': f"SPIKE:NS:{namespace}:{bucket.isoformat()}",
+                    'fingerprint_threshold': owner_gate['threshold'],
+                    'fingerprint_baseline': owner_gate['baseline'],
+                    'fingerprint_anomaly_score': owner_gate['anomaly_score'],
+                    'fingerprint_gate_method': owner_gate['method'],
+                    'peak_identifier': peak_identifier,
                     '_trigger_score': trigger_score,
                 }
-                for fingerprint, (contribution, gate) in candidate_fingerprints.items():
-                    fingerprint_candidate = candidate.copy()
-                    fingerprint_candidate.update({
-                        'fingerprint_contribution': contribution,
-                        'fingerprint_threshold': gate.get('threshold'),
-                        'fingerprint_baseline': gate.get('baseline'),
-                        'fingerprint_anomaly_score': gate.get('anomaly_score'),
-                        'fingerprint_gate_method': gate.get('method'),
-                    })
-                    self._fingerprint_peak_results.setdefault(fingerprint, []).append(
-                        fingerprint_candidate
-                    )
+                self._fingerprint_peak_results.setdefault(owner, []).append(candidate)
 
         for candidates in self._fingerprint_peak_results.values():
             for candidate in candidates:

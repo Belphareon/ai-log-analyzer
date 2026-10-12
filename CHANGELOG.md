@@ -4,6 +4,15 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r106 (2026-10-12) — Oprava backfill persistence a episode korelace
+
+### Opraveno
+
+- Backfill zpracovává dny v omezených dávkách a po persistence uvolňuje dočasné payloady, aby init nedržel všechny denní výsledky v paměti až do konce.
+- Cause-family fakta s denním grainem se už nekopírují do každého 15minutového episode decision; recurrence lookup používá indexované stream/cause kandidáty.
+- Registry aktualizace a enrichment se slučují s nejnovějším diskovým stavem pod jedním file lockem; problem i peak enrichment se ukládají do YAML.
+- Recent Incidents publisher používá page ID z prostředí, Confluence Bearer token a zachovává existující title; report HTML je escapované.
+
 ## r92 (2026-08-24) — Produkční Confluence Bearer autentizace
 
 ### Opraveno

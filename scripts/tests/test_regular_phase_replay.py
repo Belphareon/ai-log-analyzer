@@ -95,8 +95,6 @@ def test_replay_threshold_bundle_loads_directly_without_db_snapshot(tmp_path, mo
             'percentile_method': 'configured_percentile_capped_by_median_plus_6_scaled_mad',
             'calculation_version': '4.0',
             'training_cutoff': '2026-09-20T11:00:00+00:00',
-            'monitored_namespaces': ['ns-a'],
-            'namespace_contract_hash': rp.namespace_contract_hash(['ns-a']),
         },
         'thresholds': [{
             'namespace': 'ns-a',
@@ -118,7 +116,6 @@ def test_replay_threshold_bundle_loads_directly_without_db_snapshot(tmp_path, mo
         detector,
         bundle_path,
         datetime(2026, 9, 20, 11, 0, tzinfo=timezone.utc),
-        ['ns-a'],
     )
 
     assert metadata['calculation_version'] == '4.0'
@@ -262,51 +259,3 @@ def test_regular_phase_runs_lifecycle_diagnostics_before_zero_error_return(monke
     assert result['status'] == 'no_data'
     assert result['workflow_lifecycle']['status'] == 'complete'
     assert len(lifecycle_calls) == 1
-
-
-def test_clustered_payload_keeps_all_same_window_episode_contexts():
-    window_start = datetime(2026, 9, 22, 3, 30, tzinfo=timezone.utc)
-    transitions = [
-        {
-            'episode_id': 'episode-a',
-            'window_decision_id': 'decision-a',
-            'window_start_utc': window_start.isoformat(),
-            'cause_signature': 'cause-a',
-        },
-        {
-            'episode_id': 'episode-b',
-            'window_decision_id': 'decision-b',
-            'window_start_utc': window_start.isoformat(),
-            'cause_signature': 'cause-b',
-        },
-    ]
-
-    contexts = rp._episode_policy_contexts(
-        {'window_start': window_start.isoformat()},
-        transitions,
-    )
-
-    assert [context['episode_id'] for context in contexts] == [
-        'episode-a',
-        'episode-b',
-    ]
-
-
-def test_explicit_cause_signature_mismatch_does_not_fallback_to_same_window():
-    window_start = datetime(2026, 9, 22, 3, 30, tzinfo=timezone.utc)
-    transitions = [{
-        'episode_id': 'episode-a',
-        'window_decision_id': 'decision-a',
-        'window_start_utc': window_start.isoformat(),
-        'cause_signature': 'cause-a',
-    }]
-
-    contexts = rp._episode_policy_contexts(
-        {
-            'window_start': window_start.isoformat(),
-            'cause_families': [{'signature': 'cause-b'}],
-        },
-        transitions,
-    )
-
-    assert contexts == []

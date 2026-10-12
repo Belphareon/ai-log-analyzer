@@ -631,14 +631,11 @@ def process_day_worker(
                 f"reconciled cause families"
             )
             from core.peak_episode import materialize_episode_state
-            collection.episode_cause_families = [
-                family.to_dict() for family in cause_analysis.families
-            ]
             if dry_run:
                 collection.peak_episodes, collection.peak_episode_transitions = (
                     materialize_episode_state(
                         getattr(collection, 'namespace_peak_decisions', []),
-                        collection.episode_cause_families,
+                        [],
                         resolve_non_peak_windows=int(
                             os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
                         ),
@@ -840,102 +837,51 @@ def run_backfill(
     # ==========================================================================
     results = []
     collections_to_save = []
+    committed_collections = []
     all_event_timestamps = {}
-    
-    WORKER_TIMEOUT = 600  # 10 min per day
-    
-    safe_print(f"\n🚀 Starting {len(dates)} days with {workers} parallel workers...")
-    
-    if workers > 1:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {}
-            for date in dates:
-                future = executor.submit(
-                    process_day_worker,
-                    date,
-                    dry_run,
-                    skip_processed,
-                    bootstrap,
-                    build_trace_patterns,
-                )
-                futures[future] = date
-            
-            safe_print(f" 📤 Submitted {len(futures)} tasks\n")
-            
-            completed = 0
-            for future in as_completed(futures):
-                completed += 1
-                date = futures[future]
-                date_str = date.strftime('%Y-%m-%d')
-                
-                try:
-                    result = future.result(timeout=WORKER_TIMEOUT)
-                    results.append(result)
-                    
-                    if result['status'] in {'success', 'no_data'} and result.get('collection'):
-                        collections_to_save.append((date_str, result['collection']))
-                    
-                    safe_print(f" ✓ [{completed}/{len(dates)}] {date_str} - {result['status']}")
-                    
-                except TimeoutError:
-                    safe_print(f" ⏰ [{completed}/{len(dates)}] {date_str} - TIMEOUT")
-                    results.append({
-                        'status': 'error',
-                        'date': date_str,
-                        'error': f'Timeout after {WORKER_TIMEOUT}s'
-                    })
-                except Exception as e:
-                    safe_print(f" ❌ [{completed}/{len(dates)}] {date_str} - {e}")
-                    results.append({
-                        'status': 'error',
-                        'date': date_str,
-                        'error': str(e)
-                    })
-        
-        safe_print(f"\n 🏁 All {completed} workers completed")
-        
-    else:
-        # Sequential
-        for i, date in enumerate(dates, 1):
-            date_str = date.strftime('%Y-%m-%d')
-            safe_print(f"\n[{i}/{len(dates)}] {date_str}")
-            
-            result = process_day_worker(
-                date,
-                dry_run,
-                skip_processed,
-                bootstrap,
-                build_trace_patterns,
-            )
-            results.append(result)
-            
-            if result['status'] in {'success', 'no_data'} and result.get('collection'):
-                collections_to_save.append((date_str, result['collection']))
-    
-    # ==========================================================================
-    # DB INSERT (MAIN THREAD)
-    # ==========================================================================
     total_saved = 0
     
-    committed_collections = []
-    if not dry_run and collections_to_save:
-        safe_print(f"\n💾 Persisting {len(collections_to_save)} complete runs (main thread)...")
-        monitored_namespaces = _load_monitored_namespaces()
+    WORKER_TIMEOUT = 600  # 10 min per day
 
+    def release_collection_payload(collection):
+        for field_name in (
+            'error_kind_facts',
+            'namespace_peak_decisions',
+            'peak_episodes',
+            'peak_episode_transitions',
+        ):
+            setattr(collection, field_name, [])
+        collection.cause_analysis = None
+
+    def persist_pending_collections():
+        nonlocal total_saved
+        if not collections_to_save:
+            return
+
+        pending = sorted(collections_to_save, key=lambda item: item[0])
+        if dry_run:
+            committed_collections.extend(pending)
+            collections_to_save.clear()
+            return
+
+        monitored_namespaces = _load_monitored_namespaces()
         from core.peak_episode import materialize_episode_state
+        safe_print(f" 💾 Persisting {len(pending)} complete runs (main thread)...")
+
         with stream_advisory_lock(get_db_connection, 'backfill') as persistence_connection:
-            for date_str, collection in sorted(collections_to_save, key=lambda item: item[0]):
+            for date_str, collection in pending:
                 result = next(item for item in results if item['date'] == date_str)
                 try:
                     prior_episodes = load_peak_episodes_before(
                         get_db_connection,
                         stream_key='backfill',
                         before_window_start=result['window_start'],
+                        connection=persistence_connection,
                     )
                     collection.peak_episodes, collection.peak_episode_transitions = (
                         materialize_episode_state(
                             getattr(collection, 'namespace_peak_decisions', []),
-                            getattr(collection, 'episode_cause_families', []),
+                            [],
                             resolve_non_peak_windows=int(
                                 os.getenv('EPISODE_RESOLVE_NON_PEAK_WINDOWS', '2')
                             ),
@@ -957,29 +903,112 @@ def run_backfill(
                         source_index=INDICES,
                         connection=persistence_connection,
                     )
-                except Exception as e:
+                except Exception as error:
                     result['status'] = 'error'
-                    result['error'] = str(e)
-                    safe_print(f" ❌ {date_str}: persistence failed: {e}")
+                    result['error'] = str(error)
+                    result['collection'] = None
+                    release_collection_payload(collection)
+                    safe_print(f" ❌ {date_str}: persistence failed: {error}")
                     continue
 
                 result.update(persistence)
                 result['saved'] = persistence['incident_rows']
+                result['collection'] = None
                 total_saved += persistence['incident_rows']
                 committed_collections.append((date_str, collection))
                 all_event_timestamps.update(result.get('event_timestamps', {}))
+                result['event_timestamps'] = None
                 safe_print(
                     f" ✅ {date_str}: {persistence['persisted_events']:,} events, "
                     f"{persistence['fact_rows']:,} facts, "
                     f"{persistence['namespace_rows']:,} namespace rows, "
                     f"{persistence['incident_rows']:,} incidents"
                 )
+                release_collection_payload(collection)
 
-        safe_print(f" ✅ Total incident rows committed: {total_saved}")
-    elif dry_run:
-        committed_collections = list(collections_to_save)
+        collections_to_save.clear()
+
+    safe_print(f"\n🚀 Starting {len(dates)} days with {workers} parallel workers...")
+
+    if workers > 1:
+        try:
+            configured_batch_size = int(
+                os.getenv('BACKFILL_DATE_BATCH_SIZE', str(max(workers, 4)))
+            )
+        except (TypeError, ValueError):
+            configured_batch_size = max(workers, 4)
+        batch_size = max(workers, configured_batch_size)
+        completed = 0
+        for batch_start in range(0, len(dates), batch_size):
+            date_batch = dates[batch_start:batch_start + batch_size]
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(
+                        process_day_worker,
+                        date,
+                        dry_run,
+                        skip_processed,
+                        bootstrap,
+                        build_trace_patterns,
+                    ): date
+                    for date in date_batch
+                }
+
+                safe_print(f" 📤 Submitted {len(futures)} tasks\n")
+                for future in as_completed(futures):
+                    completed += 1
+                    date = futures[future]
+                    date_str = date.strftime('%Y-%m-%d')
+
+                    try:
+                        result = future.result(timeout=WORKER_TIMEOUT)
+                        results.append(result)
+
+                        if result['status'] in {'success', 'no_data'} and result.get('collection'):
+                            collections_to_save.append((date_str, result['collection']))
+
+                        safe_print(f" ✓ [{completed}/{len(dates)}] {date_str} - {result['status']}")
+                    except TimeoutError:
+                        safe_print(f" ⏰ [{completed}/{len(dates)}] {date_str} - TIMEOUT")
+                        results.append({
+                            'status': 'error',
+                            'date': date_str,
+                            'error': f'Timeout after {WORKER_TIMEOUT}s'
+                        })
+                    except Exception as error:
+                        safe_print(f" ❌ [{completed}/{len(dates)}] {date_str} - {error}")
+                        results.append({
+                            'status': 'error',
+                            'date': date_str,
+                            'error': str(error)
+                        })
+
+            persist_pending_collections()
+
+        safe_print(f"\n 🏁 All {completed} workers completed")
+
+    else:
+        # Sequential
+        for i, date in enumerate(dates, 1):
+            date_str = date.strftime('%Y-%m-%d')
+            safe_print(f"\n[{i}/{len(dates)}] {date_str}")
+
+            result = process_day_worker(
+                date,
+                dry_run,
+                skip_processed,
+                bootstrap,
+                build_trace_patterns,
+            )
+            results.append(result)
+
+            if result['status'] in {'success', 'no_data'} and result.get('collection'):
+                collections_to_save.append((date_str, result['collection']))
+            persist_pending_collections()
 
     collections_to_save = committed_collections
+    if not dry_run:
+        safe_print(f" ✅ Total incident rows committed: {total_saved}")
 
     # ==========================================================================
     # UPDATE REGISTRY (CRITICAL!)

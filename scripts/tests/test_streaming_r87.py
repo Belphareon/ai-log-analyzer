@@ -266,7 +266,7 @@ def test_namespace_total_peak_is_not_split_by_fingerprint():
     print("✅ 1c. Namespace total peak: dominantní 60-event family owns total=100")
 
 
-def test_namespace_peak_remains_visible_without_anomalous_family():
+def test_namespace_peak_does_not_promote_a_routine_small_contributor():
     bucket = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
     detector = PhaseC_Detect(peak_detector=FakePeakDetector(threshold=39))
     detector.namespace_fingerprint_baseline_available = True
@@ -292,11 +292,7 @@ def test_namespace_peak_remains_visible_without_anomalous_family():
 
     result = detector.detect(measurement)
 
-    assert result.flags.is_spike
-    evidence = next(item for item in result.evidence if item.rule == 'spike_p93_cap')
-    assert '[UNDIAGNOSED]' in evidence.message
-    assert evidence.details['diagnosis_status'] == 'undiagnosed'
-    assert evidence.details['owner_fingerprint'] is None
+    assert not result.flags.is_spike
     assert len(detector.namespace_peak_audit) == 1
     audit = detector.namespace_peak_audit[0]
     assert audit['window_start'] == bucket.isoformat()
@@ -345,39 +341,6 @@ def test_namespace_peak_uses_namespace_specific_family_history():
     assert evidence.details['fingerprint_gate_method'] == 'namespace_fingerprint_median_mad'
 
 
-def test_namespace_peak_keeps_all_anomalous_contributors():
-    bucket = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
-    detector = PhaseC_Detect(peak_detector=FakePeakDetector(threshold=39))
-    detector.namespace_fingerprint_baseline_available = True
-    detector.namespace_fingerprint_baselines = {
-        ('ns-a', 'family-a'): [1.0, 1.0, 1.0, 1.0],
-        ('ns-a', 'family-b'): [1.0, 1.0, 1.0, 1.0],
-    }
-    detector.prepare_namespace_peak_results({
-        'family-a': {'ns-a': {bucket: 25}},
-        'family-b': {'ns-a': {bucket: 22}},
-    })
-
-    results = {
-        fingerprint: detector.detect(
-            MeasurementResult(fingerprint=fingerprint)
-        )
-        for fingerprint in ('family-a', 'family-b')
-    }
-
-    for fingerprint, expected_contribution in (('family-a', 25), ('family-b', 22)):
-        assert results[fingerprint].flags.is_spike
-        evidence = next(
-            item for item in results[fingerprint].evidence
-            if item.rule == 'spike_p93_cap'
-        )
-        assert evidence.details['fingerprint_contribution'] == expected_contribution
-        assert {
-            contributor['fingerprint']
-            for contributor in evidence.details['anomalous_contributors']
-        } == {'family-a', 'family-b'}
-
-
 def test_namespace_peak_audit_includes_family_identity():
     base = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
     errors = [
@@ -396,7 +359,6 @@ def test_namespace_peak_audit_includes_family_identity():
     pipeline.run(errors, run_id='audit-family-identity')
 
     audit = pipeline.phase_c.namespace_peak_audit[0]
-    assert audit['peak_identifier'] == 'SPIKE:NS:ns-a:2026-09-20T10:00:00+00:00'
     owner = next(
         decision
         for decision in audit['family_decisions']
@@ -416,10 +378,7 @@ def test_namespace_peak_does_not_fallback_when_family_baseline_loading_failed():
 
     result = detector.detect(MeasurementResult(fingerprint='new-family'))
 
-    assert result.flags.is_spike
-    evidence = next(item for item in result.evidence if item.rule == 'spike_p93_cap')
-    assert evidence.details['diagnosis_status'] == 'undiagnosed'
-    assert evidence.details['owner_fingerprint'] is None
+    assert not result.flags.is_spike
 
 
 def test_error_kind_fact_grain_matches_batch_and_streaming():

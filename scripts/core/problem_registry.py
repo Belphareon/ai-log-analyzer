@@ -86,11 +86,6 @@ class ProblemEntry:
     
     # Counts
     occurrences: int = 0
-    
-    # Track timestamps of last occurrences (max 100 for memory efficiency)
-    # Used for 24h trend calculation in CSV exports
-    occurrence_times: List[datetime] = field(default_factory=list)
-
     fingerprints: List[str] = field(default_factory=list)
     sample_messages: List[str] = field(default_factory=list)
     description: str = ""
@@ -103,6 +98,10 @@ class ProblemEntry:
     behavior: Optional[str] = None
     enriched_severity: Optional[str] = None
     enriched_score: Optional[float] = None
+
+    # Track timestamps of last occurrences (max 100 for memory efficiency)
+    # Used for 24h trend calculation in CSV exports
+    occurrence_times: List[datetime] = field(default_factory=list)
     
     # Status
     status: str = "OPEN"  # OPEN, ACKNOWLEDGED, RESOLVED, WONT_FIX
@@ -213,8 +212,6 @@ class PeakEntry:
     max_ratio: float = 0.0
     root_cause: Optional[str] = None
     behavior: Optional[str] = None
-    enriched_severity: Optional[str] = None
-    enriched_score: Optional[float] = None
     
     # Status
     status: str = "OPEN"
@@ -236,8 +233,6 @@ class PeakEntry:
             'max_ratio': self.max_ratio,
             'root_cause': self.root_cause,
             'behavior': self.behavior,
-            'enriched_severity': self.enriched_severity,
-            'enriched_score': self.enriched_score,
             'status': self.status,
             'jira': self.jira,
             'notes': self.notes,
@@ -264,8 +259,6 @@ class PeakEntry:
         entry.max_ratio = data.get('max_ratio', 0.0)
         entry.root_cause = data.get('root_cause')
         entry.behavior = data.get('behavior')
-        entry.enriched_severity = data.get('enriched_severity')
-        entry.enriched_score = data.get('enriched_score')
         entry.status = data.get('status', 'OPEN')
         entry.jira = data.get('jira')
         entry.notes = data.get('notes')
@@ -559,6 +552,15 @@ class ProblemRegistry:
         self.fingerprint_index.clear()
         self._problem_counter = 0
         self._peak_counter = 0
+        self.stats = {
+            'problems_loaded': 0,
+            'peaks_loaded': 0,
+            'fingerprints_indexed': 0,
+            'new_problems_added': 0,
+            'problems_updated': 0,
+            'new_peaks_added': 0,
+            'peaks_updated': 0,
+        }
         
         # Load problems
         problems_file = self.registry_dir / 'known_problems.yaml'
@@ -626,54 +628,92 @@ class ProblemRegistry:
         self.registry_dir.mkdir(parents=True, exist_ok=True)
         
         lock_file = self.registry_dir / '.registry.lock'
-        
         try:
-            # Acquire file lock
-            lock_fd = open(lock_file, 'w')
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-            
-            try:
-                return self._save_locked()
-                
-            finally:
-                # Release lock
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-                lock_fd.close()
-            
-        except Exception as e:
-            print(f"⚠️ Error saving registry: {e}")
-            import traceback
-            traceback.print_exc()
+            with open(lock_file, 'a+', encoding='utf-8') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                try:
+                    return self._save_locked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as error:
+            print(f"⚠️ Error saving registry: {error}")
+            return False
+
+    def update_and_save(
+        self,
+        incidents: List[Any],
+        event_timestamps: Dict[str, Tuple[datetime, datetime]] = None,
+    ) -> bool:
+        """Merge incident updates with disk state and save under one process lock."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = self.registry_dir / '.registry.lock'
+        try:
+            with open(lock_file, 'a+', encoding='utf-8') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                try:
+                    if not self.load():
+                        return False
+                    self.update_from_incidents(incidents, event_timestamps)
+                    return self._save_locked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as error:
+            print(f"⚠️ Error updating registry: {error}")
+            return False
+
+    def merge_enrichment_and_save(
+        self,
+        problem_updates: Dict[str, Dict[str, Any]],
+        peak_updates: Dict[str, Dict[str, Any]],
+    ) -> bool:
+        """Merge enrichment into the latest disk state without losing concurrent updates."""
+        self.registry_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = self.registry_dir / '.registry.lock'
+        try:
+            with open(lock_file, 'a+', encoding='utf-8') as lock_fd:
+                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+                try:
+                    if not self.load():
+                        return False
+                    for problem_key, fields in problem_updates.items():
+                        problem = self.problems.get(problem_key)
+                        if problem is not None:
+                            for field_name, value in fields.items():
+                                setattr(problem, field_name, value)
+                    for peak_key, fields in peak_updates.items():
+                        peak = self.peaks.get(peak_key)
+                        if peak is not None:
+                            for field_name, value in fields.items():
+                                setattr(peak, field_name, value)
+                    return self._save_locked()
+                finally:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+        except Exception as error:
+            print(f"⚠️ Error merging registry enrichment: {error}")
             return False
 
     def _save_locked(self) -> bool:
-        """Persist registry files while the caller holds the registry lock."""
-        problems_yaml = self.registry_dir / 'known_problems.yaml'
+        """Write the current in-memory state; the caller must hold the file lock."""
         sorted_problems = sorted(
             self.problems.values(),
-            key=lambda p: p.last_seen or datetime.min,
-            reverse=True
+            key=lambda problem: problem.last_seen or datetime.min,
+            reverse=True,
         )
-
         self._atomic_write_yaml(
-            problems_yaml,
-            [p.to_dict() for p in sorted_problems]
+            self.registry_dir / 'known_problems.yaml',
+            [problem.to_dict() for problem in sorted_problems],
         )
-
         self._write_problems_md(sorted_problems)
 
-        peaks_yaml = self.registry_dir / 'known_peaks.yaml'
         sorted_peaks = sorted(
             self.peaks.values(),
-            key=lambda p: p.last_seen or datetime.min,
-            reverse=True
+            key=lambda peak: peak.last_seen or datetime.min,
+            reverse=True,
         )
-
         self._atomic_write_yaml(
-            peaks_yaml,
-            [p.to_dict() for p in sorted_peaks]
+            self.registry_dir / 'known_peaks.yaml',
+            [peak.to_dict() for peak in sorted_peaks],
         )
-
         self._write_peaks_md(sorted_peaks)
         self._save_fingerprint_index()
         self._check_health_warnings()
@@ -967,75 +1007,6 @@ class ProblemRegistry:
                     self._update_peak(
                         incident, 'BURST', first_ts, last_ts
                     )
-
-    def update_and_save(
-        self,
-        incidents: List[Any],
-        event_timestamps: Dict[str, Tuple[datetime, datetime]] = None
-    ) -> bool:
-        """Atomically merge incidents into the latest on-disk registry state."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = self.registry_dir / '.registry.lock'
-
-        try:
-            lock_fd = open(lock_file, 'w')
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-            try:
-                if not self.load():
-                    return False
-
-                self.update_from_incidents(incidents, event_timestamps)
-                return self._save_locked()
-            finally:
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-                lock_fd.close()
-        except Exception as e:
-            print(f"⚠️ Error updating registry: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def merge_enrichment_and_save(
-        self,
-        problems_enrichment: Dict[str, Dict[str, Any]],
-        peaks_enrichment: Dict[str, Dict[str, Any]]
-    ) -> bool:
-        """Atomically merge enrichment fields into the latest registry state."""
-        self.registry_dir.mkdir(parents=True, exist_ok=True)
-        lock_file = self.registry_dir / '.registry.lock'
-
-        try:
-            lock_fd = open(lock_file, 'w')
-            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
-            try:
-                if not self.load():
-                    return False
-
-                for problem_key, enrichment in (problems_enrichment or {}).items():
-                    problem = self.problems.get(problem_key)
-                    if not problem:
-                        continue
-                    for field_name, value in enrichment.items():
-                        if hasattr(problem, field_name):
-                            setattr(problem, field_name, value)
-
-                for peak_key, enrichment in (peaks_enrichment or {}).items():
-                    peak = self.peaks.get(peak_key)
-                    if not peak:
-                        continue
-                    for field_name, value in enrichment.items():
-                        if hasattr(peak, field_name):
-                            setattr(peak, field_name, value)
-
-                return self._save_locked()
-            finally:
-                fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-                lock_fd.close()
-        except Exception as e:
-            print(f"⚠️ Error merging registry enrichment: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
     
     def _update_problem(
         self,
