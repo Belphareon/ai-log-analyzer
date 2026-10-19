@@ -4,6 +4,17 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r107 (2026-10-19) — Oprava delivery audit FK a čitelnější peak reporty
+
+### Opraveno
+
+- Delivery audit už neodkazuje na notification decision, která nebyla persistována kvůli chybějícímu policy kontextu; auditní záznam se přesto uloží.
+
+### Změněno
+
+- Peak alert digest nově zvýrazňuje policy souhrn a strukturovaný přehled cause families.
+- Recent Incidents publikuje escapovaný text reportu místo tabulek s jednou buňkou na řádek.
+
 ## r106 (2026-10-12) — Oprava backfill persistence a episode korelace
 
 ### Opraveno

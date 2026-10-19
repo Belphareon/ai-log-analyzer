@@ -115,6 +115,29 @@ class PeakDigestR88Tests(unittest.TestCase):
         self.assertEqual(outcomes[0]['dedup_key'], 'peak-omitted:2026-07-31T08:00:00Z')
         self.assertEqual(outcomes[0]['metadata']['attempt_kind'], 'policy')
 
+    def test_unpersisted_notification_decision_is_not_linked_to_delivery(self):
+        payload = {
+            'peak_key': 'peak-without-policy-context',
+            'window_key': '2026-07-31T08:00:00Z',
+        }
+
+        rp._link_notification_decision(
+            payload,
+            'decision-not-persisted',
+            persisted=False,
+        )
+        with patch.object(rp, '_notification_destinations', return_value=['teams_webhook']):
+            outcomes = rp._policy_delivery_outcomes(
+                payload,
+                'not_attempted',
+                'all_episode_candidates_suppressed',
+            )
+
+        self.assertNotIn('notification_decision_ids', payload)
+        self.assertNotIn('notification_decision_id', payload)
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0]['notification_decision_id'], '')
+
     def test_provider_delivery_keeps_notification_decision_link(self):
         payload = {
             'peak_key': 'peak-linked',
@@ -383,8 +406,9 @@ class PeakDigestR88Tests(unittest.TestCase):
         self.assertTrue(sent)
         combined = notifier.result[1] + notifier.result[2]
         self.assertIn('WHY ALERTED', combined)
-        self.assertIn('WHAT ACTUALLY FAILED', combined)
-        self.assertIn('Cause families represented: 1', combined)
+        self.assertIn('Cause 1.1: Person not found', combined)
+        self.assertIn('Root: bl-pcb-v1 | operation=unknown-operation', combined)
+        self.assertIn('Cause families: 1', combined)
         self.assertIn('trace coverage unavailable', combined)
         self.assertNotIn('Behavior:', combined)
         self.assertNotIn('Clusters detected', combined)
@@ -402,6 +426,7 @@ class PeakDigestR88Tests(unittest.TestCase):
         alert = {
             'peak_type': 'SPIKE',
             'is_known': False,
+            'policy_episode_state': 'START',
             'error_count': 200,
             'threshold_evidence': [{
                 'namespace': 'pcb-prod-01-app',
@@ -447,9 +472,13 @@ class PeakDigestR88Tests(unittest.TestCase):
         self.assertIn('40 unique operations | 200 raw ERROR lines | 5.0x amplification', body)
         self.assertIn('coverage: 200 traced, 0 unsegmented ERROR lines', body)
         self.assertIn('BUSINESS / DATA REJECTION (medium confidence)', body)
-        self.assertIn('NEXT ACTION\n  Validate product-instance data.', body)
+        self.assertIn('SPIKE | NEW / START | PRIMARY_SEND', body)
+        self.assertIn('Next action: Validate product-instance data.', body)
         self.assertIn('snapshot=snapshot-1', body)
-        self.assertIn('WHAT ACTUALLY FAILED', html_body)
+        self.assertIn('Cause family summary', html_body)
+        self.assertIn('<td>SPIKE | NEW / START | PRIMARY_SEND</td>', html_body)
+        self.assertIn('<td>40 ops<br/>200 raw lines<br/>5.0x</td>', html_body)
+        self.assertIn('<strong>Root:</strong> bl-pcb-v1', html_body)
 
     def test_operator_digest_escapes_log_content_in_html(self):
         class CaptureNotifier:

@@ -27,6 +27,8 @@ def test_operator_report_renders_structured_and_escaped_confluence_html():
             '    Operation count evidence: root_span (high confidence)\n'
             '    Raw ERROR lines: 11\n'
             '    Logging amplification: 11.0x\n\n'
+            '    Applications: bl-pcb-v1, feapi-pca-v1\n'
+            '    Namespaces: pcb-prod-01-app\n\n'
             '  Evidence:\n'
             '    Representative trace: trace-lock\n\n'
             '  Next action:\n'
@@ -40,11 +42,17 @@ def test_operator_report_renders_structured_and_escaped_confluence_html():
     )
     html = publisher.convert_to_html(report_data)
 
-    assert '<pre' not in html
-    assert '<table' in html
-    assert 'Current Cause Families' in html
+    assert html.count('<pre') == 2
+    assert '<table' not in html
+    assert '<h2>Problem Analysis Report</h2>' in html
+    assert '<h3>Executive Summary</h3>' in html
+    assert '<h3>Problem Details (Top 20)</h3>' in html
+    assert 'Operation occurrences: 1' in html
+    assert 'Unique operations: 1' in html
+    assert 'Raw ERROR lines: 11' in html
+    assert 'Applications: bl-pcb-v1, feapi-pca-v1' in html
+    assert 'pcb-prod-01-app' in html
     assert 'Inspect concurrent updates.' in html
     assert '<script>' not in html
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
-    assert '<img' not in html
     assert '&lt;img src=x onerror=alert(1)&gt;' in html

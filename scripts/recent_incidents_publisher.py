@@ -92,20 +92,11 @@ def extract_report_content(report_path):
         return None
 
 def convert_to_html(report_data):
-    """Convert report sections into escaped Confluence tables."""
+    """Render current-period cause facts in the report's original text layout."""
     if not report_data:
         return None
-    
-    def render_table(title: str, text: str) -> str:
-        rows = ''.join(
-            f'<tr><td>{html.escape(line)}</td></tr>'
-            for line in text.splitlines()
-            if line.strip()
-        )
-        return f'<h3>{html.escape(title)}</h3><table><tbody>{rows}</tbody></table>'
 
-    html_parts = []
-    html_parts.append('<div>')
+    html_parts = ['<div>']
 
     if report_data.get('header'):
         period, generated, run_id = report_data['header']
@@ -114,15 +105,28 @@ def convert_to_html(report_data):
         html_parts.append(f'<strong>Generated:</strong> {html.escape(str(generated))}<br/>')
         html_parts.append(f'<strong>Run ID:</strong> {html.escape(str(run_id))}</p>')
 
-    if report_data['has_summary']:
-        html_parts.append(render_table('Current Cause Families', report_data['executive_summary']))
+    if report_data.get('has_summary'):
+        html_parts.append('<h3>Executive Summary</h3>')
+        html_parts.append(
+            '<pre style="font-family:monospace;white-space:pre-wrap;'
+            'overflow-wrap:anywhere;padding:10px;border-left:3px solid #4a90e2;'
+            'margin:10px 0;">'
+            + html.escape(str(report_data.get('executive_summary', '')))
+            + '</pre>'
+        )
 
-    if report_data['has_details']:
-        html_parts.append(render_table('Problem Details (Top 20)', report_data['problem_details']))
+    if report_data.get('has_details'):
+        html_parts.append('<h3>Problem Details (Top 20)</h3>')
+        html_parts.append(
+            '<pre style="font-family:monospace;white-space:pre-wrap;'
+            'overflow-wrap:anywhere;padding:10px;border-left:3px solid #f39c12;'
+            'margin:10px 0;">'
+            + html.escape(str(report_data.get('problem_details', '')))
+            + '</pre>'
+        )
 
     html_parts.append('</div>')
     html_parts.append(f'<p><small><em>Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")}</em></small></p>')
-    
     return '\n'.join(html_parts)
 
 def upload_via_confluence_api(html_content):

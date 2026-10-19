@@ -1443,6 +1443,19 @@ def _notification_decision_ids(payload: Dict[str, Any]) -> List[str]:
     return [decision_id]
 
 
+def _link_notification_decision(
+    payload: Dict[str, Any],
+    decision_id: str,
+    *,
+    persisted: bool,
+) -> None:
+    if not persisted:
+        return
+    decision_ids = payload.setdefault('notification_decision_ids', [])
+    decision_ids.append(decision_id)
+    payload['notification_decision_id'] = decision_ids[0]
+
+
 def _policy_delivery_outcomes(
     payload: Dict[str, Any],
     status: str,
@@ -2835,8 +2848,10 @@ def run_regular_phase(
                 }
                 for decision in notification_decisions:
                     payload = payload_by_candidate_id[decision.episode_id]
-                    payload.setdefault('notification_decision_ids', []).append(
-                        decision.notification_decision_id
+                    _link_notification_decision(
+                        payload,
+                        decision.notification_decision_id,
+                        persisted=context_by_candidate_id[decision.episode_id],
                     )
                     payload.setdefault('policy_outcomes_by_decision', {})[
                         decision.notification_decision_id
@@ -2844,9 +2859,6 @@ def run_regular_phase(
                     payload.setdefault('policy_candidate_reasons', {})[
                         decision.notification_decision_id
                     ] = decision.candidate_reason
-                    payload['notification_decision_id'] = payload[
-                        'notification_decision_ids'
-                    ][0]
                     payload['policy_outcome'] = decision.policy_outcome
                     payload['policy_detail_rank'] = decision.detail_rank
                     payload['policy_detail_limit'] = decision.detail_limit

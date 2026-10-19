@@ -684,20 +684,64 @@ Results:
         )
 
         lines = [
-            'Operator Peak Report',
+            'Peak Alerts',
             f'Window: {local_date} {local_time_range} Europe/Prague',
             '',
-            'WINDOW SIGNAL',
+            'Window summary:',
             f'  Raw ERROR lines fetched: {_metric(raw_window_errors)}' if raw_window_errors else '  Raw ERROR lines fetched: n/a',
-            f'  Alert candidates: {len(alerts):,}',
-            f'  Primary updates: {primary_count:,}',
-            f'  Digest-only updates: {digest_only_count:,}',
-            f'  Route-suppressed candidates: {route_suppressed_count:,}',
-            f'  Cause families represented: {family_count:,}',
+            f'  Alert groups: {len(alerts):,}',
+            f'  Primary / digest-only / route-suppressed: {primary_count:,} / {digest_only_count:,} / {route_suppressed_count:,}',
+            f'  Cause families: {family_count:,}',
             f'  Raw lines represented by alerts: {represented_raw_lines:,}',
-            f'  Operation occurrences represented: {represented_operation_text}',
+            f'  Operation occurrences: {represented_operation_text}',
             f'  Trace IDs represented as evidence: {len(all_trace_ids):,}',
         ]
+
+        lines.extend(['', 'Cause family summary:'])
+        html_summary_rows = []
+        for alert_index, (alert, families) in enumerate(normalized_alerts, start=1):
+            alert_status = 'KNOWN' if alert.get('is_known') else 'NEW'
+            dispatch = str(alert.get('policy_outcome') or 'primary_send').upper()
+            episode_state = str(alert.get('policy_episode_state') or 'n/a').upper()
+            peak_type = str(alert.get('peak_type') or 'SPIKE')
+            alert_label = f'{peak_type} | {alert_status} / {episode_state} | {dispatch}'
+            for family_index, family in enumerate(families, start=1):
+                assessment = str(family.get('assessment') or 'unknown')
+                assessment_label = assessment_labels.get(assessment, assessment.upper())
+                canonical_cause = str(family.get('canonical_cause') or 'Unknown cause')
+                root_app = str(family.get('root_app') or 'unknown-app')
+                unique_operations = family.get('unique_operations')
+                operation_text = (
+                    _metric(unique_operations)
+                    if unique_operations is not None else 'n/a'
+                )
+                raw_lines = int(family.get('raw_error_lines', 0) or 0)
+                amplification = family.get('amplification')
+                amplification_text = (
+                    f'{float(amplification):.1f}x'
+                    if isinstance(amplification, (int, float)) else 'n/a'
+                )
+                outcome = (
+                    f"{family.get('operation') or 'unknown-operation'} / "
+                    f"{family.get('outward_status') or 'n/a'}"
+                )
+                lines.extend([
+                    f'  {alert_index}.{family_index} [{alert_label}] '
+                    f'{assessment_label}: {canonical_cause}',
+                    f'    {root_app} | {operation_text} operations | '
+                    f'{raw_lines:,} raw ERROR lines | {amplification_text} | {outcome}',
+                ])
+                html_summary_rows.append(
+                    '<tr>'
+                    f'<td>{escape(alert_label)}</td>'
+                    f'<td><strong>{escape(assessment_label)}</strong><br/>'
+                    f'{escape(canonical_cause)}</td>'
+                    f'<td>{escape(root_app)}</td>'
+                    f'<td>{escape(operation_text)} ops<br/>{raw_lines:,} raw lines<br/>'
+                    f'{escape(amplification_text)}</td>'
+                    f'<td>{escape(outcome)}</td>'
+                    '</tr>'
+                )
 
         html_alerts = []
         for alert_index, (alert, families) in enumerate(normalized_alerts, start=1):
@@ -843,32 +887,27 @@ Results:
 
                 lines.extend([
                     '',
-                    f'CAUSE {alert_index}.{family_index}: [{assessment_label}] {canonical_cause}',
-                    'WHAT ACTUALLY FAILED',
-                    f'  {root_app}: {canonical_cause}',
-                    f'  {outcome}',
-                    'IMPACT',
-                    f'  {impact}',
-                    f'  Operation count evidence: {operation_evidence}',
-                    f'  Current scope - {scope}',
-                    'ASSESSMENT',
-                    f'  {assessment_label} ({confidence} confidence)',
-                    'EVIDENCE',
-                    f"  Representative trace: {trace_id or 'n/a'}",
-                    'NEXT ACTION',
-                    f'  {next_action}',
+                    f'  Cause {alert_index}.{family_index}: {canonical_cause}',
+                    f'    {assessment_label} ({confidence} confidence)',
+                    f'    Root: {root_app} | {outcome}',
+                    f'    Impact: {impact}',
+                    f'    Evidence quality: {operation_evidence}',
+                    f'    Scope: {scope}',
+                    f"    Trace: {trace_id or 'n/a'}",
+                    f'    Next action: {next_action}',
                 ])
 
                 color = assessment_colors.get(assessment, '#475467')
                 html_families.append(f'''
-<div style="margin-top:14px;border:1px solid #d0d5dd;border-left:5px solid {color};padding:14px;background:#ffffff;">
-  <div style="font-size:16px;font-weight:700;color:{color};">{escape(assessment_label)}</div>
-  <div style="font-size:17px;font-weight:700;margin-top:4px;">{escape(canonical_cause)}</div>
-  <div style="margin-top:12px;"><strong>WHAT ACTUALLY FAILED</strong><br>{escape(root_app)}: {escape(canonical_cause)}<br>{escape(outcome)}</div>
-    <div style="margin-top:10px;"><strong>IMPACT</strong><br>{escape(impact)}<br>Operation count evidence: {escape(operation_evidence)}<br>{escape(scope)}</div>
-  <div style="margin-top:10px;"><strong>ASSESSMENT</strong><br>{escape(assessment_label)} ({escape(confidence)} confidence)</div>
-  <div style="margin-top:10px;"><strong>EVIDENCE</strong><br>Representative trace: {escape(trace_id or 'n/a')}</div>
-  <div style="margin-top:10px;"><strong>NEXT ACTION</strong><br>{escape(next_action)}</div>
+<div style="margin-top:12px;padding:10px 0;border-top:1px solid #d0d5dd;border-left:4px solid {color};padding-left:12px;">
+    <div style="font-weight:700;color:{color};">{escape(assessment_label)} ({escape(confidence)} confidence)</div>
+    <div style="font-size:16px;font-weight:700;margin-top:3px;">{escape(canonical_cause)}</div>
+    <div style="margin-top:7px;"><strong>Root:</strong> {escape(root_app)} | {escape(outcome)}</div>
+    <div><strong>Impact:</strong> {escape(impact)}</div>
+    <div><strong>Evidence quality:</strong> {escape(operation_evidence)}</div>
+    <div><strong>Scope:</strong> {escape(scope)}</div>
+    <div><strong>Trace:</strong> {escape(trace_id or 'n/a')}</div>
+    <div><strong>Next action:</strong> {escape(next_action)}</div>
 </div>''')
 
             html_alerts.append(f'''
@@ -884,17 +923,31 @@ Results:
 <html>
 <body style="font-family:'Segoe UI',Arial,sans-serif;color:#101828;background:#f2f4f7;margin:0;padding:20px;">
   <main style="max-width:900px;margin:0 auto;background:#ffffff;border:1px solid #d0d5dd;padding:22px;">
-    <h1 style="font-size:23px;margin:0;">Operator Peak Report</h1>
+        <h1 style="font-size:23px;margin:0;">Peak Alerts</h1>
     <div style="margin-top:4px;color:#475467;">{escape(local_date)} {escape(local_time_range)} Europe/Prague</div>
     <div style="margin-top:18px;padding:14px;background:#f9fafb;border:1px solid #eaecf0;">
-      <strong>WINDOW SIGNAL</strong><br>
+            <strong>Window summary</strong><br>
       Raw ERROR lines fetched: {escape(_metric(raw_window_errors) if raw_window_errors else 'n/a')}<br>
-      Alert groups sent: {len(alerts):,}<br>
-      Cause families represented: {family_count:,}<br>
+            Alert groups: {len(alerts):,}<br>
+            Primary / digest-only / route-suppressed: {primary_count:,} / {digest_only_count:,} / {route_suppressed_count:,}<br>
+            Cause families: {family_count:,}<br>
       Raw lines represented by alerts: {represented_raw_lines:,}<br>
-    Operation occurrences represented: {escape(represented_operation_text)}<br>
-    Trace IDs represented as evidence: {len(all_trace_ids):,}
+            Operation occurrences: {escape(represented_operation_text)}<br>
+            Trace IDs represented as evidence: {len(all_trace_ids):,}
     </div>
+        <div style="margin-top:16px;">
+            <strong>Cause family summary</strong>
+            <table style="margin-top:8px;border-collapse:collapse;width:100%;font-size:13px;">
+                <thead><tr style="background:#344054;color:#ffffff;">
+                    <th style="padding:7px;border:1px solid #d0d5dd;text-align:left;">Alert</th>
+                    <th style="padding:7px;border:1px solid #d0d5dd;text-align:left;">Assessment / cause</th>
+                    <th style="padding:7px;border:1px solid #d0d5dd;text-align:left;">Root app</th>
+                    <th style="padding:7px;border:1px solid #d0d5dd;text-align:left;">Impact</th>
+                    <th style="padding:7px;border:1px solid #d0d5dd;text-align:left;">Operation / status</th>
+                </tr></thead>
+                <tbody>{''.join(html_summary_rows)}</tbody>
+            </table>
+        </div>
     {''.join(html_alerts)}
     <div style="margin-top:20px;padding-top:12px;border-top:1px solid #d0d5dd;font-size:12px;color:#667085;">
       Generated {escape(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))} | AI Log Analyzer
