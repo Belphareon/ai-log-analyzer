@@ -19,7 +19,7 @@ environment: nprod                     # nprod | prod
 # -----------------------------------------------------------------------------
 app:
   name: log-analyzer
-  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:latest
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r109
   imagePullPolicy: IfNotPresent
   secretName: log-analyzer-secrets
 
@@ -45,6 +45,12 @@ persistence:
     registry: registry                # /data/registry - YAML fingerprinty
     exports: exports                  # /data/exports - JSON/MD/CSV reporty
     reports: reports                  # /data/reports - dočasné výstupy
+
+scratch:
+  mountPath: /scratch
+  sizeLimit: 3500Mi
+  ephemeralStorageRequest: 2Gi
+  ephemeralStorageLimit: 3500Mi
 
 # -----------------------------------------------------------------------------
 # Conjur Configuration (CyberArk)
@@ -111,7 +117,7 @@ env:
   SPIKE_THRESHOLD: "3.0"
   EWMA_ALPHA: "0.3"
   WINDOW_MINUTES: "15"
-  PERCENTILE_LEVEL: "0.93"
+  PERCENTILE_LEVEL: "0.95"
   MIN_SAMPLES_FOR_THRESHOLD: "10"
   DEFAULT_THRESHOLD: "100"
 
@@ -131,26 +137,24 @@ env:
   ALERT_MIN_DELTA_PCT: "30"
   ALERT_CONTINUATION_LOOKBACK_MIN: "60"
 
-  # === Workflow Lifecycle Diagnostics ===
-  # INFO-level queue lifecycle analysis is independently opt-in. Alerts require
-  # a completely fetched and successfully persisted high-confidence run.
-  LIFECYCLE_ANALYSIS_ENABLED: "false"
-  LIFECYCLE_ALERT_ENABLED: "false"
-  LIFECYCLE_PROBE_MAX_HITS: "200"
-  LIFECYCLE_FETCH_BATCH_SIZE: "1000"
-  LIFECYCLE_MAX_RECORDS_PER_QUERY: "50000"
-  LIFECYCLE_MAX_PREDECESSOR_IDS: "500"
-  LIFECYCLE_MIN_RETRIES: "3"
   FACT_RETENTION_DAYS: "90"
+  REGULAR_COLLECTION_START: ""
+  REGULAR_SETTLE_MINUTES: "2"
+  REGULAR_MAX_WINDOWS: "8"
+  REGULAR_CATCHUP_BUDGET_SECONDS: "480"
+  REGULAR_LATE_RECHECK_HOURS: "2"
+  DAILY_REPORT_HOUR_UTC: "7"
 
 # -----------------------------------------------------------------------------
 # Init Job (one-shot bootstrap)
 # Spuštění: helm template k8s/ | kubectl apply -f - -l job-type=init
 # -----------------------------------------------------------------------------
 init:
+  bootstrap: false
+  quiesce: false
   backfillDays: 21                       # Počet dní zpětně
   backfillWorkers: 4                     # Paralelní workery
-  thresholdWeeks: 3                      # Týdnů pro výpočet P93/CAP
+  thresholdWeeks: 12                     # Shared init/weekly UTC slot history; minimum 10 weeks
   forceThresholdRefresh: false           # Ruční refresh i při kompatibilním snapshotu
   activeDeadlineSeconds: 14400           # Max 4 hodiny
 

@@ -7,14 +7,14 @@ Detekce anomálií s registry integrací.
 - Správná integrace s ProblemRegistry
 - Lookup přes problem_key, ne jen fingerprint
 - Propagace event timestamps (ne run timestamps)
-- P93/CAP namespace-level peak detection
+- UTC weekly-slot namespace-level peak detection
 
 Složitost: O(n) místo O(n × fingerprints)
 """
 
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import statistics
 import sys
@@ -229,8 +229,7 @@ class PhaseC_Detect:
                 threshold=threshold_value,
                 message=(
                     f"namespace {peak_result.get('namespace')} total ({peak_result.get('value', 0):.0f}) exceeds "
-                    f"P93={peak_result.get('p93_threshold', 0):.0f} / "
-                    f"CAP={peak_result.get('cap_threshold', 0):.0f} "
+                    f"UTC slot limit={threshold_value}, profile={peak_result.get('profile_status', 'legacy')} "
                     f"(triggered_by={peak_result.get('triggered_by')}, peak_id={peak_result.get('peak_identifier')})"
                 ),
                 details={
@@ -248,7 +247,9 @@ class PhaseC_Detect:
                     'triggered_by': peak_result.get('triggered_by'),
                     'peak_identifier': peak_result.get('peak_identifier'),
                     'threshold_snapshot_id': peak_result.get('threshold_snapshot_id'),
-                    'detector_version': 'namespace_pxx_cap_fingerprint_v3',
+                    'profile_status': peak_result.get('profile_status'),
+                    'threshold_samples': peak_result.get('threshold_samples', 0),
+                    'detector_version': 'namespace_utc_slot_fingerprint_v5',
                 },
             )
             self.stats['detected_spike'] += 1
@@ -524,6 +525,9 @@ class PhaseC_Detect:
                         'cap_threshold': None,
                         'triggered_by': None,
                         'threshold_snapshot_id': None,
+                        'profile_status': 'not_used',
+                        'threshold_samples': 0,
+                        'is_evaluated': False,
                         'family_baseline_available': self.namespace_fingerprint_baseline_available,
                         'family_decisions': [],
                         'owner_fingerprint': None,
@@ -532,8 +536,12 @@ class PhaseC_Detect:
                         'diagnosis_status': 'undiagnosed',
                     })
                     continue
+                if bucket.tzinfo is None or bucket.utcoffset() is None:
+                    raise ValueError('namespace peak window must be timezone-aware')
+                utc_bucket = bucket.astimezone(timezone.utc)
                 check = self.peak_detector.is_peak(
-                    float(namespace_total), namespace, bucket.weekday()
+                    float(namespace_total), namespace, utc_bucket.weekday(),
+                    utc_bucket.hour, utc_bucket.minute // 15,
                 )
                 peak_identifier = (
                     f"SPIKE:NS:{namespace}:{bucket.isoformat()}"
@@ -551,12 +559,18 @@ class PhaseC_Detect:
                     'cap_threshold': check.get('cap_threshold'),
                     'triggered_by': check.get('triggered_by'),
                     'threshold_snapshot_id': check.get('threshold_snapshot_id'),
+                    'profile_status': check.get('profile_status'),
+                    'threshold_samples': check.get('threshold_samples', 0),
+                    'is_evaluated': check.get('is_evaluated', True),
                     'peak_identifier': peak_identifier,
                     'family_baseline_available': self.namespace_fingerprint_baseline_available,
                     'family_decisions': [],
                     'owner_fingerprint': None,
                     'suppressed_reason': None,
-                    'verdict_reason': 'below_threshold',
+                    'verdict_reason': (
+                        'threshold_profile_missing'
+                        if check.get('is_evaluated') is False else 'below_threshold'
+                    ),
                     'diagnosis_status': 'undiagnosed',
                 }
                 if not check.get('is_peak'):

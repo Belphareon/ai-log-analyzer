@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -16,7 +16,7 @@ except ImportError:  # pragma: no cover - direct script execution
     from analysis.operational_cause import CAUSE_SIGNATURE_VERSION
 
 
-CORRELATION_VERSION = "peak_episode_correlation_v1"
+CORRELATION_VERSION = "peak_episode_correlation_v2"
 WINDOW_MINUTES = 15
 EPISODE_NAMESPACE = uuid.UUID("4c8f5f8b-2afc-4d8f-a5b1-2f7dbb6e9a16")
 
@@ -87,6 +87,8 @@ class PeakObservation:
     contributor_fingerprints: Tuple[str, ...] = ()
     applications: Tuple[str, ...] = ()
     material_impact: float = 0.0
+    window_raw_error_lines: Optional[int] = None
+    window_operation_occurrences: Optional[int] = None
 
     def normalized_cause_signature(self) -> str:
         return self.cause_signature or _unresolved_signature(self)
@@ -283,6 +285,24 @@ class PeakEpisodeCorrelator:
         for observation in observations:
             observation.validate()
             normalized.append(observation)
+        window_observations: dict[tuple, dict[str, PeakObservation]] = {}
+        for observation in normalized:
+            if observation.is_peak:
+                key = (observation.stream_key, observation.window_start_utc, observation.normalized_cause_signature())
+                window_observations.setdefault(key, {})[observation.window_decision_id] = observation
+        for index, observation in enumerate(normalized):
+            if not observation.is_peak:
+                continue
+            key = (observation.stream_key, observation.window_start_utc, observation.normalized_cause_signature())
+            members = tuple(window_observations[key].values())
+            normalized[index] = replace(
+                observation,
+                window_raw_error_lines=sum(member.cause_family_raw_lines for member in members),
+                window_operation_occurrences=(
+                    sum(member.unique_operation_occurrences for member in members)
+                    if all(member.unique_operation_occurrences is not None for member in members) else None
+                ),
+            )
         ordered = sorted(normalized, key=lambda item: (
             item.stream_key,
             item.window_start_utc,
@@ -298,6 +318,13 @@ class PeakEpisodeCorrelator:
         active_by_stream_cause: dict[tuple[str, str], list[str]] = {}
         active_by_stream: dict[str, list[str]] = {}
         active_by_stream_namespace: dict[tuple[str, str], list[str]] = {}
+        quiet_namespaces: dict[tuple[str, datetime], set[str]] = {}
+        peak_namespaces: dict[tuple[str, datetime], set[str]] = {}
+        for observation in ordered:
+            namespace_index = peak_namespaces if observation.is_peak else quiet_namespaces
+            namespace_index.setdefault(
+                (observation.stream_key, observation.window_start_utc), set()
+            ).add(observation.signal_namespace)
         for episode in episodes.values():
             active_by_stream_cause.setdefault(
                 (episode.stream_key, episode.cause_signature), []
@@ -318,21 +345,22 @@ class PeakEpisodeCorrelator:
                     if episodes[episode_id].state != "RESOLVED"
                 ]
             else:
-                active_episodes = [
+                window_key = (observation.stream_key, observation.window_start_utc)
+                recovered_namespaces = quiet_namespaces.get(window_key, set()) - peak_namespaces.get(window_key, set())
+                candidates = [
                     episodes[episode_id]
-                    for episode_id in active_by_stream.get(observation.stream_key, ())
+                    for episode_id in active_by_stream_namespace.get(
+                        (observation.stream_key, observation.signal_namespace), ()
+                    )
                     if episodes[episode_id].state != "RESOLVED"
+                    and episodes[episode_id].active_namespaces <= recovered_namespaces
                 ]
-                if len(active_episodes) == 1:
-                    candidates = active_episodes
-                else:
-                    candidates = [
-                        episodes[episode_id]
-                        for episode_id in active_by_stream_namespace.get(
-                            (observation.stream_key, observation.signal_namespace), ()
-                        )
-                        if episodes[episode_id].state != "RESOLVED"
-                    ]
+                for candidate in candidates:
+                    if self._select_candidate([candidate], observation) is not None:
+                        transition = self._apply_recovery(candidate, observation)
+                        if transition.correlation_method != "idempotent_replay":
+                            transitions.append(transition)
+                continue
             episode = self._select_candidate(candidates, observation)
             if observation.is_peak:
                 transition = self._apply_peak(
@@ -397,9 +425,9 @@ class PeakEpisodeCorrelator:
             state="RECURRENCE" if recurrence else "START",
             first_window_start_utc=observation.window_start_utc,
             last_window_start_utc=observation.window_start_utc,
-            current_raw_error_lines=observation.cause_family_raw_lines,
+            current_raw_error_lines=observation.window_raw_error_lines,
             cumulative_raw_error_lines=observation.cause_family_raw_lines,
-            current_operation_occurrences=observation.unique_operation_occurrences,
+            current_operation_occurrences=observation.window_operation_occurrences,
             cumulative_operation_occurrences=observation.unique_operation_occurrences,
             diagnosis_confidence=observation.confidence,
             active_namespaces={observation.signal_namespace},
@@ -471,14 +499,14 @@ class PeakEpisodeCorrelator:
                 reasons_list.append("new_namespace")
             if (
                 previous_lines > 0
-                and observation.cause_family_raw_lines
+                and observation.window_raw_error_lines
                 >= previous_lines * self.escalation_ratio
             ):
                 reasons_list.append("material_impact_increase")
             if (
                 episode.current_operation_occurrences is not None
-                and observation.unique_operation_occurrences is not None
-                and observation.unique_operation_occurrences
+                and observation.window_operation_occurrences is not None
+                and observation.window_operation_occurrences
                 > episode.current_operation_occurrences
                 * self.escalation_ratio
             ):
@@ -492,9 +520,9 @@ class PeakEpisodeCorrelator:
             method = "event_time_cause_match"
             episode.state = state
             episode.last_window_start_utc = observation.window_start_utc
-            episode.current_raw_error_lines = observation.cause_family_raw_lines
+            episode.current_raw_error_lines = observation.window_raw_error_lines
             episode.cumulative_raw_error_lines += observation.cause_family_raw_lines
-            episode.current_operation_occurrences = observation.unique_operation_occurrences
+            episode.current_operation_occurrences = observation.window_operation_occurrences
             if (
                 episode.cumulative_operation_occurrences is not None
                 and observation.unique_operation_occurrences is not None
@@ -611,6 +639,8 @@ def observations_from_decisions(
     cause_families = cause_families or {}
     observations = []
     for decision in decisions:
+        if decision.get("profile_status") == "missing" or decision.get("verdict_reason") == "threshold_profile_missing":
+            continue
         families = decision.get("cause_families") or decision.get("families") or ()
         if not families:
             families = [None]

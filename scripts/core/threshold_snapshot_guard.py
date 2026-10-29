@@ -134,7 +134,7 @@ def main() -> int:
         print("ERROR: MONITORED_NAMESPACES is required", file=sys.stderr)
         return 2
 
-    percentile_level = float(os.getenv("PERCENTILE_LEVEL", "0.93"))
+    percentile_level = float(os.getenv("PERCENTILE_LEVEL", "0.95"))
     force = _is_true(os.getenv("FORCE_THRESHOLD_REFRESH", "false"))
     try:
         conn = psycopg2.connect(**_read_only_db_config())

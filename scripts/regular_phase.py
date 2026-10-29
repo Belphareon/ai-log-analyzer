@@ -54,13 +54,17 @@ from core.delivery_persistence import (
 )
 from core.notification_policy import decide_notification_candidates
 from core.run_persistence import (
+    build_query_hash,
     load_peak_episodes_before,
     persist_analysis_run,
     stream_advisory_lock,
 )
 from core.namespace_contract import namespace_contract_hash
+from core.regular_schedule import (
+    FactsOnlyDetector, load_collection_state, plan_collection_windows,
+    sync_report_knowledge, load_live_completion, mark_live_completion,
+)
 from core.peak_decision import materialize_decision_windows
-from core.workflow_diagnostics import run_workflow_lifecycle_diagnostics
 from pipeline import Pipeline
 from pipeline.incident import IncidentCollection
 from analysis.operational_cause import (
@@ -686,7 +690,7 @@ def _numeric_or_none(value: Any) -> Optional[float]:
 
 
 def _threshold_evidence(incidents: List[Any]) -> List[Dict[str, Any]]:
-    """Return unique namespace-level Pxx/CAP decisions used for this payload."""
+    """Return unique namespace-level threshold decisions used for this payload."""
     decisions: Dict[Tuple[str, str, Optional[float]], Dict[str, Any]] = {}
     for incident in incidents:
         for evidence in getattr(incident, 'evidence', []) or []:
@@ -714,6 +718,8 @@ def _threshold_evidence(incidents: List[Any]) -> List[Dict[str, Any]]:
                 'effective_threshold': min(threshold_candidates) if threshold_candidates else None,
                 'triggered_by': str(details.get('triggered_by') or ''),
                 'threshold_snapshot_id': snapshot_id,
+                'profile_status': details.get('profile_status'),
+                'threshold_samples': details.get('threshold_samples', 0),
                 'fingerprint_contribution': _numeric_or_none(
                     details.get('fingerprint_contribution')
                 ),
@@ -818,13 +824,13 @@ def _should_send_peak_alert(
     if not state_entry:
         return True, 'first_seen_in_state'
 
-    if not payload.get('is_known', False):
-        return True, 'new_peak'
-
     last_window = str(state_entry.get('last_sent_window') or '')
     current_window = str(payload.get('window_key') or '')
     if last_window and current_window and last_window == current_window:
         return False, 'same_window_duplicate'
+
+    if not payload.get('is_known', False):
+        return True, 'new_peak'
 
     last_trend = str(state_entry.get('last_trend') or '')
     trend = str(payload.get('trend') or '')
@@ -1391,6 +1397,13 @@ def _episode_policy_contexts(
     payload_window = _parse_dt(payload.get('window_start'))
     if payload_window is None:
         return []
+    decision_id = payload.get('window_decision_id')
+    if decision_id:
+        return [
+            item for item in transitions or []
+            if item.get('window_decision_id') == decision_id
+            and _parse_dt(item.get('window_start_utc')) == payload_window
+        ]
     payload_signatures = {
         str(family.get('signature') or '')
         for family in (payload.get('cause_families') or [])
@@ -1526,6 +1539,41 @@ class PeakDispatchResult(list):
     ) -> None:
         super().__init__(delivered_payloads)
         self.delivery_outcomes = delivery_outcomes
+
+
+def _build_undiagnosed_namespace_payloads(
+    decisions: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    payloads = []
+    for decision in decisions or []:
+        if not decision.get('is_peak') or decision.get('diagnosis_status') != 'undiagnosed':
+            continue
+        namespace = str(decision.get('signal_namespace') or '')
+        count = int(decision.get('namespace_raw_lines') or 0)
+        start = str(decision.get('window_start_utc') or '')
+        family = {
+            'canonical_cause': 'Namespace peak; cause not established',
+            'root_app': 'unknown-app', 'operation': 'unknown-operation',
+            'assessment': 'unknown', 'confidence': 'low',
+            'raw_error_lines': count, 'unique_operations': None,
+            'namespace_counts': {namespace: count},
+            'next_action': 'Inspect namespace contributors and confirm incident impact.',
+        }
+        payloads.append({
+            'peak_key': f'NAMESPACE_PEAK:{namespace}',
+            'alert_identity': f'NAMESPACE_PEAK:{namespace}',
+            'window_key': start, 'window_start': start,
+            'window_end': str(decision.get('window_end_utc') or ''),
+            'window_decision_id': decision.get('window_decision_id'),
+            'diagnosis_status': 'undiagnosed', 'peak_type': 'SPIKE',
+            'is_known': True, 'error_count': count,
+            'affected_namespaces': [namespace], 'namespace_counts': {namespace: count},
+            'cause_family': family, 'cause_families': [family],
+            'threshold_evidence': [{
+                **decision, 'namespace': namespace, 'observed_value': count,
+            }],
+        })
+    return payloads
 
 
 def _send_peak_alert_email(
@@ -1986,7 +2034,7 @@ def _load_replay_threshold_bundle(
 
     bundle = json.loads(bundle_path.read_text(encoding='utf-8'))
     metadata = bundle.get('metadata') or {}
-    expected_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.93'))
+    expected_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.95'))
     expected_metadata = {
         'population_grain': POPULATION_GRAIN,
         'percentile_method': PERCENTILE_METHOD,
@@ -2016,28 +2064,38 @@ def _load_replay_threshold_bundle(
         raise RuntimeError('incompatible replay threshold bundle: ' + '; '.join(mismatches))
 
     thresholds = {
-        (str(row['namespace']), int(row['day_of_week'])): {
+        (str(row['namespace']), int(row['day_of_week']), int(row['hour_of_day']), int(row['quarter_hour'])): {
             'value': float(row['value']),
             'samples': int(row['samples']),
+            'profile_status': str(row['profile_status']),
         }
         for row in bundle.get('thresholds', [])
     }
-    caps = {
-        str(namespace): {
-            'value': float(row['value']),
-            'samples': int(row['samples']),
-        }
-        for namespace, row in (bundle.get('caps') or {}).items()
-    }
     bundle_id = str(bundle.get('bundle_id') or '')
-    if not bundle_id or not thresholds or not caps:
+    if not bundle_id or not thresholds or bundle.get('caps'):
         raise RuntimeError('replay threshold bundle is incomplete')
     peak_detector.load_thresholds_direct(
         thresholds,
-        caps,
         snapshot_id=bundle_id,
     )
     return metadata
+
+
+def _persist_regular_facts(collection, result, window_start, window_end, namespaces, dry_run):
+    collection.namespace_peak_decisions = []
+    collection.peak_episodes = []
+    collection.peak_episode_transitions = []
+    if not dry_run:
+        with stream_advisory_lock(get_db_connection, 'live') as connection:
+            result.update(persist_analysis_run(
+                connection_factory=get_db_connection, collection=collection, run_type='regular',
+                window_start=window_start, window_end=window_end,
+                monitored_namespaces=namespaces, expected_count=result['expected_count'],
+                fetched_count=result['fetched_count'], source_index=INDICES, connection=connection,
+            ))
+    result['status'] = 'success' if collection.input_records else 'no_data'
+    result['facts_only'] = True
+    return result
 
 
 def run_regular_phase(
@@ -2047,6 +2105,8 @@ def run_regular_phase(
     replay_window_end: Optional[datetime] = None,
     audit_only: bool = False,
     replay_thresholds_json: Optional[Path] = None,
+    scheduled_window_end: Optional[datetime] = None,
+    facts_only: bool = False,
 ) -> dict:
     """
     Main regular phase function.
@@ -2065,9 +2125,11 @@ def run_regular_phase(
         raise ValueError(
             'replay_thresholds_json requires historical dry-run audit-only mode'
         )
+    if scheduled_window_end is not None and (replay_window_end is not None or window_minutes != 15):
+        raise ValueError('scheduled collection requires the 15-minute grain without replay')
     now, window_start, window_end = _resolve_regular_window(
         window_minutes,
-        replay_window_end,
+        scheduled_window_end or replay_window_end,
     )
     
     print("=" * 70)
@@ -2098,29 +2160,6 @@ def run_regular_phase(
     print(f"📋 Registry: {len(registry.fingerprint_index)} known fingerprints")
     registry_before = _registry_snapshot(registry)
 
-    # Lifecycle evidence is INFO-level and independent of the ERROR pipeline.
-    # Its own persistence/alerting contract is fail-closed, so a diagnostic
-    # failure must not prevent normal peak collection from continuing.
-    try:
-        lifecycle_result = run_workflow_lifecycle_diagnostics(
-            window_start,
-            window_end,
-            get_db_connection,
-            dry_run=dry_run,
-        )
-        result['workflow_lifecycle'] = lifecycle_result
-        lifecycle_status = lifecycle_result.get('status', 'unknown')
-        print(f"🔄 Workflow lifecycle diagnostic: {lifecycle_status}")
-        if lifecycle_result.get('error'):
-            print(f"⚠️ Workflow lifecycle diagnostic failed closed: {lifecycle_result['error']}")
-    except Exception as e:
-        result['workflow_lifecycle'] = {
-            'status': 'failed',
-            'error': _one_line_error(e),
-            'alerted': [],
-        }
-        print(f"⚠️ Workflow lifecycle diagnostic failed closed: {_one_line_error(e)}")
-    
     # ==========================================================================
     # FETCH DATA
     # ==========================================================================
@@ -2171,6 +2210,10 @@ def run_regular_phase(
             time_range_start=window_start,
             time_range_end=window_end,
         )
+        if facts_only:
+            return _persist_regular_facts(
+                collection, result, window_start, window_end, monitored_namespaces, dry_run,
+            )
         collection.namespace_peak_decisions = [
             decision.to_dict()
             for decision in materialize_decision_windows(
@@ -2289,7 +2332,10 @@ def run_regular_phase(
     peak_detector = None
     try:
         from core.peak_detection import PeakDetector
-        if replay_thresholds_json is not None:
+        if facts_only:
+            peak_detector = FactsOnlyDetector()
+            result['threshold_source'] = 'not_evaluated_facts_only'
+        elif replay_thresholds_json is not None:
             peak_detector = PeakDetector()
             threshold_metadata = _load_replay_threshold_bundle(
                 peak_detector,
@@ -2397,6 +2443,11 @@ def run_regular_phase(
         result['error'] = str(e)
         return result
 
+    if facts_only:
+        return _persist_regular_facts(
+            collection, result, window_start, window_end, monitored_namespaces, dry_run,
+        )
+
     try:
         from core.peak_episode import materialize_episode_state
         persistence_scope = (
@@ -2473,7 +2524,10 @@ def run_regular_phase(
     # ==========================================================================
     # UPDATE REGISTRY
     # ==========================================================================
-    if collection.incidents and not dry_run:
+    undiagnosed_payloads = _build_undiagnosed_namespace_payloads(
+        getattr(collection, 'namespace_peak_decisions', [])
+    )
+    if (collection.incidents or undiagnosed_payloads) and not dry_run:
         if not registry.update_and_save(collection.incidents, event_timestamps):
             print("❌ Registry update failed after database commit")
             result['status'] = 'error'
@@ -2589,9 +2643,7 @@ def run_regular_phase(
             if aggregate.trace_flow_summary:
                 behavior_msg = _summarize_behavior_steps(aggregate.trace_flow_summary, limit=3)
                 if behavior_msg and behavior_msg != entry.behavior:
-                    # Strip stack frames before storing (operator-friendly).
-                    from core.problem_registry import _strip_stack_trace_for_storage
-                    updates['behavior'] = _strip_stack_trace_for_storage(behavior_msg)[:500]
+                    updates['behavior'] = behavior_msg[:500]
 
             # Write-back severity and score
             if aggregate.max_severity and aggregate.max_severity != 'info':
@@ -2639,7 +2691,7 @@ def run_regular_phase(
     # ==========================================================================
     # SEND PEAKS NOTIFICATION (EMAIL ONLY)
     # ==========================================================================
-    if collection.incidents and not dry_run:
+    if (collection.incidents or undiagnosed_payloads) and not dry_run:
         try:
             # Detect peaks: spike OR burst OR high-score anomalies
             peaks_detected = sum(
@@ -2657,13 +2709,13 @@ def run_regular_phase(
             elif peaks_detected == 0 and collection.total_incidents > 0:
                 print(f"   ℹ️ No peaks among {collection.total_incidents} incidents (no spike/burst/score>=70)")
 
-            if peaks_detected > 0 and enriched_problems:
+            if (peaks_detected > 0 and enriched_problems) or undiagnosed_payloads:
                 max_alerts = int(os.getenv('MAX_PEAK_ALERTS_PER_WINDOW', '3'))
                 digest_raw = os.getenv('ALERT_DIGEST_ENABLED', 'true').strip().lower()
                 digest_enabled = digest_raw not in {'0', 'false', 'no', 'off'}
                 
                 # Select ALL peak problems (no limit), then cluster
-                peak_problems = _select_peak_problems(enriched_problems, limit=0)
+                peak_problems = _select_peak_problems(enriched_problems, limit=0) if enriched_problems else []
                 all_peak_apps = sorted({
                     app
                     for problem in peak_problems
@@ -2692,8 +2744,8 @@ def run_regular_phase(
                     getattr(collection, 'peak_episode_transitions', None) or []
                 )
 
-                for cluster in clusters:
-                    payload = _build_cluster_payload(
+                cluster_payloads = [
+                    _build_cluster_payload(
                         cluster,
                         peak_trace_flows or {},
                         known_peaks_snapshot,
@@ -2701,6 +2753,9 @@ def run_regular_phase(
                         window_end,
                         window_minutes,
                     )
+                    for cluster in clusters
+                ]
+                for payload in cluster_payloads + undiagnosed_payloads:
                     if not payload:
                         continue
 
@@ -2766,7 +2821,6 @@ def run_regular_phase(
                         material_change_reasons = (
                             list(episode_context.get('material_change_reasons') or [])
                             if episode_context
-                            and episode_context.get('material_change_reasons')
                             else [reason]
                             if should_send and reason not in {'first_seen_in_state', 'new_peak'}
                             else []
@@ -2805,6 +2859,12 @@ def run_regular_phase(
                                 'unique_operations'
                             ),
                             'material_change_reasons': material_change_reasons,
+                            'heartbeat_due': reason == 'heartbeat' or not state_entry,
+                            'no_material_change': reason == 'same_window_duplicate' or (
+                                payload.get('diagnosis_status') == 'undiagnosed' and not should_send
+                            ),
+                            'no_material_change_reason': reason,
+                            'diagnosis_status': payload.get('diagnosis_status'),
                             'test_originator_application': payload.get(
                                 'test_originator_application', ''
                             ),
@@ -2963,6 +3023,13 @@ def run_regular_phase(
                     digest_payloads=digest_payloads,
                 )
                 delivery_outcomes.extend(delivered_payloads.delivery_outcomes)
+                sent_alerts = len(delivered_payloads)
+                _record_delivered_peak_alerts(
+                    registry,
+                    delivered_payloads,
+                    now_utc,
+                    cooldown_min,
+                )
                 if delivery_outcomes:
                     try:
                         persist_notification_deliveries(
@@ -2977,14 +3044,6 @@ def run_regular_phase(
                         result['error'] = f'Delivery audit persistence failed: {_one_line_error(e)}'
                         print(f"❌ {result['error']}")
                         return result
-
-                sent_alerts = len(delivered_payloads)
-                _record_delivered_peak_alerts(
-                    registry,
-                    delivered_payloads,
-                    now_utc,
-                    cooldown_min,
-                )
 
                 delivered_keys = {
                     outcome['dedup_key']
@@ -3024,7 +3083,10 @@ def run_regular_phase(
             }
                     
         except Exception as e:
-            print(f"⚠️ Peak alert failed: {e}")
+            result['status'] = 'error'
+            result['delivery_status'] = 'failed'
+            result['error'] = f'Peak alert failed: {_one_line_error(e)}'
+            print(f"❌ {result['error']}")
     
     return result
 
@@ -3055,6 +3117,98 @@ signal.signal(signal.SIGTERM, signal_handler)
 # CLI
 # =============================================================================
 
+def run_scheduled_collection(output_dir=None):
+    import time
+    from core.fetch_unlimited import count_errors
+
+    now = datetime.now(timezone.utc)
+    settle_minutes = int(os.getenv('REGULAR_SETTLE_MINUTES') or '2')
+    max_windows = int(os.getenv('REGULAR_MAX_WINDOWS') or '8')
+    budget_seconds = int(os.getenv('REGULAR_CATCHUP_BUDGET_SECONDS') or '480')
+    recheck_hours = int(os.getenv('REGULAR_LATE_RECHECK_HOURS') or '2')
+    if budget_seconds <= 0 or recheck_hours < 0:
+        raise ValueError('catchup budget must be positive and recheck hours nonnegative')
+    latest = _resolve_regular_window(15, _floor_to_window(now - timedelta(minutes=settle_minutes), 15))[1]
+    initial_start = datetime.fromisoformat(os.environ['REGULAR_COLLECTION_START'].replace('Z', '+00:00')) if os.getenv('REGULAR_COLLECTION_START') else latest
+    connection = get_db_connection()
+    query_hash = build_query_hash(INDICES, _load_monitored_namespaces())
+    try:
+        coverage_start, counts = load_collection_state(
+            connection, INDICES, _load_monitored_namespaces(), initial_start,
+        )
+        last_live_window = load_live_completion(connection, query_hash)
+    finally:
+        connection.close()
+    complete_windows = set(counts)
+    if last_live_window is None or last_live_window < latest:
+        complete_windows.discard(latest)
+    plan = plan_collection_windows(
+        now, coverage_start, complete_windows, max_windows=max_windows, settle_minutes=settle_minutes,
+    )
+    results = []
+    started = time.monotonic()
+
+    def collect_window(window_start, notify):
+        current_latest = _resolve_regular_window(15, _floor_to_window(
+            datetime.now(timezone.utc) - timedelta(minutes=settle_minutes), 15,
+        ))[1]
+        notify = notify and window_start == current_latest
+        try:
+            result = run_regular_phase(
+                output_dir=output_dir, scheduled_window_end=window_start + timedelta(minutes=15),
+                facts_only=not notify,
+            )
+        except Exception as error:
+            result = {'status': 'error', 'window_start': window_start.isoformat(), 'error': _one_line_error(error)}
+        results.append(result)
+        if result['status'] in {'success', 'no_data'}:
+            counts[window_start] = result.get('error_count', 0)
+            if notify:
+                connection = get_db_connection()
+                try:
+                    mark_live_completion(connection, query_hash, window_start)
+                finally:
+                    connection.close()
+
+    for window_start, notify in plan:
+        if notify:
+            collect_window(window_start, True)
+    for window_start, previous_count in sorted(counts.items(), reverse=True):
+        if window_start < latest - timedelta(hours=recheck_hours):
+            break
+        if time.monotonic() - started >= budget_seconds:
+            break
+        window_end = window_start + timedelta(minutes=15)
+        if window_start > latest:
+            continue
+        try:
+            current_count = count_errors(
+                window_start.strftime('%Y-%m-%dT%H:%M:%SZ'), window_end.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            )
+            if current_count != previous_count:
+                collect_window(window_start, False)
+        except Exception as error:
+            results.append({'status': 'error', 'window_start': window_start.isoformat(), 'error': _one_line_error(error)})
+    for window_start, notify in plan:
+        if notify:
+            continue
+        if time.monotonic() - started >= budget_seconds:
+            break
+        collect_window(window_start, False)
+    connection = get_db_connection()
+    try:
+        sync_report_knowledge(connection, INDICES, _load_monitored_namespaces(), init_registry())
+    finally:
+        connection.close()
+    expected_windows = max(0, int((latest - coverage_start).total_seconds() // 900) + 1)
+    pending_windows = expected_windows - sum(coverage_start <= window <= latest for window in counts)
+    failed = any(result['status'] not in {'success', 'no_data'} for result in results)
+    summary = {'status': 'error' if failed else 'success', 'coverage_start': coverage_start.isoformat(),
+               'pending_window_count': pending_windows, 'windows': results}
+    print(json.dumps(summary, default=str), flush=True)
+    return summary
+
+
 def main():
     def parse_replay_window_end(value: str) -> datetime:
         try:
@@ -3071,6 +3225,7 @@ def main():
     parser.add_argument('--window', type=int, default=15, help='Window size in minutes (default: 15)')
     parser.add_argument('--dry-run', action='store_true', help='No DB writes')
     parser.add_argument('--output', type=str, help='Output directory for reports')
+    parser.add_argument('--scheduled', action='store_true', help='Collect the live window, missing windows, and changed late data')
     parser.add_argument(
         '--replay-window-end',
         type=parse_replay_window_end,
@@ -3093,6 +3248,13 @@ def main():
     )
     
     args = parser.parse_args()
+    if args.scheduled:
+        if args.dry_run or args.replay_window_end or args.audit_only or args.window != 15 or args.replay_thresholds_json:
+            parser.error('--scheduled cannot be combined with replay, dry-run, or a non-15-minute window')
+        result = run_scheduled_collection(output_dir=args.output)
+        if args.result_json:
+            args.result_json.write_text(json.dumps(result, default=str), encoding='utf-8')
+        return 0 if result['status'] == 'success' else 1
     if args.replay_window_end is not None and not args.dry_run:
         parser.error('--replay-window-end requires --dry-run')
     if args.audit_only and not args.dry_run:

@@ -29,6 +29,8 @@ import os
 import sys
 import argparse
 import json
+import shutil
+import tempfile
 import yaml
 import atexit
 import signal
@@ -325,7 +327,7 @@ def update_registry_from_incidents(
 class _BootstrapPeakDetector:
     """Suppress threshold-dependent peak detection while bootstrap facts are collected."""
 
-    def is_peak(self, _value: float, _namespace: str, _day_of_week: int) -> dict:
+    def is_peak(self, _value: float, _namespace: str, _day_of_week: int, _hour: int, _quarter: int) -> dict:
         return {'is_peak': False}
 
 
@@ -395,6 +397,8 @@ def process_day_worker(
         'error': None,
         'skipped': False,
     }
+    aggregator = None
+    fetch_stats = {}
     
     try:
         # Check if already processed
@@ -411,7 +415,6 @@ def process_day_worker(
         date_to = date_from + timedelta(days=1)
         result['window_start'] = date_from
         result['window_end'] = date_to
-        fetch_stats = {}
         aggregator = StreamingAggregator()
         errors = fetch_unlimited(
             date_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -424,15 +427,12 @@ def process_day_worker(
         result['fetched_count'] = fetch_stats.get('fetched', aggregator.total_records)
         
         if errors is None:
-            aggregator.close()
             result['status'] = 'error'
             result['error'] = 'Fetch returned None'
         elif not fetch_stats.get('complete'):
-            aggregator.close()
             result['status'] = 'error'
             result['error'] = fetch_stats.get('reason') or 'Fetch incomplete'
         elif aggregator.total_records == 0:
-            aggregator.close()
             collection = IncidentCollection(
                 run_id=f"backfill-{date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}",
                 run_timestamp=datetime.now(timezone.utc),
@@ -502,7 +502,6 @@ def process_day_worker(
                     peak_db_conn = get_db_connection()
                     peak_detector = PeakDetector(conn=peak_db_conn)
                 except Exception as e:
-                    aggregator.close()
                     result['status'] = 'error'
                     result['error'] = (
                         'Pxx/CAP peak detector initialization failed: '
@@ -571,13 +570,10 @@ def process_day_worker(
                 namespace_fingerprint_baseline_available
             )
 
-            try:
-                collection = pipeline.run_streaming(
-                    aggregator,
-                    run_id=f"backfill-{date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}",
-                )
-            finally:
-                aggregator.close()
+            collection = pipeline.run_streaming(
+                aggregator,
+                run_id=f"backfill-{date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}",
+            )
 
             _validate_trace_evidence(collection, build_trace_patterns)
 
@@ -666,10 +662,31 @@ def process_day_worker(
             safe_print(f" ✅ [{thread_name}] {date_str} - {collection.total_incidents} incidents")
             
     except Exception as e:
+        if aggregator is not None:
+            result['error_count'] = aggregator.total_records
+            result['fetched_count'] = fetch_stats.get(
+                'fetched', aggregator.total_records
+            )
         result['status'] = 'error'
         result['error'] = str(e)
         import traceback
         traceback.print_exc()
+    finally:
+        if aggregator is not None:
+            try:
+                aggregator.close()
+            except Exception as close_error:
+                safe_print(
+                    f" ❌ [{thread_name}] SQLite spill cleanup failed: "
+                    f"{type(close_error).__name__}: {close_error}"
+                )
+                result['status'] = 'error'
+                prior_error = result.get('error')
+                cleanup_error = f'SQLite spill cleanup failed: {close_error}'
+                result['error'] = (
+                    f'{prior_error}; {cleanup_error}' if prior_error
+                    else cleanup_error
+                )
     
     return result
 
@@ -784,6 +801,7 @@ def run_backfill(
     skip_analysis: bool = False,
     skip_processed: bool = True,
     bootstrap: bool = False,
+    facts_only: bool = False,
 ) -> dict:
     """
     Hlavní backfill funkce.
@@ -793,7 +811,7 @@ def run_backfill(
     - Používá event timestamps
     - Ukládá peaks
     """
-    build_trace_patterns = _resolve_operator_trace_analysis()
+    build_trace_patterns = False if facts_only else _resolve_operator_trace_analysis()
     
     # ==========================================================================
     # CALCULATE DATE RANGE
@@ -831,6 +849,22 @@ def run_backfill(
     registry_base = os.getenv('REGISTRY_DIR') or str(SCRIPT_DIR.parent / 'registry')
     registry_dir = Path(registry_base)
     init_registry(str(registry_dir))
+    sqlite_dir = os.getenv('STREAMING_SQLITE_DIR') or tempfile.gettempdir()
+    for storage_name, storage_path in (
+        ('registry', registry_dir),
+        ('SQLite scratch', Path(sqlite_dir)),
+    ):
+        try:
+            usage = shutil.disk_usage(storage_path)
+            safe_print(
+                f" 💾 {storage_name} storage: path={storage_path}, "
+                f"free={usage.free / (1024 ** 3):.2f}Gi, "
+                f"total={usage.total / (1024 ** 3):.2f}Gi"
+            )
+        except OSError as error:
+            safe_print(
+                f" ⚠️ {storage_name} storage unavailable at {storage_path}: {error}"
+            )
     
     # ==========================================================================
     # PROCESS DAYS
@@ -1010,6 +1044,27 @@ def run_backfill(
     if not dry_run:
         safe_print(f" ✅ Total incident rows committed: {total_saved}")
 
+    success_count = sum(1 for r in results if r['status'] == 'success')
+    error_count = sum(1 for r in results if r['status'] == 'error')
+    no_data_count = sum(1 for r in results if r['status'] == 'no_data')
+    skipped_count = sum(1 for r in results if r.get('skipped', False))
+    total_errors = sum(r.get('error_count', 0) for r in results)
+    total_incidents = sum(r.get('incidents', 0) for r in results)
+
+    if facts_only:
+        return {
+            'status': 'error' if error_count else 'success',
+            'days_processed': len(results),
+            'success_count': success_count,
+            'skipped_count': skipped_count,
+            'error_count': error_count,
+            'total_errors': total_errors,
+            'total_incidents': total_incidents,
+            'total_saved': total_saved,
+            'delivery_status': 'skipped',
+            'delivery_error_count': 0,
+        }
+
     # ==========================================================================
     # UPDATE REGISTRY (CRITICAL!)
     # ==========================================================================
@@ -1027,20 +1082,20 @@ def run_backfill(
                 'status': 'error',
                 'delivery_error': error,
                 'days_processed': len(results),
+                'success_count': success_count,
+                'skipped_count': skipped_count,
+                'error_count': error_count,
+                'total_errors': total_errors,
+                'total_incidents': total_incidents,
                 'total_saved': total_saved,
+                'delivery_status': 'failed',
+                'delivery_error_count': 1,
             }
     
     # ==========================================================================
     # AGGREGATE FOR REPORT
     # ==========================================================================
     from pipeline.incident import IncidentCollection
-    
-    success_count = sum(1 for r in results if r['status'] == 'success')
-    error_count = sum(1 for r in results if r['status'] == 'error')
-    no_data_count = sum(1 for r in results if r['status'] == 'no_data')
-    skipped_count = sum(1 for r in results if r.get('skipped', False))
-    total_errors = sum(r.get('error_count', 0) for r in results)
-    total_incidents = sum(r.get('incidents', 0) for r in results)
     
     all_incidents_collection = IncidentCollection(
         run_id=f"backfill-{start_date.strftime('%Y%m%d')}-{end_date.strftime('%Y%m%d')}",
@@ -1449,6 +1504,7 @@ def main():
     parser.add_argument('--workers', type=int, default=1, help='Parallel workers (default: 1)')
     parser.add_argument('--no-analysis', action='store_true', help='Skip incident analysis')
     parser.add_argument('--force', action='store_true', help='Process even already processed days')
+    parser.add_argument('--facts-only', action='store_true', help='Persist facts without registry updates, reports or notifications')
     parser.add_argument(
         '--bootstrap',
         action='store_true',
@@ -1467,10 +1523,11 @@ def main():
         skip_analysis=args.no_analysis,
         skip_processed=not args.force,
         bootstrap=args.bootstrap,
+        facts_only=args.facts_only,
     )
     
     return 0 if (
-        result['error_count'] == 0
+        result.get('error_count', 1) == 0
         and result.get('delivery_status') != 'failed'
     ) else 1
 

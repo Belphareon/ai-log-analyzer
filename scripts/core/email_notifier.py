@@ -231,11 +231,6 @@ Results:
         
         return self._send_email(subject, body, html_body)
 
-    def send_workflow_lifecycle_alert(self, diagnostic_message: str) -> bool:
-        """Send a persisted, high-confidence workflow lifecycle alert."""
-        subject = "[AI Log Analyzer] WORKFLOW LIFECYCLE ALERT"
-        return self._send_email(subject, f"{diagnostic_message.strip()}\n")
-
     def send_regular_phase_peak_alert_detailed(
         self,
         peak_error_class: str,
@@ -794,17 +789,22 @@ Results:
                     try:
                         percentile_label = f"P{int(float(percentile_level) * 100)}"
                     except (TypeError, ValueError):
-                        percentile_label = 'P93'
+                        percentile_label = 'Pxx'
+                    profile_text = (
+                        f"profile={decision['profile_status']}, samples={decision.get('threshold_samples', 0)}"
+                        if decision.get('profile_status')
+                        else f"CAP={_metric(decision.get('cap_threshold'))}"
+                    )
                     why_lines.append(
                         f"{decision.get('namespace') or 'unknown namespace'}: "
                         f"{_metric(observed)} ERROR lines vs effective threshold "
                         f"{_metric(effective)}{ratio_text}; {percentile_label}={_metric(decision.get('percentile_threshold'))}, "
-                        f"CAP={_metric(decision.get('cap_threshold'))}, "
+                        f"{profile_text}, "
                         f"trigger={decision.get('triggered_by') or 'n/a'}, snapshot={snapshot}"
                     )
             else:
                 why_lines.append(
-                    f'{peak_type} detector triggered; structured P93/CAP evidence is unavailable.'
+                    f'{peak_type} detector triggered; structured threshold evidence is unavailable.'
                 )
 
             lines.extend([
@@ -877,6 +877,8 @@ Results:
                     f"method={operation_count_method}, "
                     f"confidence={operation_count_confidence}"
                 )
+                context_status = str((family.get('context_coverage') or {}).get('status', 'not_fetched'))
+                operation_evidence += f"; context={context_status} (representative trace, time-bounded)"
                 outcome = (
                     f"operation={operation}, outward_status={outward_status or 'n/a'}"
                 )

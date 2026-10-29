@@ -23,6 +23,7 @@ Testy (dle zadání uživatele r87):
 import os
 import sys
 import random
+import sqlite3
 import tempfile
 import time
 from datetime import datetime, timedelta, timezone
@@ -173,7 +174,7 @@ class FakePeakDetector:
     def __init__(self, threshold=3.0):
         self.threshold = threshold
 
-    def is_peak(self, value, namespace, day_of_week):
+    def is_peak(self, value, namespace, day_of_week, hour, quarter):
         p93 = self.threshold
         return {
             'is_peak': value >= p93,
@@ -805,7 +806,10 @@ def test_stale_sqlite_cleanup():
         stale_time = time.time() - 90000
         os.utime(stale_path, (stale_time, stale_time))
 
-        with patch.dict(os.environ, {'REGISTRY_DIR': directory}):
+        with patch.dict(os.environ, {
+            'REGISTRY_DIR': directory,
+            'STREAMING_SQLITE_DIR': directory,
+        }):
             agg = StreamingAggregator()
             agg.close()
 
@@ -813,6 +817,79 @@ def test_stale_sqlite_cleanup():
         assert os.path.exists(active_path)
         assert os.path.exists(unrelated_path)
     print("✅ 8. SQLite cleanup: pouze stale streaming soubory odstraněny")
+
+
+def test_sqlite_uses_configured_scratch_dir():
+    with tempfile.TemporaryDirectory() as root:
+        registry_dir = os.path.join(root, 'registry')
+        scratch_dir = os.path.join(root, 'scratch')
+        os.makedirs(registry_dir)
+
+        with patch.dict(os.environ, {
+            'REGISTRY_DIR': registry_dir,
+            'STREAMING_SQLITE_DIR': scratch_dir,
+        }):
+            agg = StreamingAggregator()
+            sqlite_path = agg._sqlite_path
+            agg.close()
+
+        assert sqlite_path is not None
+        assert os.path.dirname(sqlite_path) == scratch_dir
+        assert not os.path.exists(sqlite_path)
+        assert os.listdir(registry_dir) == []
+    print("✅ 8a. SQLite scratch: spill DB is isolated from persistent registry")
+
+
+def test_sqlite_defaults_to_system_temp_not_registry():
+    with tempfile.TemporaryDirectory() as root:
+        registry_dir = os.path.join(root, 'registry')
+        scratch_dir = os.path.join(root, 'system-temp')
+        os.makedirs(registry_dir)
+        os.makedirs(scratch_dir)
+
+        with patch.dict(os.environ, {
+            'REGISTRY_DIR': registry_dir,
+            'STREAMING_SQLITE_DIR': '',
+        }), patch('streaming_aggregator.tempfile.gettempdir', return_value=scratch_dir):
+            agg = StreamingAggregator()
+            sqlite_path = agg._sqlite_path
+            agg.close()
+
+        assert sqlite_path is not None
+        assert os.path.dirname(sqlite_path) == scratch_dir
+        assert os.listdir(registry_dir) == []
+    print("✅ 8b. SQLite default: system temp is used instead of persistent registry")
+
+
+def test_sqlite_disk_full_reports_space_without_dropping_pending_rows():
+    class FullConnection:
+        def executemany(self, *_args):
+            raise sqlite3.OperationalError('database or disk is full')
+
+        def close(self):
+            pass
+
+    with tempfile.TemporaryDirectory() as directory:
+        sqlite_path = os.path.join(directory, 'streaming_events_test.sqlite')
+        agg = StreamingAggregator(spill_details=False)
+        agg._sqlite_path = sqlite_path
+        agg._conn = FullConnection()
+        agg._pending = [('pending-row',)]
+
+        with patch('streaming_aggregator.shutil.disk_usage') as disk_usage:
+            disk_usage.return_value.free = 123
+            try:
+                agg._flush_sqlite()
+            except sqlite3.OperationalError as error:
+                assert 'streaming_events_test.sqlite' in str(error)
+                assert 'free_bytes=123' in str(error)
+            else:
+                raise AssertionError('SQLite disk-full error was not propagated')
+
+        assert agg._pending == [('pending-row',)]
+        agg.close()
+        assert not os.path.exists(sqlite_path)
+    print("✅ 8c. SQLite ENOSPC: reports path/free space and retains pending rows")
 
 
 def main():
@@ -830,6 +907,9 @@ def main():
         test_fetch_requires_pit,
         test_sqlite_trace_event_limit,
         test_stale_sqlite_cleanup,
+        test_sqlite_uses_configured_scratch_dir,
+        test_sqlite_defaults_to_system_temp_not_registry,
+        test_sqlite_disk_full_reports_space_without_dropping_pending_rows,
         test_stress_bounded_memory,
     ]
     failed = 0

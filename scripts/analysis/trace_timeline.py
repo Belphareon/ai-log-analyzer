@@ -74,6 +74,7 @@ class TraceTimeline:
     """Reálná časová osa jednoho trace_id."""
     trace_id: str
     events: List[TraceEvent] = field(default_factory=list)
+    context_coverage: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def duration_ms(self) -> int:
@@ -154,6 +155,7 @@ class TracePattern:
             'outcome': self.outcome,
             'representative_trace_id': self.representative.trace_id if self.representative else None,
             'example_trace_ids': self.trace_ids[:5],
+            'context_coverage': self.representative.context_coverage if self.representative else {},
         }
 
 
@@ -398,9 +400,9 @@ def segment_operation_timelines(
         segments = [
             OperationTimelineSegment(
                 root_span_id=root,
-                error_timeline=TraceTimeline(error_timeline.trace_id, error_by_root[root]),
+                error_timeline=TraceTimeline(error_timeline.trace_id, error_by_root[root], context_coverage=dict(error_timeline.context_coverage)),
                 context_timeline=(
-                    TraceTimeline(error_timeline.trace_id, context_by_root[root])
+                    TraceTimeline(error_timeline.trace_id, context_by_root[root], context_coverage=dict(context_timeline.context_coverage))
                     if context_by_root[root]
                     else None
                 ),
@@ -695,16 +697,25 @@ def enrich_patterns_with_trace_context(
     if not rep_ids:
         return patterns
     try:
-        ctx = fetch_fn(rep_ids, date_from, date_to) or {}
+        ctx = fetch_fn(rep_ids, date_from, date_to)
     except Exception:
+        for pattern in targets:
+            pattern.representative.context_coverage = {'status': 'failed', 'reason': 'context_fetch_exception'}
         return patterns
     for p in targets:
-        events = ctx.get(p.representative.trace_id)
+        coverage = getattr(ctx, 'coverage', {}).get(
+            p.representative.trace_id, {'status': 'unverified'}
+        )
+        p.representative.context_coverage = coverage
+        if coverage['status'] in {'failed', 'truncated', 'missing'}:
+            continue
+        events = (ctx or {}).get(p.representative.trace_id)
         if not events:
             continue
         tl = timeline_from_raw_events(p.representative.trace_id, events)
         if not tl.events:
             continue
+        tl.context_coverage = coverage
         p.representative = tl
         p.propagation_path = [app for app, _ in _signature_strategy(tl)]
         p.root_cause = _root_cause_strategy(tl)

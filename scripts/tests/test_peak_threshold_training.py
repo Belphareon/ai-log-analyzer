@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -62,8 +62,8 @@ class SnapshotConnection:
 def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
     as_of = datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc)
     rows = [
-        ('ns-a', 4, 0, datetime(2026, 7, 31, 7, 30, tzinfo=timezone.utc)),
-        ('ns-a', 4, 12, datetime(2026, 7, 31, 7, 45, tzinfo=timezone.utc)),
+        ('ns-a', 0, datetime(2026, 7, 31, 7, 30, tzinfo=timezone.utc)),
+        ('ns-a', 12, datetime(2026, 7, 31, 7, 45, tzinfo=timezone.utc)),
     ]
     connection = FetchConnection(rows)
 
@@ -71,13 +71,13 @@ def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
     monkeypatch.setenv('MONITORED_NAMESPACES', 'ns-a')
     data, date_range = thresholds_module.fetch_raw_data(
         connection,
-        weeks=4,
+        weeks=12,
         as_of=as_of,
     )
     monkeypatch.undo()
 
-    assert data == {('ns-a', 4): [0.0, 12.0]}
-    assert date_range == {'min': rows[0][3], 'max': rows[1][3]}
+    assert data == {('ns-a', 4, 7, 2): [0.0], ('ns-a', 4, 7, 3): [12.0]}
+    assert date_range == {'min': rows[0][2], 'max': rows[1][2]}
     assert 'FROM ailog_peak.v_complete_namespace_error_counts' in connection.cursor_instance.query
     assert 'window_start < %s' in connection.cursor_instance.query
     assert 'namespace = ANY(%s)' in connection.cursor_instance.query
@@ -85,19 +85,16 @@ def test_threshold_training_reads_dense_complete_facts_with_as_of_bound():
     assert connection.cursor_instance.params[1] == ['ns-a']
 
 
-def test_threshold_training_excludes_zero_windows_from_percentile_population():
+def test_threshold_training_includes_zero_windows_in_percentile_population():
     thresholds = thresholds_module.calculate_p93_thresholds({
-        ('ns-a', 0): [0.0] * 20 + [4.0, 8.0, 12.0],
-        ('ns-zero', 0): [0.0] * 24,
+        ('ns-a', 0, 0, 0): [0.0] * 20 + [4.0, 8.0, 12.0],
+        ('ns-zero', 0, 0, 0): [0.0] * 24,
     })
 
-    assert thresholds[('ns-a', 0)]['p93'] == 12.0
-    assert thresholds[('ns-a', 0)]['count'] == 3
-    assert ('ns-zero', 0) not in thresholds
-
-    caps = thresholds_module.calculate_cap_values(thresholds)
-    assert caps['ns-a']['cap'] == 12.0
-    assert 'ns-zero' not in caps
+    assert thresholds[('ns-a', 0, 0, 0)]['p93'] == 8.0
+    assert thresholds[('ns-a', 0, 0, 0)]['count'] == 23
+    assert thresholds[('ns-zero', 0, 0, 0)]['p93'] == 0
+    assert thresholds[('ns-zero', 0, 0, 0)]['count'] == 24
 
 
 def test_threshold_training_caps_a_contaminated_p98_tail():
@@ -107,11 +104,11 @@ def test_threshold_training_caps_a_contaminated_p98_tail():
     assert thresholds_module.percentile(contaminated_values, 0.98) == 4760.0
 
     thresholds = thresholds_module.calculate_p93_thresholds(
-        {('pcb-ch-sit-01-app', 0): contaminated_values},
+        {('pcb-ch-sit-01-app', 0, 0, 0): contaminated_values},
         percentile_level=0.98,
     )
 
-    effective_threshold = thresholds[('pcb-ch-sit-01-app', 0)]['p93']
+    effective_threshold = thresholds[('pcb-ch-sit-01-app', 0, 0, 0)]['p93']
     assert 200 < effective_threshold < 1000
     assert 4760 > effective_threshold
 
@@ -120,17 +117,42 @@ def test_percentile_level_remains_the_primary_sensitivity_control():
     routine_values = [float(value) for value in range(1, 101)]
 
     p90 = thresholds_module.calculate_p93_thresholds(
-        {('ns-a', 0): routine_values},
+        {('ns-a', 0, 0, 0): routine_values},
         percentile_level=0.90,
-    )[('ns-a', 0)]
+    )[('ns-a', 0, 0, 0)]
     p98 = thresholds_module.calculate_p93_thresholds(
-        {('ns-a', 0): routine_values},
+        {('ns-a', 0, 0, 0): routine_values},
         percentile_level=0.98,
-    )[('ns-a', 0)]
+    )[('ns-a', 0, 0, 0)]
 
     assert p90['p93'] == p90['raw_percentile']
     assert p98['p93'] == p98['raw_percentile']
     assert p98['p93'] > p90['p93']
+
+
+def test_zero_mad_does_not_lower_the_configured_percentile():
+    values = [1] * 90 + [2] * 8 + [100] * 2
+    result = thresholds_module.calculate_p93_thresholds({('prod', 0, 0, 0): values}, 0.94)
+    assert result[('prod', 0, 0, 0)]['p93'] == 2
+    assert thresholds_module.calculate_p93_thresholds({('prod', 0, 0, 0): [5] * 100})[('prod', 0, 0, 0)]['p93'] == 5
+
+
+def test_utc_slots_keep_hours_separate_and_count_observed_zeros():
+    values = {
+        ('ns-a', 0, 10, 0): [0] * 10,
+        ('ns-a', 0, 12, 0): [13000] * 10,
+        ('ns-a', 0, 12, 1): [1000, 1100],
+    }
+
+    profiles = thresholds_module.calculate_p93_thresholds(values, 0.95)
+
+    assert profiles[('ns-a', 0, 10, 0)]['p93'] == 0
+    assert profiles[('ns-a', 0, 10, 0)]['count'] == 10
+    assert profiles[('ns-a', 0, 10, 0)]['profile_status'] == 'mature'
+    assert profiles[('ns-a', 0, 12, 0)]['p93'] == 13000
+    assert profiles[('ns-a', 0, 12, 1)]['count'] == 2
+    assert profiles[('ns-a', 0, 12, 1)]['profile_status'] == 'init'
+    assert ('ns-a', 0, 11, 0) not in profiles
 
 
 def test_threshold_snapshot_failure_rolls_back_cache_and_marks_snapshot_failed(monkeypatch):
@@ -141,41 +163,29 @@ def test_threshold_snapshot_failure_rolls_back_cache_and_marks_snapshot_failed(m
         'max': datetime(2026, 7, 31, 7, 45, tzinfo=timezone.utc),
     }
     threshold_values = {
-        ('ns-a', 4): {
+        ('ns-a', 4, 7, 0): {
             'p93': 12,
             'count': 20,
             'median': 2,
             'mean': 3,
             'max': 12,
+            'profile_status': 'mature',
         }
     }
-    caps = {
-        'ns-a': {
-            'cap': 12,
-            'median_p93': 12,
-            'avg_p93': 12,
-            'min_p93': 12,
-            'max_p93': 12,
-            'total_samples': 20,
-        }
-    }
-    batch_calls = 0
 
     monkeypatch.setenv('MONITORED_NAMESPACES', 'ns-a,ns-zero')
 
     def fail_after_snapshot_values(cursor, statement, rows):
-        nonlocal batch_calls
-        batch_calls += 1
-        if batch_calls == 2:
-            raise RuntimeError('injected cache insert failure')
+        assert 'threshold_slot_values' in statement
+        assert rows[0][2:5] == (4, 7, 0)
+        raise RuntimeError('injected slot insert failure')
 
     monkeypatch.setattr(thresholds_module, 'execute_batch', fail_after_snapshot_values)
 
-    with pytest.raises(RuntimeError, match='injected cache insert failure'):
+    with pytest.raises(RuntimeError, match='injected slot insert failure'):
         thresholds_module.save_thresholds_to_db(
             connection,
             threshold_values,
-            caps,
             date_range,
             as_of=as_of,
         )
@@ -197,33 +207,105 @@ def test_peak_detector_returns_latest_complete_snapshot_id(monkeypatch):
     monkeypatch.setenv('PERCENTILE_LEVEL', '0.98')
     connection = FetchConnection([
         (
-            'snapshot-1', 'ns-a', 4, 50, 80, 20, 0.98,
+            'snapshot-1', 'ns-a', 4, 7, 0, 50, 20, 'mature', 0.98,
             thresholds_module.POPULATION_GRAIN, thresholds_module.PERCENTILE_METHOD,
             thresholds_module.CALCULATION_VERSION,
         ),
     ])
     detector = PeakDetector(conn=connection)
 
-    result = detector.is_peak(value=100, namespace='ns-a', day_of_week=4)
+    result = detector.is_peak(value=100, namespace='ns-a', day_of_week=4, hour=7, quarter=0)
 
     assert result['is_peak']
     assert result['p93_threshold'] == 50
-    assert result['cap_threshold'] == 80
+    assert result['cap_threshold'] is None
+    assert result['profile_status'] == 'mature'
+    assert result['threshold_samples'] == 20
     assert result['percentile_level'] == 0.98
     assert result['percentile_threshold'] == 50
     assert result['threshold_snapshot_id'] == 'snapshot-1'
-    assert 'FROM ailog_peak.v_latest_threshold_values' in connection.cursor_instance.query
+    assert 'FROM ailog_peak.v_latest_threshold_slots' in connection.cursor_instance.query
 
 
 def test_peak_detector_rejects_incompatible_snapshot(monkeypatch):
     monkeypatch.setenv('PERCENTILE_LEVEL', '0.98')
     connection = FetchConnection([
         (
-            'snapshot-old', 'ns-a', 4, 50, 80, 20, 0.98,
+            'snapshot-old', 'ns-a', 4, 7, 0, 50, 20, 'mature', 0.98,
             thresholds_module.POPULATION_GRAIN, 'legacy_percentile', '3.0',
         ),
     ])
     detector = PeakDetector(conn=connection)
 
     with pytest.raises(RuntimeError, match='incompatible threshold snapshot'):
-        detector.is_peak(value=100, namespace='ns-a', day_of_week=4)
+        detector.is_peak(value=100, namespace='ns-a', day_of_week=4, hour=7, quarter=0)
+
+
+def test_peak_detector_uses_init_slots_without_global_or_other_slot_fallback(monkeypatch):
+    monkeypatch.setenv('DEFAULT_THRESHOLD', '1')
+    detector = PeakDetector()
+    detector.load_thresholds_direct({
+        ('ns-a', 0, 10, 0): {'value': 0, 'samples': 10},
+        ('ns-a', 0, 12, 0): {'value': 13000, 'samples': 10},
+        ('ns-a', 0, 12, 1): {'value': 1000, 'samples': 2},
+    })
+
+    assert detector.is_peak(1, 'ns-a', 0, 10, 0)['is_peak']
+    assert not detector.is_peak(12000, 'ns-a', 0, 12, 0)['is_peak']
+    init = detector.is_peak(1100, 'ns-a', 0, 12, 1)
+    assert init['is_peak'] and init['profile_status'] == 'init'
+    missing = detector.is_peak(999999, 'ns-a', 0, 11, 0)
+    assert not missing['is_evaluated'] and not missing['is_peak']
+    assert missing['percentile_threshold'] is None
+    assert missing['profile_status'] == 'missing'
+    with pytest.raises(ValueError):
+        detector.load_thresholds_direct({('ns-a', 0): {'value': 1, 'samples': 10}})
+
+
+def test_fetch_uses_utc_weekday_and_keeps_missing_weeks_missing(monkeypatch):
+    monkeypatch.setenv('MONITORED_NAMESPACES', 'ns-a')
+    timestamp = datetime(2026, 10, 26, 0, 15, tzinfo=timezone(timedelta(hours=2)))
+    connection = FetchConnection([('ns-a', 0, timestamp)])
+    cutoff = datetime(2026, 10, 27, tzinfo=timezone.utc)
+
+    data, _ = thresholds_module.fetch_raw_data(connection, as_of=cutoff)
+
+    assert data == {('ns-a', 6, 22, 1): [0.0]}
+    assert connection.cursor_instance.params[-1] == cutoff - timedelta(weeks=12)
+    assert thresholds_module.calculate_p93_thresholds(data)[('ns-a', 6, 22, 1)]['profile_status'] == 'init'
+    with pytest.raises(ValueError, match='at least 10 weeks'):
+        thresholds_module.fetch_raw_data(connection, weeks=4, as_of=cutoff)
+
+
+def test_maturity_starts_at_ten_observed_weeks_and_cannot_be_lowered(monkeypatch):
+    monkeypatch.setenv('MIN_SAMPLES_FOR_THRESHOLD', '10')
+    profiles = thresholds_module.calculate_p93_thresholds({
+        ('ns-a', 0, 0, 0): [0] * 9,
+        ('ns-a', 0, 0, 1): [0] * 10,
+    })
+    assert profiles[('ns-a', 0, 0, 0)]['profile_status'] == 'init'
+    assert profiles[('ns-a', 0, 0, 1)]['profile_status'] == 'mature'
+    monkeypatch.setenv('MIN_SAMPLES_FOR_THRESHOLD', '1')
+    with pytest.raises(ValueError, match='at least 10 samples'):
+        thresholds_module.calculate_p93_thresholds({('ns-a', 0, 0, 0): [0]})
+    with pytest.raises(ValueError, match='at least 10 samples'):
+        PeakDetector()
+
+
+def test_report_uses_slot_profiles_without_daily_cap(tmp_path):
+    from scripts.core.generate_peak_report import generate_report
+
+    detector = PeakDetector()
+    detector.load_thresholds_direct({
+        ('ns-a', 0, 10, 0): {'value': 0, 'samples': 10, 'profile_status': 'mature'},
+        ('ns-a', 0, 12, 0): {'value': 13000, 'samples': 2, 'profile_status': 'init'},
+    })
+    output = tmp_path / 'report.md'
+    generate_report([
+        {'namespace': 'ns-a', 'day_of_week': 0, 'hour': 10, 'quarter': 0, 'value': 1},
+        {'namespace': 'ns-a', 'day_of_week': 0, 'hour': 12, 'quarter': 0, 'value': 12000},
+    ], detector, str(output))
+    report = output.read_text()
+    assert 'no global CAP' in report
+    assert '| ns-a | Mon | 10:00 | 0.0000 | 10 | mature |' in report
+    assert '| ns-a | Mon | 12:00 | 13000.0000 | 2 | init |' in report

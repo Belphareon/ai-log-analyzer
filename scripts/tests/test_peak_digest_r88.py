@@ -434,7 +434,9 @@ class PeakDigestR88Tests(unittest.TestCase):
                 'p93_threshold': 120,
                 'percentile_level': 0.98,
                 'percentile_threshold': 120,
-                'cap_threshold': 180,
+                'cap_threshold': None,
+                'profile_status': 'init',
+                'threshold_samples': 2,
                 'effective_threshold': 120,
                 'triggered_by': 'p93',
                 'threshold_snapshot_id': 'snapshot-1',
@@ -576,6 +578,66 @@ class PeakDigestR88Tests(unittest.TestCase):
                 ('teams_email', 'delivered', 'individual'),
             ],
         )
+
+    def test_stable_episode_does_not_invoke_any_sender(self):
+        from core.notification_policy import decide_notification_candidates
+
+        now_utc = datetime(2026, 7, 31, 8, 15, tzinfo=timezone.utc)
+        with patch.object(rp, '_send_peak_alert_digest') as digest, patch.object(
+            rp, '_send_peak_alert_email'
+        ) as individual:
+            for index in range(4):
+                decision = decide_notification_candidates([{
+                    'episode_id': 'stable',
+                    'window_decision_id': f'window-{index}',
+                    'episode_state': 'CONTINUATION',
+                }])[0]
+                payload = {'peak_key': 'stable', 'window_key': f'window-{index}'}
+                primary = [payload] if decision.policy_outcome == 'primary_send' else []
+                summary = [payload] if decision.policy_outcome in {'primary_send', 'digest_only'} else []
+                rp._dispatch_peak_alerts(now_utc, now_utc, primary, True, {}, summary)
+        digest.assert_not_called()
+        individual.assert_not_called()
+
+    def test_undiagnosed_namespace_signal_has_digest_path_and_stable_identity(self):
+        from core.notification_policy import decide_notification_candidates
+
+        decisions = [{
+            'window_decision_id': 'namespace-decision',
+            'signal_namespace': 'prod', 'namespace_raw_lines': 300,
+            'window_start_utc': '2026-07-31T08:00:00+00:00',
+            'window_end_utc': '2026-07-31T08:15:00+00:00',
+            'is_peak': True, 'diagnosis_status': 'undiagnosed',
+            'effective_threshold': 100,
+        }]
+        payload = rp._build_undiagnosed_namespace_payloads(decisions)[0]
+        self.assertEqual(payload['alert_identity'], 'NAMESPACE_PEAK:prod')
+        self.assertEqual(payload['error_count'], 300)
+        decision = decide_notification_candidates([{
+            'episode_id': 'namespace-episode',
+            'window_decision_id': 'namespace-decision', 'episode_state': 'START',
+            'diagnosis_status': 'undiagnosed',
+        }])[0]
+        self.assertEqual(decision.policy_outcome, 'digest_only')
+        with patch.object(rp, '_send_peak_alert_digest', return_value=(True, [])) as sender:
+            delivered = rp._dispatch_peak_alerts(None, None, [], True, {}, [payload])
+        sender.assert_called_once()
+        self.assertEqual(delivered, [payload])
+
+    def test_namespace_fallback_does_not_borrow_unrelated_episode_context(self):
+        payload = {'window_start': '2026-07-31T08:00:00+00:00', 'window_decision_id': 'correct'}
+        self.assertEqual(rp._episode_policy_contexts(payload, [{
+            'window_start_utc': payload['window_start'], 'window_decision_id': 'unrelated',
+        }]), [])
+
+    def test_same_window_is_deduplicated_even_when_registry_calls_peak_new(self):
+        now_utc = datetime(2026, 7, 31, 8, 15, tzinfo=timezone.utc)
+        should_send, reason = rp._should_send_peak_alert(
+            {'window_key': 'w1', 'is_known': False},
+            {'last_sent_window': 'w1'}, now_utc,
+        )
+        self.assertFalse(should_send)
+        self.assertEqual(reason, 'same_window_duplicate')
 
     def test_alert_state_merge_preserves_existing_peak(self):
         import tempfile

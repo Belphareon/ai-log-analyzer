@@ -10,6 +10,10 @@ from psycopg2.extras import execute_values
 from scripts.core import run_db_migrations
 from scripts.core.run_data_maintenance import run_maintenance
 from scripts.core.run_persistence import persist_analysis_run
+from scripts.core.delivery_persistence import persist_notification_decisions, persist_notification_deliveries
+from scripts.core.notification_policy import decide_notification_candidates
+from scripts.core.peak_decision import materialize_namespace_decisions
+from scripts.core.peak_episode import materialize_episode_state
 from scripts.pipeline.incident import Incident
 
 
@@ -122,6 +126,136 @@ def _collection(run_id, window_start, counts):
     )
 
 
+def test_collection_checkpoint_and_report_snapshot_are_scoped_and_replay_safe(monkeypatch, tmp_path):
+    import report_from_facts as report
+    import confluence_csv_uploader as uploader
+    from core.regular_schedule import load_collection_state
+    from scripts.core.run_persistence import build_query_hash
+
+    window = datetime(2026, 10, 29, 6, 45, tzinfo=timezone.utc)
+    end = window + timedelta(minutes=15)
+    source_index = 'report-integration-*'
+    connection = _connect()
+    coverage_start, counts = load_collection_state(connection, source_index, ['ns-a'], window)
+    assert coverage_start == window
+    assert counts == {}
+    coverage_start, _counts = load_collection_state(connection, source_index, ['ns-a'], end)
+    assert coverage_start == window
+    connection.close()
+
+    for run_id, count, source in [
+        ('report-first', 10, source_index), ('report-correction', 20, source_index),
+        ('report-other-scope', 900, 'other-report-integration-*'),
+    ]:
+        persist_analysis_run(
+            connection_factory=_connect, collection=_collection(run_id, window, [('report-fp', 'cards', count)]),
+            run_type='regular', window_start=window, window_end=end, monitored_namespaces=['ns-a'],
+            expected_count=count, fetched_count=count, source_index=source,
+        )
+    connection = _connect()
+    snapshot = report.load_snapshot(connection, build_query_hash(source_index, ['ns-a']), ['ns-a'], end)
+    assert snapshot['namespace_counts'] == {window: 20}
+    assert report.error_rows(snapshot)[0]['error_lines_2h'] == 20
+    connection.close()
+
+    monkeypatch.setenv('ES_INDEX', source_index)
+    monkeypatch.setenv('TEAMS_ENABLED', 'false')
+    monkeypatch.setattr(report, 'load_monitored_namespaces', lambda **_kwargs: ['ns-a'])
+    for name in ('KNOWN_ERRORS', 'KNOWN_PEAKS', 'RECENT_INCIDENTS'):
+        monkeypatch.setenv(f'CONFLUENCE_{name}_PAGE_ID', name)
+    sent = []
+    monkeypatch.setattr(uploader, 'upload_to_confluence', lambda page, body: sent.append((page, body)) or True)
+    now = end.replace(hour=8, minute=10)
+    assert report.run_reports(connection_factory=_connect, now=now, output_dir=tmp_path)['status'] == 'success'
+    assert len(sent) == 3
+    report.run_reports(connection_factory=_connect, now=now + timedelta(minutes=5), output_dir=tmp_path)
+    assert len(sent) == 3
+    assert 'INCOMPLETE DATA' in sent[0][1]
+
+
+def test_publication_retry_is_per_destination_and_records_only_success():
+    import report_from_facts as report
+    from scripts.core.run_persistence import build_query_hash
+
+    connection = _connect()
+    query_hash = build_query_hash('delivery-test-*', ['ns-a'])
+    end = datetime(2026, 10, 29, 7, tzinfo=timezone.utc)
+    sends = []
+    assert report.publish_once(connection, query_hash, 'daily', end, 'smtp:test', lambda: sends.append('smtp') or True)
+    assert not report.publish_once(connection, query_hash, 'daily', end, 'wiki:test', lambda: sends.append('wiki-failed') or False)
+    assert report.publish_once(connection, query_hash, 'daily', end, 'smtp:test', lambda: sends.append('smtp-duplicate') or True)
+    assert report.publish_once(connection, query_hash, 'daily', end, 'wiki:test', lambda: sends.append('wiki-retry') or True)
+    assert sends == ['smtp', 'wiki-failed', 'wiki-retry']
+    connection.close()
+
+
+def test_daily_report_publishes_final_after_gap_closes_and_sends_only_once(monkeypatch, tmp_path):
+    import report_from_facts as report
+    import confluence_csv_uploader as uploader
+    from core.email_notifier import EmailNotifier
+
+    end = datetime(2026, 10, 30, 7, tzinfo=timezone.utc)
+    start = end - timedelta(hours=24)
+    source_index = 'complete-daily-integration-*'
+    connection = _connect()
+    for quarter in range(95):
+        window = start + timedelta(minutes=quarter * 15)
+        count = 12 if quarter == 0 else 0
+        persist_analysis_run(
+            connection_factory=_connect, connection=connection,
+            collection=_collection(f'daily-complete-{quarter}', window, [('daily-fp', 'cards', count)] if count else []),
+            run_type='regular', window_start=window, window_end=window + timedelta(minutes=15),
+            monitored_namespaces=['ns-a'], expected_count=count, fetched_count=count, source_index=source_index,
+        )
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO ailog_peak.cause_family_facts
+                (run_id, window_start, cause_signature, signature_version, canonical_cause,
+                 root_application, operation, outward_status, assessment, confidence,
+                 raw_error_lines, traced_error_lines, unsegmented_error_lines, unique_operations,
+                 operation_count_method, operation_count_confidence, next_action, representative_trace_id)
+            VALUES (%s, %s, 'daily-family', 'test', 'Database unavailable', 'cards', 'lookup', 503,
+                    'technical_failure', 'high', 12, 12, 0, 1, 'trace_id', 'high', 'Repair backend', 'trace-test')
+        """, ('daily-complete-0', start))
+    connection.commit()
+    connection.close()
+    monkeypatch.setenv('ES_INDEX', source_index)
+    monkeypatch.setenv('DAILY_REPORT_HOUR_UTC', '7')
+    monkeypatch.setenv('TEAMS_ENABLED', 'true')
+    monkeypatch.setenv('TEAMS_EMAIL', 'daily-test@example.invalid')
+    monkeypatch.setenv('TEAMS_WEBHOOK_URL', '')
+    monkeypatch.setattr(report, 'load_monitored_namespaces', lambda **_kwargs: ['ns-a'])
+    for name in ('KNOWN_ERRORS', 'KNOWN_PEAKS', 'RECENT_INCIDENTS'):
+        monkeypatch.setenv(f'CONFLUENCE_{name}_PAGE_ID', name)
+    pages, emails = [], []
+    monkeypatch.setattr(uploader, 'upload_to_confluence', lambda page, body: pages.append((page, body)) or True)
+    monkeypatch.setattr(EmailNotifier, '_send_email_smtp', lambda _self, subject, body: emails.append((subject, body)) or True)
+    now = end.replace(hour=8, minute=10)
+    partial = report.run_reports(connection_factory=_connect, now=now, output_dir=tmp_path)
+    assert partial['daily_complete'] is False
+    assert emails == []
+    assert len(pages) == 3
+    assert '95/96 complete' in pages[-1][1]
+
+    window = end - timedelta(minutes=15)
+    persist_analysis_run(
+        connection_factory=_connect, collection=_collection('daily-complete-95', window, []),
+        run_type='regular', window_start=window, window_end=end, monitored_namespaces=['ns-a'],
+        expected_count=0, fetched_count=0, source_index=source_index,
+    )
+    final = report.run_reports(connection_factory=_connect, now=now, output_dir=tmp_path)
+    assert final['status'] == 'success'
+    assert final['daily_complete'] is True
+    assert len(pages) == 6
+    assert len(emails) == 1
+    assert 'Diagnostic coverage: 12/12 ERROR lines' in emails[0][1]
+    assert 'Database unavailable [technical_failure; confidence=high]' in emails[0][1]
+    assert 'operation occurrences: 1' in emails[0][1]
+    report.run_reports(connection_factory=_connect, now=now + timedelta(minutes=5), output_dir=tmp_path)
+    assert len(pages) == 6
+    assert len(emails) == 1
+
+
 def test_migration_ledger_and_schema_postconditions():
     connection = _connect()
     with connection.cursor() as cursor:
@@ -180,6 +314,98 @@ def test_migration_ledger_and_schema_postconditions():
         'operation_count_reason',
     ]
     assert snapshot_view_columns == ['monitored_namespaces']
+
+
+def test_utc_slot_snapshot_roundtrip_retains_ten_weeks_zeros_and_init_audit(monkeypatch):
+    from scripts.core import calculate_peak_thresholds as training
+    from scripts.core.peak_detection import PeakDetector
+    from scripts.core.threshold_snapshot_guard import decide_refresh, load_latest_complete_snapshot
+
+    monkeypatch.setenv('MONITORED_NAMESPACES', 'ns-a')
+    monkeypatch.setenv('PERCENTILE_LEVEL', '0.95')
+    monkeypatch.setenv('MIN_SAMPLES_FOR_THRESHOLD', '10')
+    cutoff = datetime(2026, 10, 26, 7, tzinfo=timezone.utc)
+    latest_monday = datetime(2026, 10, 19, 10, tzinfo=timezone.utc)
+    for week in range(10):
+        monday = latest_monday - timedelta(weeks=week)
+        slots = [(monday, 0), (monday + timedelta(hours=2), 13000)]
+        if week < 2:
+            slots.append((monday + timedelta(hours=2, minutes=15), 1000))
+        for timestamp, count in slots:
+            collection = _collection(
+                f'integration-slot-{timestamp:%Y%m%dT%H%M}', timestamp,
+                [('fp-slot', 'app-a', count)] if count else [],
+            )
+            persist_analysis_run(
+                connection_factory=_connect, collection=collection, run_type='regular',
+                window_start=timestamp, window_end=timestamp + timedelta(minutes=15),
+                monitored_namespaces=['ns-a'], expected_count=count, fetched_count=count,
+                source_index='slot-logs-*',
+            )
+
+    connection = _connect()
+    with connection.cursor() as cursor:
+        cursor.execute("SET TIME ZONE 'Europe/Prague'")
+        cursor.execute("""
+            INSERT INTO ailog_peak.threshold_snapshot_runs
+                (snapshot_id, percentile_level, population_grain, training_start,
+                 training_end, sample_count, percentile_method, calculation_version,
+                 status, completed_at, monitored_namespaces)
+            VALUES ('00000000-0000-0000-0000-000000000041', .95,
+                    'namespace/15m/day_of_week/active_windows', %s, %s, 100,
+                    %s, '4.1', 'complete', NOW(), ARRAY['ns-a'])
+        """, (latest_monday - timedelta(weeks=10), cutoff, training.PERCENTILE_METHOD))
+        cursor.execute("""
+            INSERT INTO ailog_peak.threshold_snapshot_values
+                (snapshot_id, namespace, day_of_week, percentile_value, cap_value, sample_count)
+            VALUES ('00000000-0000-0000-0000-000000000041', 'ns-a', 0, 10, 1, 100)
+        """)
+    connection.commit()
+    old = load_latest_complete_snapshot(connection)
+    assert decide_refresh(old, percentile_level=.95, monitored_namespaces=['ns-a']).refresh
+    with pytest.raises(RuntimeError, match='threshold snapshot'):
+        PeakDetector(conn=connection).is_peak(12000, 'ns-a', 0, 12, 0)
+
+    data, date_range = training.fetch_raw_data(connection, as_of=cutoff)
+    assert data[('ns-a', 0, 10, 0)] == [0] * 10
+    assert data[('ns-a', 0, 12, 0)] == [13000] * 10
+    assert data[('ns-a', 0, 12, 1)] == [1000] * 2
+    assert ('ns-a', 0, 11, 0) not in data
+    profiles = training.calculate_p93_thresholds(data)
+    snapshot_id = training.save_thresholds_to_db(connection, profiles, date_range, as_of=cutoff)
+    detector = PeakDetector(conn=connection)
+    assert detector.is_peak(1, 'ns-a', 0, 10, 0)['profile_status'] == 'mature'
+    assert not detector.is_peak(12000, 'ns-a', 0, 12, 0)['is_peak']
+    assert not decide_refresh(
+        load_latest_complete_snapshot(connection), percentile_level=.95, monitored_namespaces=['ns-a'],
+    ).refresh
+
+    for quarter, status in [(1, 'init'), (2, 'missing')]:
+        window_start = cutoff.replace(hour=12, minute=quarter * 15)
+        verdict = detector.is_peak(1200, 'ns-a', 0, 12, quarter)
+        assert verdict['threshold_snapshot_id'] == snapshot_id
+        assert verdict['profile_status'] == status
+        assert verdict['cap_threshold'] is None
+        collection = _collection(f'integration-slot-verdict-{quarter}', window_start, [('fp-slot-verdict', 'app-a', 1200)])
+        collection.namespace_peak_decisions = [item.to_dict() for item in materialize_namespace_decisions([{
+            **verdict, 'window_start': window_start.isoformat(), 'namespace_total': 1200,
+            'peak_identifier': 'slot-peak' if verdict['is_peak'] else None,
+            'verdict_reason': 'peak_undiagnosed' if verdict['is_peak'] else 'threshold_profile_missing',
+        }], ['ns-a'], window_start=window_start)]
+        persist_analysis_run(
+            connection_factory=_connect, collection=collection, run_type='regular',
+            window_start=window_start, window_end=window_start + timedelta(minutes=15),
+            monitored_namespaces=['ns-a'], expected_count=1200, fetched_count=1200,
+            source_index='slot-logs-*',
+        )
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT profile_status, threshold_samples, is_evaluated, cap_threshold
+            FROM ailog_peak.namespace_peak_decisions
+            WHERE run_id LIKE 'integration-slot-verdict-%%' ORDER BY window_start_utc
+        """)
+        assert cursor.fetchall() == [('init', 2, True, None), ('missing', 0, False, None)]
+    connection.close()
 
 
 def test_two_fingerprints_and_replay_have_one_authoritative_run():
@@ -424,6 +650,50 @@ def test_retention_rolls_up_authoritative_facts_before_delete():
             "FROM ailog_peak.maintenance_runs ORDER BY started_at DESC LIMIT 1"
         )
         assert cursor.fetchone() == ('complete', 5, 2)
+    connection.close()
+
+
+def test_episode_policy_delivery_fk_chain_survives_authoritative_replay():
+    window_start = datetime(2026, 10, 26, 8, 0, tzinfo=timezone.utc)
+    decisions = [item.to_dict() for item in materialize_namespace_decisions([{
+        'window_start': window_start.isoformat(), 'namespace': 'ns-a',
+        'namespace_total': 5, 'is_namespace_peak': True,
+        'p93_threshold': 2, 'cap_threshold': 3, 'triggered_by': 'both',
+        'peak_identifier': 'integration-peak', 'family_decisions': [],
+    }], ['ns-a'], window_start=window_start, stream_key='integration-r109')]
+    episodes, transitions = materialize_episode_state(decisions, [])
+    collection = _collection('integration-episode-1', window_start, [('fp-episode', 'app-a', 5)])
+    collection.namespace_peak_decisions = decisions
+    collection.peak_episodes = episodes
+    collection.peak_episode_transitions = transitions
+    arguments = dict(
+        connection_factory=_connect, collection=collection, run_type='regular',
+        window_start=window_start, window_end=window_start + timedelta(minutes=15),
+        monitored_namespaces=['ns-a'], expected_count=5, fetched_count=5,
+        source_index='logs-*',
+    )
+    persist_analysis_run(**arguments)
+    policy = decide_notification_candidates([{
+        **transitions[0], 'episode_state': transitions[0]['state'],
+    }])[0].to_dict()
+    assert persist_notification_decisions(_connect, [policy]) == 1
+    assert persist_notification_deliveries(_connect, [{
+        'notification_decision_id': policy['notification_decision_id'],
+        'dedup_key': 'integration-episode-delivery', 'destination': 'test-smtp',
+        'status': 'delivered',
+    }], notification_type='regular_peak', run_id=collection.run_id, window_start=window_start) == 1
+
+    collection.run_id = 'integration-episode-2'
+    persist_analysis_run(**arguments)
+    assert persist_notification_decisions(_connect, [policy]) == 1
+    connection = _connect()
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM ailog_peak.notification_decisions WHERE notification_decision_id = %s", (policy['notification_decision_id'],))
+        assert cursor.fetchone()[0] == 1
+        cursor.execute("SELECT COUNT(*) FROM ailog_peak.notification_deliveries WHERE dedup_key = 'integration-episode-delivery'")
+        assert cursor.fetchone()[0] == 1
+        cursor.execute("SELECT COUNT(*) FROM ailog_peak.peak_episode_windows WHERE episode_id = %s", (episodes[0]['episode_id'],))
+        assert cursor.fetchone()[0] == 1
     connection.close()
 
 

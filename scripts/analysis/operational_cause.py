@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
@@ -68,6 +68,7 @@ class OperationalCauseFamily:
     operation_count_method: str = "trace_id"
     operation_count_confidence: str = "medium"
     operation_count_reason: str = ""
+    context_coverage: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -363,6 +364,7 @@ def build_cause_family(payload: Mapping[str, Any]) -> OperationalCauseFamily:
         operation_count_method=operation_count_method,
         operation_count_confidence=operation_count_confidence,
         operation_count_reason=operation_count_reason,
+        context_coverage=dict(payload.get('context_coverage') or {}),
     )
 
 
@@ -494,6 +496,7 @@ def merge_cause_families(
         operation_count_method=operation_count_method,
         operation_count_confidence=operation_count_confidence,
         operation_count_reason=operation_count_reason,
+        context_coverage=dict(preferred.context_coverage),
     )
 
 
@@ -553,6 +556,7 @@ def _timeline_payload(
         "operation_count_method": operation_estimate.method,
         "operation_count_confidence": operation_estimate.confidence,
         "operation_count_reason": operation_estimate.reason,
+        "context_coverage": dict(getattr(context_timeline or timeline, 'context_coverage', {}) or {}),
     }
 
 

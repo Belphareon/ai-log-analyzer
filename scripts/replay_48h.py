@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run isolated read-only regular-phase replays and aggregate detector evidence."""
+"""Run read-only regular-phase or ES namespace-count historical replays."""
 
 import argparse
 import json
@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_THRESHOLD_WEEKS = 4
+DEFAULT_THRESHOLD_WEEKS = 12
 
 
 def parse_utc(value: str) -> datetime:
@@ -51,13 +51,11 @@ def _serialize_threshold_bundle(
         CALCULATION_VERSION,
         PERCENTILE_METHOD,
         POPULATION_GRAIN,
-        calculate_cap_values,
         calculate_p93_thresholds,
     )
 
     thresholds = calculate_p93_thresholds(data, percentile_level)
-    caps = calculate_cap_values(thresholds)
-    if not thresholds or not caps:
+    if not thresholds:
         raise RuntimeError('no read-only replay thresholds could be calculated')
     bundle_id = (
         f'replay-memory-v{CALCULATION_VERSION}-asof-'
@@ -85,18 +83,15 @@ def _serialize_threshold_bundle(
             {
                 'namespace': namespace,
                 'day_of_week': day_of_week,
+                'hour_of_day': hour,
+                'quarter_hour': quarter,
                 'value': stats['p93'],
                 'samples': stats['count'],
+                'profile_status': stats['profile_status'],
             }
-            for (namespace, day_of_week), stats in sorted(thresholds.items())
+            for (namespace, day_of_week, hour, quarter), stats in sorted(thresholds.items())
         ],
-        'caps': {
-            namespace: {
-                'value': stats['cap'],
-                'samples': stats['total_samples'],
-            }
-            for namespace, stats in sorted(caps.items())
-        },
+        'caps': {},
     }
 
 
@@ -107,9 +102,9 @@ def build_replay_threshold_bundle(
     from core.calculate_peak_thresholds import fetch_raw_data
     from regular_phase import get_db_connection
 
-    if weeks <= 0:
-        raise ValueError('threshold weeks must be positive')
-    percentile_level = float(os.getenv('PERCENTILE_LEVEL', '0.93'))
+    if weeks < 10:
+        raise ValueError('threshold history must request at least 10 weeks')
+    percentile_level = float(os.getenv('PERCENTILE_LEVEL', '0.95'))
     connection = get_db_connection(read_only=True)
     try:
         connection.set_session(readonly=True, autocommit=True)
@@ -127,6 +122,183 @@ def build_replay_threshold_bundle(
         weeks,
         percentile_level,
     )
+
+
+def fetch_es_namespace_counts(session, host, indices, namespaces, start, end):
+    expected_windows = int((end - start).total_seconds() // 900)
+    query = {
+        'size': 0, 'track_total_hits': True, 'timeout': '30s',
+        'query': {'bool': {'filter': [
+            {'range': {'@timestamp': {'gte': start.isoformat(), 'lt': end.isoformat()}}},
+            {'term': {'level': 'ERROR'}},
+            {'terms': {'kubernetes.namespace': namespaces}},
+        ]}},
+        'aggs': {'namespaces': {
+            'filters': {'filters': {
+                namespace: {'term': {'kubernetes.namespace': namespace}}
+                for namespace in namespaces
+            }},
+            'aggs': {'windows': {'date_histogram': {
+                'field': '@timestamp', 'fixed_interval': '15m', 'time_zone': 'UTC',
+                'min_doc_count': 0,
+                'extended_bounds': {
+                    'min': int(start.timestamp() * 1000),
+                    'max': int((end - timedelta(minutes=15)).timestamp() * 1000),
+                },
+            }}},
+        }},
+    }
+    response = session.post(
+        f'{host.rstrip("/")}/{indices}/_search', json=query, timeout=60,
+        params={'allow_partial_search_results': 'false'},
+    )
+    response.raise_for_status()
+    payload = response.json()
+    total = payload.get('hits', {}).get('total', {})
+    if (payload.get('timed_out') or payload.get('_shards', {}).get('failed', 0)
+            or not isinstance(total, dict) or total.get('relation') != 'eq'):
+        raise RuntimeError('ES count query returned incomplete or inexact results')
+    rows = []
+    buckets = payload.get('aggregations', {}).get('namespaces', {}).get('buckets', {})
+    if set(buckets) != set(namespaces):
+        raise RuntimeError('ES count query did not cover the requested namespaces')
+    for namespace in namespaces:
+        windows = buckets[namespace].get('windows', {}).get('buckets', [])
+        if len(windows) != expected_windows:
+            raise RuntimeError(f'incomplete 15-minute grid for {namespace}')
+        for index, window in enumerate(windows):
+            timestamp = datetime.fromtimestamp(window['key'] / 1000, tz=timezone.utc)
+            if timestamp != start + timedelta(minutes=15 * index):
+                raise RuntimeError(f'misaligned ES window for {namespace}')
+            rows.append((timestamp, namespace, int(window['doc_count'])))
+    if sum(count for _, _, count in rows) != int(total['value']):
+        raise RuntimeError('ES namespace counts do not reconcile with exact source count')
+    return rows
+
+
+def build_es_threshold_bundle(rows, period_start, threshold_weeks, percentile_level):
+    from collections import defaultdict
+
+    active_training = [timestamp for timestamp, _, count in rows if timestamp < period_start and count > 0]
+    if not active_training:
+        raise RuntimeError('ES retained training history is not evidenced by any ERROR event')
+    first_evidenced_window = min(active_training)
+    training = defaultdict(list)
+    training_timestamps = []
+    for timestamp, namespace, count in rows:
+        if first_evidenced_window <= timestamp < period_start:
+            training[(namespace, timestamp.weekday(), timestamp.hour, timestamp.minute // 15)].append(count)
+            training_timestamps.append(timestamp)
+    bundle = _serialize_threshold_bundle(training, {
+        'min': min(training_timestamps),
+        'max': max(training_timestamps),
+    }, period_start, threshold_weeks, percentile_level)
+    bundle['metadata']['source'] = 'elasticsearch/exact-error-counts-15m'
+    bundle['metadata']['history_completeness'] = 'unverified_es_retention_and_ingestion'
+    bundle['metadata']['requested_training_start'] = (period_start - timedelta(weeks=threshold_weeks)).isoformat()
+    return bundle
+
+
+def run_es_replay(period_end, hours, threshold_weeks, environment, percentile_level):
+    from dotenv import dotenv_values
+    import requests
+    import urllib3
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    from core.namespace_contract import load_canonical_namespaces, normalize_namespaces
+    from core.peak_detection import PeakDetector
+
+    replay_window_ends(period_end, hours)
+    if period_end != aligned_window_end(period_end):
+        raise ValueError('replay end must be aligned to a 15-minute UTC boundary')
+    if threshold_weeks <= 0 or not 0 < percentile_level < 1:
+        raise ValueError('positive training weeks and percentile between zero and one required')
+    values = {**dotenv_values(SCRIPT_DIR.parent / '.env'), **os.environ}
+    prefix = environment.upper() + '_'
+    host = values.get(prefix + 'ES_HOST') or {
+        'prod': 'https://elasticsearch.kb.cz:9500',
+        'nprod': 'https://elasticsearch-test.kb.cz:9500',
+    }[environment]
+    indices = values.get(prefix + 'ES_INDEX') or values.get('ES_INDEX')
+    scope = values.get(prefix + 'MONITORED_NAMESPACES')
+    namespaces = normalize_namespaces(scope or (
+        ('pca-prod-01-app', 'pcb-prod-01-app', 'pcb-ch-prod-01-app')
+        if environment == 'prod' else load_canonical_namespaces()
+    ))
+    username = values.get(prefix + 'ES_USER') or values.get('ES_USER')
+    password = values.get(prefix + 'ES_PASSWORD') or values.get('ES_PASSWORD')
+    if not indices or not namespaces or not username or not password:
+        raise RuntimeError('ES index, namespace scope and credentials are required')
+    period_start = period_end - timedelta(hours=hours)
+    training_start = period_start - timedelta(weeks=threshold_weeks)
+    rows = []
+    urllib3.disable_warnings()
+    with requests.Session() as session:
+        session.auth = (username, password)
+        session.verify = False
+        session.mount(host, HTTPAdapter(max_retries=Retry(
+            total=2, connect=2, read=2, status=2, backoff_factor=0.5,
+            status_forcelist=[429, 502, 503, 504], allowed_methods=['POST'],
+        )))
+        chunk_start = training_start
+        while chunk_start < period_end:
+            chunk_end = min(chunk_start + timedelta(days=1), period_end)
+            chunk = fetch_es_namespace_counts(
+                session, host, indices, namespaces, chunk_start, chunk_end,
+            )
+            rows.extend(chunk)
+            print(f'{environment}: {chunk_start.isoformat()} errors={sum(item[2] for item in chunk)}', flush=True)
+            chunk_start = chunk_end
+    bundle = build_es_threshold_bundle(rows, period_start, threshold_weeks, percentile_level)
+    detector = PeakDetector()
+    detector.load_thresholds_direct({
+        (item['namespace'], item['day_of_week'], item['hour_of_day'], item['quarter_hour']): {
+            'value': item['value'], 'samples': item['samples'],
+            'profile_status': item['profile_status'],
+        } for item in bundle['thresholds']
+    }, snapshot_id=bundle['bundle_id'])
+    windows = []
+    for timestamp, namespace, count in rows:
+        if timestamp >= period_start:
+            verdict = detector.is_peak(count, namespace, timestamp.weekday(), timestamp.hour, timestamp.minute // 15)
+            windows.append({
+                'window_start': timestamp.isoformat(), 'namespace': namespace,
+                'error_count': count, **verdict, 'percentile_level': percentile_level,
+            })
+    peaks = [item for item in windows if item['is_peak']]
+    per_namespace = {
+        namespace: {
+            'errors': sum(item['error_count'] for item in windows if item['namespace'] == namespace),
+            'peak_windows': sum(item['namespace'] == namespace for item in peaks),
+            'active_training_windows': sum(count > 0 for timestamp, scope_namespace, count in rows if scope_namespace == namespace and timestamp < period_start),
+            'trained_slots': sum(item['namespace'] == namespace for item in bundle['thresholds']),
+            'missing_profile_windows': sum(item['profile_status'] == 'missing' for item in windows if item['namespace'] == namespace),
+        } for namespace in namespaces
+    }
+    return {
+        'status': 'complete', 'environment': environment, 'es_host': host,
+        'indices': indices, 'namespaces': list(namespaces),
+        'period_start': period_start.isoformat(), 'period_end': period_end.isoformat(),
+        'generated_at': datetime.now(timezone.utc).isoformat(),
+        'verification_scope': 'namespace_volume_detector_only',
+        'limitations': ['No DB fingerprint baseline, cause attribution or delivery verification',
+                        'ES-retained history is not proof of complete historical ingestion',
+                        'Empty histogram buckets before the first retained training ERROR are excluded'],
+        'threshold_bundle': bundle,
+        'summary': {
+            'expected_windows': hours * 4, 'completed_windows': hours * 4,
+            'namespace_window_evaluations': len(windows),
+            'errors': sum(item['error_count'] for item in windows),
+            'namespace_volume_peaks': len(peaks),
+            'distinct_peak_windows': len({item['window_start'] for item in peaks}),
+            'profile_status_counts': {
+                status: sum(item['profile_status'] == status for item in windows)
+                for status in ('init', 'mature', 'missing')
+            },
+            'per_namespace': per_namespace,
+        },
+        'windows': windows,
+    }
 
 
 def compact_peak_example(audit: Dict[str, Any]) -> Dict[str, Any]:
@@ -330,15 +502,22 @@ def run_replay(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description='Read-only DB-backed historical peak replay')
+    parser = argparse.ArgumentParser(description='Read-only historical peak replay using DB authority or ES count history')
     parser.add_argument('--hours', type=int, default=48)
     parser.add_argument('--end', type=parse_utc)
     parser.add_argument('--threshold-weeks', type=int, default=DEFAULT_THRESHOLD_WEEKS)
+    parser.add_argument('--threshold-source', choices=['database', 'elasticsearch'], default='database')
+    parser.add_argument('--environment', choices=['prod', 'nprod'], default='nprod')
+    parser.add_argument('--percentile', type=float, default=0.93)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
 
     period_end = args.end or aligned_window_end(datetime.now(timezone.utc))
-    report = run_replay(period_end, args.hours, args.threshold_weeks)
+    report = (
+        run_es_replay(period_end, args.hours, args.threshold_weeks, args.environment, args.percentile)
+        if args.threshold_source == 'elasticsearch'
+        else run_replay(period_end, args.hours, args.threshold_weeks)
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, indent=2, ensure_ascii=False),

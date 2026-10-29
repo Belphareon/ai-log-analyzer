@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-"""
-Calculate Peak Thresholds from peak_raw_data
-=============================================
-Purpose: Calculate P93 and CAP thresholds dynamically from collected data
-
-Algorithm:
-1. Read all data from peak_raw_data (or last N weeks)
-2. For each (namespace, day_of_week):
-   - Calculate P93 (93rd percentile) from raw values
-   - Store in peak_thresholds table
-3. For each namespace:
-   - Calculate CAP = (median_P93 + avg_P93) / 2 across all DOWs
-   - Store in peak_threshold_caps table
-
-Usage:
-    python calculate_peak_thresholds.py                    # Calculate from all data
-    python calculate_peak_thresholds.py --weeks 4          # Last 4 weeks only
-    python calculate_peak_thresholds.py --percentile 0.92  # Use P92 instead of P93
-    python calculate_peak_thresholds.py --dry-run          # Show what would be calculated
-"""
+"""Train independent UTC weekly-slot percentile/MAD profiles from completed DB facts."""
 
 import os
 import sys
@@ -58,9 +39,10 @@ DB_CONFIG = {
 # Day names for display
 DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-POPULATION_GRAIN = 'namespace/15m/day_of_week/active_windows'
+POPULATION_GRAIN = 'namespace/utc_weekday/hour/quarter/observed'
 PERCENTILE_METHOD = 'configured_percentile_capped_by_median_plus_6_scaled_mad'
-CALCULATION_VERSION = '4.0'
+CALCULATION_VERSION = '5.0'
+DEFAULT_THRESHOLD_WEEKS = 12
 MAD_SCALE_FACTOR = 1.4826
 ROBUST_MAD_MULTIPLIER = 6.0
 
@@ -83,30 +65,25 @@ def percentile(values: list, p: float) -> float:
 
 
 def robust_upper_bound(values: list) -> float:
-    """Return an outlier-resistant upper bound for an active-window population."""
+    """Return an outlier-resistant upper bound for one observed slot population."""
     if not values:
         return 0.0
     median_value = float(statistics.median(values))
     mad = float(statistics.median(abs(value - median_value) for value in values))
+    if mad == 0:
+        return float(max(values))
     return median_value + (ROBUST_MAD_MULTIPLIER * MAD_SCALE_FACTOR * mad)
 
 
-def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
-    """
-    Fetch dense authoritative namespace facts, grouped by (namespace, weekday).
-    
-    Args:
-        conn: database connection
-        weeks: if specified, only fetch last N weeks
-    
-    Returns:
-        dict: {(namespace, day_of_week): [values]}
-    """
+def fetch_raw_data(conn, weeks: int = DEFAULT_THRESHOLD_WEEKS, as_of: datetime = None) -> dict:
+    """Read completed facts only; missing windows are never filled with zeros."""
     cur = conn.cursor()
     
     as_of = as_of or datetime.now(timezone.utc)
     if as_of.tzinfo is None or as_of.utcoffset() is None:
         raise ValueError('as_of must be timezone-aware')
+    if weeks is not None and weeks < 10:
+        raise ValueError('threshold history must request at least 10 weeks')
 
     monitored_namespaces = load_monitored_namespaces()
     if not monitored_namespaces:
@@ -115,7 +92,6 @@ def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
     query = """
         SELECT
             namespace,
-            EXTRACT(ISODOW FROM window_start)::INTEGER - 1 AS day_of_week,
             error_count,
             window_start
         FROM ailog_peak.v_complete_namespace_error_counts
@@ -129,7 +105,7 @@ def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
         query += " AND window_start >= %s"
         params.append(start_date)
     
-    query += " ORDER BY namespace, day_of_week"
+    query += " ORDER BY namespace, window_start"
     
     print(f"📊 Fetching dense data from v_complete_namespace_error_counts...")
     cur.execute(query, params)
@@ -137,100 +113,68 @@ def fetch_raw_data(conn, weeks: int = None, as_of: datetime = None) -> dict:
     
     print(f"   Found {len(rows):,} rows")
     
-    # Group by (namespace, day_of_week)
     data = defaultdict(list)
     date_range = {'min': None, 'max': None}
     
-    for ns, dow, value, ts in rows:
-        data[(ns, dow)].append(float(value))
+    for ns, value, ts in rows:
+        if ts.tzinfo is None or ts.utcoffset() is None:
+            raise ValueError('fact window_start must be timezone-aware')
+        ts = ts.astimezone(timezone.utc)
+        if ts.minute % 15 or ts.second or ts.microsecond:
+            raise ValueError('fact window_start must align to a UTC quarter hour')
+        data[(ns, ts.weekday(), ts.hour, ts.minute // 15)].append(float(value))
         if date_range['min'] is None or ts < date_range['min']:
             date_range['min'] = ts
         if date_range['max'] is None or ts > date_range['max']:
             date_range['max'] = ts
     
-    print(f"   Unique (namespace, dow) combinations: {len(data)}")
+    print(f"   Observed UTC weekly slots: {len(data)}")
     if date_range['min'] and date_range['max']:
         print(f"   Date range: {date_range['min'].strftime('%Y-%m-%d')} to {date_range['max'].strftime('%Y-%m-%d')}")
     
     return data, date_range
 
 
-def calculate_p93_thresholds(data: dict, percentile_level: float = 0.93) -> dict:
-    """
-    Calculate P93 (or other percentile) for each (namespace, day_of_week)
-    
-    Returns:
-        dict: {(namespace, day_of_week): {'p93': value, 'count': n, 'median': m, 'mean': avg, 'max': max_val}}
-    """
+def calculate_p93_thresholds(data: dict, percentile_level: float = 0.95) -> dict:
+    """Calculate an independent percentile/MAD profile for each observed UTC slot."""
+    if not 0 < percentile_level < 1:
+        raise ValueError('percentile must be between zero and one')
+    minimum_samples = int(os.getenv('MIN_SAMPLES_FOR_THRESHOLD', '10'))
+    if minimum_samples < 10:
+        raise ValueError('mature profiles require at least 10 samples')
     thresholds = {}
-    
-    for (ns, dow), values in data.items():
-        active_values = [value for value in values if value > 0]
-        if not active_values:
+
+    for slot, values in data.items():
+        namespace, weekday, hour, quarter = slot
+        if not namespace or not 0 <= weekday <= 6 or not 0 <= hour <= 23 or not 0 <= quarter <= 3:
+            raise ValueError('invalid UTC weekly slot')
+        if any(value < 0 for value in values):
+            raise ValueError('observed counts cannot be negative')
+        if not values:
             continue
-        
-        s = sorted(active_values)
-        n = len(s)
-        
-        raw_percentile = percentile(active_values, percentile_level)
-        robust_limit = robust_upper_bound(active_values)
-        thresholds[(ns, dow)] = {
+
+        sample_count = len(values)
+        raw_percentile = percentile(values, percentile_level)
+        robust_limit = robust_upper_bound(values)
+        thresholds[slot] = {
             'p93': min(raw_percentile, robust_limit),
             'raw_percentile': raw_percentile,
             'robust_upper_bound': robust_limit,
-            'count': n,
-            'median': float(statistics.median(active_values)),
-            'mean': sum(active_values) / n,
-            'max': max(active_values),
+            'count': sample_count,
+            'profile_status': 'mature' if sample_count >= minimum_samples else 'init',
+            'median': float(statistics.median(values)),
+            'mean': sum(values) / sample_count,
+            'max': max(values),
         }
     
     return thresholds
 
 
-def calculate_cap_values(thresholds: dict) -> dict:
-    """
-    Calculate CAP for each namespace
-    CAP = (median_P93 + avg_P93) / 2 across all DOWs
-    
-    Returns:
-        dict: {namespace: {'cap': value, 'median_p93': m, 'avg_p93': avg, 'min_p93': min, 'max_p93': max, 'total_samples': n}}
-    """
-    # Group P93 values by namespace
-    p93_by_ns = defaultdict(list)
-    samples_by_ns = defaultdict(int)
-    
-    for (ns, dow), stats in thresholds.items():
-        p93_by_ns[ns].append(stats['p93'])
-        samples_by_ns[ns] += stats['count']
-    
-    caps = {}
-    
-    for ns, p93_values in p93_by_ns.items():
-        if not p93_values:
-            continue
-        
-        s = sorted(p93_values)
-        median_p93 = s[len(s) // 2]
-        avg_p93 = sum(p93_values) / len(p93_values)
-        
-        caps[ns] = {
-            'cap': (median_p93 + avg_p93) / 2,
-            'median_p93': median_p93,
-            'avg_p93': avg_p93,
-            'min_p93': min(p93_values),
-            'max_p93': max(p93_values),
-            'total_samples': samples_by_ns[ns],
-        }
-    
-    return caps
-
-
 def save_thresholds_to_db(
     conn,
     thresholds: dict,
-    caps: dict,
     date_range: dict,
-    percentile_level: float = 0.93,
+    percentile_level: float = 0.95,
     dry_run: bool = False,
     as_of: datetime = None,
 ):
@@ -242,8 +186,6 @@ def save_thresholds_to_db(
         raise ValueError('as_of must be timezone-aware')
     training_start = date_range['min']
     training_end = as_of
-    start_date = training_start.date() if training_start else None
-    end_date = date_range['max'].date() if date_range['max'] else None
     sample_count = sum(stats['count'] for stats in thresholds.values())
     monitored_namespaces = sorted(load_monitored_namespaces())
     if not monitored_namespaces:
@@ -252,40 +194,27 @@ def save_thresholds_to_db(
     if dry_run:
         print("\n🔍 DRY RUN - would save:")
         print(f"\n   Percentile thresholds: {len(thresholds)} rows")
-        print(f"   CAP values: {len(caps)} rows")
         return None
 
     if not training_start or training_end <= training_start:
         raise ValueError('threshold training interval is empty')
 
     snapshot_id = str(uuid.uuid4())
-    p93_rows = []
-    for (ns, dow), stats in thresholds.items():
-        p93_rows.append((
-            ns, dow, stats['p93'], percentile_level, stats['count'], 
-            stats['median'], stats['mean'], stats['max'],
-            start_date, end_date
-        ))
-    cap_rows = []
-    for ns, stats in caps.items():
-        cap_rows.append((
-            ns, stats['cap'], stats['median_p93'], stats['avg_p93'],
-            stats['min_p93'], stats['max_p93'], percentile_level, stats['total_samples']
-        ))
-
     snapshot_rows = [
         (
             snapshot_id,
             ns,
             dow,
+            hour,
+            quarter,
             stats['p93'],
-            caps[ns]['cap'],
             stats['count'],
+            stats['profile_status'],
             stats['median'],
             stats['mean'],
             stats['max'],
         )
-        for (ns, dow), stats in thresholds.items()
+        for (ns, dow, hour, quarter), stats in thresholds.items()
     ]
     cur = conn.cursor()
     running_committed = False
@@ -312,28 +241,12 @@ def save_thresholds_to_db(
         running_committed = True
 
         execute_batch(cur, """
-            INSERT INTO ailog_peak.threshold_snapshot_values
-                (snapshot_id, namespace, day_of_week, percentile_value,
-                 cap_value, sample_count, median_value, mean_value, max_value)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ailog_peak.threshold_slot_values
+                (snapshot_id, namespace, day_of_week, hour_of_day, quarter_hour,
+                 percentile_value, sample_count, profile_status,
+                 median_value, mean_value, max_value)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, snapshot_rows)
-
-        cur.execute("DELETE FROM ailog_peak.peak_thresholds")
-        cur.execute("DELETE FROM ailog_peak.peak_threshold_caps")
-        execute_batch(cur, """
-            INSERT INTO ailog_peak.peak_thresholds
-                (namespace, day_of_week, percentile_value, percentile_level,
-                 sample_count, median_value, mean_value, max_value,
-                 calculated_at, data_start_date, data_end_date)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
-        """, p93_rows)
-        execute_batch(cur, """
-            INSERT INTO ailog_peak.peak_threshold_caps
-                (namespace, cap_value, median_percentile, avg_percentile,
-                 min_percentile, max_percentile, percentile_level,
-                 total_samples, calculated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-        """, cap_rows)
         cur.execute("""
             UPDATE ailog_peak.threshold_snapshot_runs
             SET status = 'complete', completed_at = NOW()
@@ -358,55 +271,23 @@ def save_thresholds_to_db(
         cur.close()
 
 
-def print_summary(thresholds: dict, caps: dict, percentile_level: float = 0.93):
-    """Print summary of calculated thresholds"""
-    percentile_label = f"P{int(percentile_level * 100)}"
-    
-    # Get all namespaces
-    namespaces = sorted(set(ns for (ns, dow) in thresholds.keys()))
-    
-    print("\n" + "=" * 120)
-    print(f"{percentile_label} THRESHOLDS per NS per DOW")
-    print("=" * 120)
-    
-    print(f"\n{'NS':<25} {'CAP':>7} | {'Mon':>7} {'Tue':>7} {'Wed':>7} {'Thu':>7} {'Fri':>7} {'Sat':>7} {'Sun':>7} | {'Samples':>8}")
-    print("-" * 120)
-    
-    for ns in namespaces:
-        cap = caps.get(ns, {}).get('cap', 0)
-        row = f"{ns:<25} {cap:>7.0f} |"
-        
-        total_samples = 0
-        for dow in range(7):
-            stats = thresholds.get((ns, dow))
-            if stats:
-                row += f" {stats['p93']:>7.0f}"
-                total_samples += stats['count']
-            else:
-                row += f" {'--':>7}"
-        
-        row += f" | {total_samples:>8}"
-        print(row)
-    
-    print("\n" + "=" * 120)
-    print("CAP VALUES per NS")
-    print("=" * 120)
-    
-    print(f"\n{'NS':<25} {'CAP':>8} | {f'Median_{percentile_label}':>11} {f'Avg_{percentile_label}':>10} {f'Min_{percentile_label}':>9} {f'Max_{percentile_label}':>9} | {'Samples':>8}")
-    print("-" * 100)
-    
-    for ns in namespaces:
-        c = caps.get(ns, {})
-        if c:
-            print(f"{ns:<25} {c['cap']:>8.0f} | {c['median_p93']:>11.0f} {c['avg_p93']:>10.0f} {c['min_p93']:>9.0f} {c['max_p93']:>9.0f} | {c['total_samples']:>8}")
+def print_summary(thresholds: dict, percentile_level: float = 0.95):
+    """Print every observed slot, including its sample count and maturity."""
+    print(f"\nUTC weekly slot P{int(percentile_level * 100)}/MAD; global CAP disabled")
+    for (namespace, weekday, hour, quarter), stats in sorted(thresholds.items()):
+        print(
+            f"{namespace:<25} {DAYS[weekday]} {hour:02d}:{quarter * 15:02d}Z "
+            f"limit={stats['p93']:.4f} samples={stats['count']} "
+            f"profile={stats['profile_status']}"
+        )
 
 
 def main():
-    # Percentile default: env var PERCENTILE_LEVEL (from K8s values.yaml) > hardcoded 0.93
-    default_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.93'))
+    default_percentile = float(os.getenv('PERCENTILE_LEVEL', '0.95'))
 
     parser = argparse.ArgumentParser(description='Calculate Peak Thresholds from complete namespace facts')
-    parser.add_argument('--weeks', type=int, help='Only use last N weeks of data')
+    parser.add_argument('--weeks', type=int, default=DEFAULT_THRESHOLD_WEEKS,
+                        help='History horizon in weeks (minimum 10; default 12)')
     parser.add_argument('--percentile', type=float, default=default_percentile,
                         help=f'Percentile level (default: {default_percentile} from env PERCENTILE_LEVEL)')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be calculated without saving')
@@ -463,18 +344,13 @@ def main():
         print(f"\n📈 Calculating P{int(args.percentile * 100)} thresholds...")
         thresholds = calculate_p93_thresholds(data, args.percentile)
         
-        # Calculate CAP values
-        print(f"📊 Calculating CAP values...")
-        caps = calculate_cap_values(thresholds)
-        
         # Print summary
-        print_summary(thresholds, caps, args.percentile)
+        print_summary(thresholds, args.percentile)
         
         # Save to DB
         save_thresholds_to_db(
             conn,
             thresholds,
-            caps,
             date_range,
             args.percentile,
             args.dry_run,

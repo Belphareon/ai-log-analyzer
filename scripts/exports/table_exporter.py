@@ -37,6 +37,7 @@ CLI:
 import os
 import sys
 import csv
+import html
 import json
 import argparse
 import tempfile
@@ -96,6 +97,9 @@ class ErrorTableRow:
     detail: str                     # Klíčová info (metoda, service, endpoint, message snippet)
     score: float                    # Skóre detekce (0-100)
     ratio: float                    # Peak ratio vs. baseline
+    cause: str
+    diagnosis: str
+    metric_scope: str
 
 
 
@@ -113,9 +117,9 @@ class PeakTableRow:
     """
     first_seen: str
     last_seen: str
-    total_errors: int           # raw error count across all peak windows
+    total_errors: Optional[int]
     occurrence_count: int       # number of peak windows
-    avg_errors_per_peak: float
+    avg_errors_per_peak: Optional[float]
     trend_7d: str               # 7-day trend: ↑ rising / → stable / ↓ falling + %
     periodicity: str            # periodic-daily / periodic-weekly / sporadic / one-time / unknown
     root_cause: str
@@ -125,6 +129,13 @@ class PeakTableRow:
     test: str
     activity: str               # active/inactive based on 7-day window
     peak_id: str
+    peak_type: str
+    max_observed_errors: float
+    diagnosis: str
+    metric_scope: str
+    status: str
+    jira: str
+    notes: str
 
 
 # =============================================================================
@@ -172,6 +183,11 @@ class TableExporter:
         if len(cleaned) <= limit:
             return cleaned
         return cleaned[: limit - 3] + "..."
+
+    @staticmethod
+    def _markdown_cell(value: Any) -> str:
+        text = "N/A" if value is None else str(value)
+        return html.escape(text, quote=False).replace('|', '&#124;').replace('\n', '<br>')
 
     @staticmethod
     def _collapse_id_noise(text: str) -> str:
@@ -345,11 +361,13 @@ class TableExporter:
     def _problem_behavior(self, problem: ProblemEntry) -> str:
         """Render problem behavior in the same operator style as Known Peaks."""
         patterns = self._dedup_sample_patterns(problem, limit=3)
+        canonical = self._problem_cause(problem).casefold()
+        patterns = [pattern for pattern in patterns if pattern.casefold() != canonical]
         dominant_app = self._dominant_problem_app(problem) or self._clean_unknown(problem.flow) or '?'
 
         if patterns:
             lines = [
-                f"Behavior (top patterns): {int(problem.occurrences or 0):,} events / {len(patterns)} patterns",
+                f"Historical variants: {len(patterns)} retained samples",
                 "",
             ]
             for i, msg in enumerate(patterns, 1):
@@ -359,23 +377,39 @@ class TableExporter:
             return "\n".join(lines)
 
         behavior = self._normalize_operator_text(getattr(problem, 'behavior', ''))
-        if behavior:
+        if behavior and behavior.casefold() != canonical:
             escaped_behavior = self._shorten(behavior, 300).replace('"', '\\"')
             lines = [
-                f"Behavior (observed): {int(problem.occurrences or 0):,} events",
+            "Historical observation (not a single trace)",
                 "",
                 f"  1) {dominant_app}",
                 f'     "{escaped_behavior}"',
             ]
             return "\n".join(lines)
 
-        # Last resort
-        detail_parts = [
-            self._clean_unknown(problem.error_class),
-            self._clean_unknown(problem.flow),
-        ]
-        detail_parts = [part for part in detail_parts if part]
-        return " / ".join(detail_parts)
+        return ""
+
+    def _problem_cause(self, problem: ProblemEntry) -> str:
+        trace_cause = getattr(problem, 'trace_root_cause', None)
+        candidates = [trace_cause.get('message') if isinstance(trace_cause, dict) else None,
+                      getattr(problem, 'root_cause', None),
+                      getattr(problem, 'description', None)]
+        candidates.extend(self._dedup_sample_patterns(problem, limit=1))
+        candidates.append(getattr(problem, 'error_class', None))
+        for candidate in candidates:
+            message = self._normalize_operator_text(candidate)
+            if message:
+                return message
+        return "Unclassified observed error"
+
+    def _problem_diagnosis(self, problem: ProblemEntry) -> str:
+        trace_cause = getattr(problem, 'trace_root_cause', None)
+        if isinstance(trace_cause, dict) and self._normalize_operator_text(trace_cause.get('message')):
+            confidence = self._clean_unknown(trace_cause.get('confidence')) or 'unverified'
+            return f"Trace inference; confidence={confidence}"
+        if self._normalize_operator_text(getattr(problem, 'root_cause', None)):
+            return "Registry inference; confidence=unverified"
+        return "Not diagnosed; observed pattern only"
 
     def _dominant_problem_app(self, problem: ProblemEntry) -> str:
         app_counts = getattr(problem, 'app_counts', {}) or {}
@@ -403,23 +437,8 @@ class TableExporter:
             if explicit_root:
                 message = explicit_root
 
-        if not message:
-            desc_root = self._normalize_operator_text(getattr(problem, 'description', ''))
-            if desc_root:
-                message = desc_root
-
-        if not message:
-            patterns = self._dedup_sample_patterns(problem, limit=1)
-            if patterns:
-                message = patterns[0]
-
-        if not message:
-            err_class = self._clean_unknown(getattr(problem, 'error_class', ''))
-            if err_class:
-                message = err_class
-
         if message:
-            label = confidence or 'observed'
+            label = confidence or 'unverified'
             short_message = self._shorten(message, 220)
             if service:
                 return (
@@ -598,19 +617,20 @@ class TableExporter:
                     dom_app = affected[0]
             if not dom_app and fallback_service:
                 dom_app = fallback_service
-            total = int(getattr(peak, 'raw_error_count', 0) or 0) or int(
-                getattr(peak, 'occurrences', 0) or 1
-            )
-            lines = [f"Behavior (legacy): {total:,} events", ""]
+            lines = ["Historical observation (legacy; volume unavailable)", ""]
             lines.append(f"  1) {dom_app or '?'}")
             escaped = legacy.replace('"', '\\"')
             lines.append(f'     "{escaped}"')
             return "\n".join(lines)
 
-        total_events = sum(c for _, c in ranked) or 1
+        total_events = max(
+            int(getattr(peak, 'raw_error_count', 0) or 0),
+            sum(int(count or 0) for count in peak.contributing_problems.values()),
+            1,
+        )
         problem_count = len(getattr(peak, 'contributing_problems', {}) or {})
         lines = [
-            f"Behavior (top patterns): {total_events:,} events / {problem_count} problems",
+            f"Historical peak patterns: {total_events:,} ERROR lines / {problem_count} problems; top {len(ranked)} shown",
             "",
         ]
         for i, (problem, count) in enumerate(ranked, 1):
@@ -632,7 +652,7 @@ class TableExporter:
                 msg = '(no message)'
 
             share_pct = (count / total_events) * 100 if total_events else 0
-            lines.append(f"  {i}) {dom_app} ({count:,} events, {share_pct:.0f}%)")
+            lines.append(f"  {i}) {dom_app} ({count:,} ERROR lines, {share_pct:.0f}%)")
             escaped = msg.replace('"', '\\"')
             lines.append(f'     "{escaped}"')
         return "\n".join(lines)
@@ -643,67 +663,23 @@ class TableExporter:
         fallback_message: str = '',
         fallback_service: str = '',
     ) -> str:
-        """Format peak root cause from top contributing ProblemEntry.
-
-        Strategy:
-          1. Resolve top-1 contributing problem.
-          2. Use its trace_root_cause / root_cause / behavior message.
-          3. Confidence = high (top contributor >70% share), medium (>40%), low otherwise.
-
-        Falls back to legacy peak.root_cause / fallback_* args when no
-        contributing problems are resolvable.
-        """
+        """Keep diagnostic confidence separate from historical contribution share."""
         ranked = self._resolve_contributing_problems(peak, limit=1)
 
         if ranked:
             top_problem, top_count = ranked[0]
-            total_events = sum(int(c or 0) for c in (
-                getattr(peak, 'contributing_problems', {}) or {}
-            ).values()) or 1
-            share = top_count / total_events
-            if share >= 0.70:
-                confidence = 'high'
-            elif share >= 0.40:
-                confidence = 'medium'
-            else:
-                confidence = 'low'
+            diagnosis = self._problem_root_cause(top_problem)
+            if diagnosis:
+                total_events = max(
+                    int(getattr(peak, 'raw_error_count', 0) or 0),
+                    sum(int(count or 0) for count in peak.contributing_problems.values()),
+                    1,
+                )
+                return f"{diagnosis}\nHistorical contribution: {top_count / total_events:.0%} of ERROR lines"
 
-            # Service: prefer explicit trace_root_cause.service, else dominant app
-            service = ''
-            trc = getattr(top_problem, 'trace_root_cause', None)
-            if isinstance(trc, dict):
-                service = str(trc.get('service', '') or '').strip()
-            if not service:
-                app_counts = getattr(top_problem, 'app_counts', {}) or {}
-                if app_counts:
-                    service = max(app_counts.items(), key=lambda kv: int(kv[1] or 0))[0]
-                else:
-                    aff = sorted(getattr(top_problem, 'affected_apps', set()) or [])
-                    service = aff[0] if aff else ''
-
-            # Message: prefer trace_root_cause.message, else root_cause, else behavior
-            msg = ''
-            if isinstance(trc, dict):
-                msg = str(trc.get('message', '') or '').strip()
-            if not msg:
-                msg = str(getattr(top_problem, 'root_cause', '') or '').strip()
-            if not msg:
-                msg = str(getattr(top_problem, 'behavior', '') or '').strip()
-            msg = self._normalize_operator_text(msg)
-
-            if service or msg:
-                msg = msg or '(unknown)'
-                if service:
-                    return (
-                        f"Inferred root cause [{confidence}, {share:.0%} of events]:\n"
-                        f"  - {service}: {msg}"
-                    )
-                return f"Inferred root cause [{confidence}, {share:.0%} of events]: {msg}"
-
-        # Legacy fallback
         msg = self._normalize_operator_text(getattr(peak, 'root_cause', '') or '')
-        if not msg and fallback_message:
-            msg = self._normalize_operator_text(fallback_message)
+        if not msg:
+            return ""
         service = ''
         app_counts = getattr(peak, 'app_counts', {}) or {}
         if app_counts:
@@ -714,13 +690,9 @@ class TableExporter:
                 service = affected[0]
         if not service and fallback_service:
             service = fallback_service
-        if not service and not msg:
-            return ''
-        if not msg:
-            msg = '(unknown)'
         if service:
-            return f"Inferred root cause [low]:\n  - {service}: {msg}"
-        return f"Inferred root cause [low]: {msg}"
+            return f"Inferred root cause [unverified]:\n  - {service}: {msg}"
+        return f"Inferred root cause [unverified]: {msg}"
 
     @staticmethod
     def _format_apps_multiline(counts: Optional[Dict[str, int]],
@@ -1176,6 +1148,9 @@ class TableExporter:
                 detail=detail,
                 score=self._derive_score(problem, occurrence_24h),
                 ratio=self._derive_ratio(problem, occurrence_24h, now),
+                cause=self._problem_cause(problem),
+                diagnosis=self._problem_diagnosis(problem),
+                metric_scope="Registry history; recent counts from retained samples; ERROR lines, not operations",
             )
             rows_with_sort_key.append((
                 occurrence_2h,
@@ -1201,13 +1176,13 @@ class TableExporter:
         # Column order: timing → trend (2h,24h) → count (2h,24h,total) → severity
         # → root cause → scope → meta. 2h před 24h (recency-first), per uživatele.
         fieldnames = [
-            'first_seen', 'last_seen',
+            'problem_id', 'cause', 'diagnosis', 'severity', 'status', 'jira', 'notes',
+            'first_seen', 'last_seen', 'metric_scope',
             'trend_2h', 'trend_24h',
-            'occurrence_2h', 'occurrence_24h', 'occurrence_total', 'severity',
+            'occurrence_2h', 'occurrence_24h', 'occurrence_total',
             'root_cause', 'behavior',
             'affected_namespaces', 'affected_apps', 'problem_key', 'scope',
-            'category', 'status',
-            'problem_id', 'flow', 'error_class', 'detail', 'score', 'ratio'
+            'category', 'flow', 'error_class', 'detail', 'score', 'ratio'
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -1234,10 +1209,12 @@ class TableExporter:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         lines = [
-            f"# Error Problems Table",
+            f"# Known Errors: Cause Catalog",
             f"",
             f"**Generated:** {self.generated_at.strftime('%d-%m-%Y %H:%M:%S')}",
             f"**Total problems:** {len(rows)}",
+            "Historical registry knowledge, not a current incident list. Counts are ERROR lines, not unique operations.",
+            "Recent 2h/24h metrics use retained observations and may be incomplete; missing history is not proof of quiet operation.",
             f"",
         ]
 
@@ -1271,42 +1248,40 @@ class TableExporter:
             # Main table (compact version) — time → frequency → root cause → scope
             lines.append("## All Problems")
             lines.append("")
-            lines.append("| First Seen | Last Seen | Total | 24h | 2h | Trend 24h | Trend 2h | Severity | Root Cause | Namespaces | Apps | Category | Status |")
-            lines.append("|------------|-----------|-------|-----|----|-----------|----------|----------|------------|------------|------|----------|--------|")
+            lines.append("| Cause | Diagnosis | Severity | Status | Jira | Last Seen | ERROR 2h* | ERROR 24h* | Historical ERROR | Namespaces | Apps | ID |")
+            lines.append("|-------|-----------|----------|--------|------|-----------|-----------|------------|------------------|------------|------|----|")
 
             for row in rows:
-                apps_short = row.affected_apps[:30] + "..." if len(row.affected_apps) > 30 else row.affected_apps
-                ns_short = row.affected_namespaces[:25] + "..." if len(row.affected_namespaces) > 25 else row.affected_namespaces
-                rc_short = row.root_cause[:40] + "..." if len(row.root_cause) > 40 else row.root_cause
-                first_short = row.first_seen[:10] if row.first_seen else "-"
-                last_short = row.last_seen[:10] if row.last_seen else "-"
-                lines.append(
-                    f"| {first_short} | {last_short} | {row.occurrence_total:,} | "
-                    f"{row.occurrence_24h:,} | {row.occurrence_2h:,} | {row.trend_24h} | {row.trend_2h} | {row.severity} | "
-                    f"{rc_short} | {ns_short} | {apps_short} | {row.category} | {row.status} |"
-                )
+                values = [row.cause, row.diagnosis, row.severity, row.status, row.jira,
+                          row.last_seen, row.occurrence_2h, row.occurrence_24h,
+                          row.occurrence_total, row.affected_namespaces, row.affected_apps,
+                          row.problem_id]
+                lines.append('| ' + ' | '.join(self._markdown_cell(value) for value in values) + ' |')
 
             # Detailed section for recent problems
             recent_rows = [r for r in rows if r.last_seen]  # Just check if has last_seen
             if recent_rows:
                 lines.append("")
-                lines.append("## Recent Problems")
+                lines.append("## Historical Knowledge Details")
                 lines.append("")
 
                 for row in recent_rows[:20]:
-                    lines.append(f"### {row.problem_id}: {row.category}/{row.flow}")
+                    lines.append(f"### {self._markdown_cell(row.problem_id)}: {self._markdown_cell(row.cause)}")
                     lines.append("")
-                    lines.append(f"- **Error class:** {row.error_class}")
-                    lines.append(f"- **Scope:** {row.scope}")
-                    lines.append(f"- **Occurrences:** {row.occurrence_total:,}")
-                    lines.append(f"- **Apps:** {row.affected_apps}")
-                    lines.append(f"- **Namespaces:** {row.affected_namespaces}")
+                    lines.append(f"- **Diagnosis:** {self._markdown_cell(row.diagnosis)}")
+                    lines.append(f"- **Inferred cause:** {self._markdown_cell(row.root_cause or 'Not diagnosed')}")
+                    lines.append(f"- **Historical variants:** {self._markdown_cell(row.behavior or 'No additional retained variants')}")
+                    lines.append(f"- **Error class:** {self._markdown_cell(row.error_class)}")
+                    lines.append(f"- **Scope:** {self._markdown_cell(row.scope)}")
+                    lines.append(f"- **Historical ERROR lines:** {row.occurrence_total:,}")
+                    lines.append(f"- **Apps:** {self._markdown_cell(row.affected_apps)}")
+                    lines.append(f"- **Namespaces:** {self._markdown_cell(row.affected_namespaces)}")
                     lines.append(f"- **First seen:** {row.first_seen}")
                     lines.append(f"- **Last seen:** {row.last_seen}")
                     if row.jira:
-                        lines.append(f"- **Jira:** {row.jira}")
+                        lines.append(f"- **Jira:** {self._markdown_cell(row.jira)}")
                     if row.notes:
-                        lines.append(f"- **Notes:** {row.notes}")
+                        lines.append(f"- **Notes:** {self._markdown_cell(row.notes)}")
                     lines.append("")
         else:
             lines.append("*No problems in registry.*")
@@ -1376,26 +1351,6 @@ class TableExporter:
             if last_seen and last_seen < retention_cutoff:
                 continue
 
-            related_problem = None
-            parts = problem_key.split(':') if problem_key else []
-            if len(parts) >= 4 and parts[0] == 'PEAK':
-                flow = parts[2]
-            elif len(parts) > 1:
-                flow = parts[1]
-            else:
-                flow = ''
-            related_problem = self._find_related_problem_for_peak(peak, flow)
-
-            # Resolve fallback values from related ProblemEntry once.
-            related_root_cause = (
-                self._problem_root_cause(related_problem)
-                if related_problem is not None else ""
-            )
-            related_behavior = (
-                self._problem_behavior(related_problem)
-                if related_problem is not None else ""
-            )
-
             # Pick a fallback service: dominant app (by count) or first affected app
             fallback_service = ''
             app_counts_map = getattr(peak, 'app_counts', {}) or {}
@@ -1414,20 +1369,19 @@ class TableExporter:
             #   root_cause: "Inferred root cause [conf]:\n  - app: msg"
             peak_behavior = self._format_peak_behavior(
                 peak,
-                fallback_message=related_behavior,
                 fallback_service=fallback_service,
             )
             peak_root_cause = self._format_peak_root_cause(
                 peak,
-                fallback_message=related_root_cause or related_behavior,
                 fallback_service=fallback_service,
             )
 
             raw_peak_count = int(getattr(peak, 'raw_error_count', 0) or 0)
-            if raw_peak_count <= 0:
-                raw_peak_count = max(1, int(peak.max_value or 0))
-            occurrence_count = max(1, int(getattr(peak, 'occurrences', 0) or 0))
-            avg_errors_per_peak = round(raw_peak_count / occurrence_count, 1)
+            occurrence_count = int(getattr(peak, 'occurrences', 0) or 0)
+            avg_errors_per_peak = (
+                round(raw_peak_count / occurrence_count, 1)
+                if raw_peak_count > 0 and occurrence_count > 0 else None
+            )
             is_test_peak = self._is_test_peak_heuristic(peak)
             activity = self._compute_peak_activity(peak, now)
             trend_7d = self._compute_peak_trend_7d(peak, now)
@@ -1438,7 +1392,7 @@ class TableExporter:
                 first_seen=self._format_display_timestamp(first_seen),
                 last_seen=self._format_display_timestamp(last_seen),
                 # 2. FREQUENCY
-                total_errors=raw_peak_count,
+                total_errors=raw_peak_count if raw_peak_count > 0 else None,
                 occurrence_count=occurrence_count,
                 avg_errors_per_peak=avg_errors_per_peak,
                 # 3. TREND
@@ -1462,6 +1416,14 @@ class TableExporter:
                 test='yes' if is_test_peak else 'no',
                 activity=activity,
                 peak_id=peak.id,
+                peak_type=peak.peak_type,
+                max_observed_errors=peak.max_value,
+                diagnosis=("Historical inference; see root_cause confidence" if peak_root_cause
+                           else "Not diagnosed; observed patterns only"),
+                metric_scope="Historical detected peak windows; not the UTC slot baseline or operation impact",
+                status=peak.status,
+                jira=peak.jira or "",
+                notes=peak.notes or "",
             )
             rows_with_sort_key.append((last_seen or datetime.min.replace(tzinfo=timezone.utc), row))
 
@@ -1479,12 +1441,13 @@ class TableExporter:
 
         # Column order: timing → frequency → trend → root cause → scope → meta
         fieldnames = [
-            'first_seen', 'last_seen',
-            'total_errors', 'occurrence_count', 'avg_errors_per_peak',
-            'trend_7d', 'periodicity',
+            'peak_id', 'peak_type', 'diagnosis', 'status', 'jira', 'notes',
+            'first_seen', 'last_seen', 'metric_scope',
+            'total_errors', 'occurrence_count', 'avg_errors_per_peak', 'max_observed_errors',
+            'periodicity', 'trend_7d',
             'root_cause', 'behavior',
             'affected_namespaces', 'affected_apps',
-            'test', 'activity', 'peak_id'
+            'test', 'activity'
         ]
 
         with open(path, 'w', newline='', encoding='utf-8') as f:
@@ -1504,7 +1467,7 @@ class TableExporter:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         lines = [
-            f"# Peak Events Table",
+            f"# Known Peaks: Historical Patterns",
             f"",
             f"**Generated:** {self.generated_at.strftime('%d-%m-%Y %H:%M:%S')}",
             f"**Total peaks:** {len(rows)}",
@@ -1512,24 +1475,28 @@ class TableExporter:
         ]
 
         if rows:
-            lines.append("_Field semantics: `total_errors` = raw error logs in peak windows, `occurrence_count` = number of peak windows, `periodicity` = pattern frequency._")
+            lines.append("Historical detected peak windows, not the current UTC slot baseline. Periodicity is an observed heuristic, not a learned threshold or diagnosis.")
+            lines.append("ERROR lines are not unique operations. N/A means the registry did not retain the metric; a maximum is not a historical total.")
             lines.append("")
-            lines.append("| First Seen | Last Seen | Errors | Occ | Avg | Trend 7d | Periodicity | Root Cause | Behavior | Namespaces | Applications | Test | Activity | ID |")
-            lines.append("|------------|-----------|--------|-----|-----|----------|-------------|------------|----------|------------|--------------|------|----------|------|")
+            lines.append("| Type | Periodicity | Peak Windows | Historical ERROR | Mean ERROR/Window | Maximum Observed | Diagnosis | Last Seen | Namespaces | Applications | Status | Jira | ID |")
+            lines.append("|------|-------------|--------------|------------------|-------------------|------------------|-----------|-----------|------------|--------------|--------|------|----|")
 
             for row in rows:
-                apps_short = row.affected_apps[:60] + "..." if len(row.affected_apps) > 60 else row.affected_apps
-                ns_short = row.affected_namespaces[:35] + "..." if len(row.affected_namespaces) > 35 else row.affected_namespaces
-                rc_short = row.root_cause[:50] + "..." if len(row.root_cause) > 50 else row.root_cause
-                beh_short = row.behavior[:50] + "..." if len(row.behavior) > 50 else row.behavior
-                lines.append(
-                    f"| {row.first_seen[:10] if row.first_seen else '-'} | "
-                    f"{row.last_seen[:10] if row.last_seen else '-'} | "
-                    f"{row.total_errors:,} | {row.occurrence_count:,} | {row.avg_errors_per_peak:.1f} | "
-                    f"{row.trend_7d} | {row.periodicity} | "
-                    f"{rc_short} | {beh_short} | {ns_short} | "
-                    f"{apps_short} | {row.test} | {row.activity} | {row.peak_id} |"
-                )
+                values = [row.peak_type, row.periodicity, row.occurrence_count, row.total_errors,
+                          row.avg_errors_per_peak, row.max_observed_errors, row.diagnosis,
+                          row.last_seen, row.affected_namespaces, row.affected_apps,
+                          row.status, row.jira, row.peak_id]
+                lines.append('| ' + ' | '.join(self._markdown_cell(value) for value in values) + ' |')
+            lines.extend(['', '## Historical Pattern Details', ''])
+            for row in rows[:20]:
+                lines.extend([
+                    f"### {self._markdown_cell(row.peak_id)}: {self._markdown_cell(row.peak_type)}",
+                    '',
+                    f"- **Inferred cause:** {self._markdown_cell(row.root_cause or 'Not diagnosed')}",
+                    f"- **Patterns:** {self._markdown_cell(row.behavior or 'No retained evidence')}",
+                    f"- **Notes:** {self._markdown_cell(row.notes)}",
+                    '',
+                ])
         else:
             lines.append("*No peaks in registry.*")
 

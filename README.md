@@ -10,14 +10,14 @@ Automatizovaný systém pro detekci, klasifikaci a eskalaci chybových incident�
 
 Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespace z Elasticsearch a automaticky:
 
-1. **Detekuje anomálie** — porovná namespace total s nastavitelným robustním Pxx/CAP prahem a peak přiřadí pouze anomální cause family; odhalí spike, burst, nový typ chyby nebo regresi
+1. **Detekuje anomálie** — porovná namespace total s vlastním P95/MAD prahem přesného UTC týdenního 15min slotu bez globálního CAP a peak přiřadí pouze anomální cause family; odhalí spike, burst, nový typ chyby nebo regresi
 2. **Identifikuje** — každá chyba dostane `fingerprint` (hash), je zařazena do kategorie a přiřazena k business flow
 3. **Určí, co je nové vs. známé** — registry drží historii všech dříve viděných problémů
 4. **Vyhodnotí závažnost** — deterministické bodování 0–100
 5. **Koreluje** — různé logové projevy stejné události se sloučí do jednoho alertu
 6. **Notifikuje** — při peaku odešle digest přes nakonfigurovaný Teams webhook, email, nebo oba kanály
 7. **Aktualizuje Confluence** — Known Errors a Known Peaks z registry exportů; Recent Incidents z denního problem reportu
-8. **Sbírá historická data** — ukládá úplná 15min fakta pro zpětný přepočet Pxx/CAP prahů a namespace/fingerprint baseline
+8. **Sbírá historická data** — ukládá úplná 15min fakta včetně skutečných nul pro zpětný přepočet slotových prahů a namespace/fingerprint baseline; chybějící běhy nejsou nuly
 
 ---
 
@@ -69,7 +69,7 @@ python3 scripts/backfill.py --days 1 --dry-run
 |---------|----------|-------|-------------|
 | `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → alert → export | 1–5 min |
 | `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish | 10–60 min |
-| `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet robustního Pxx/CAP z úplných fact rows | 1–5 min |
+| `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet slotového P95/MAD z 12 týdnů úplných fact rows | 1–5 min |
 | `log-analyzer-maintenance` | `30 2 * * *` | Denní rollup a retention jemnozrnných faktů | 1–30 min |
 
 ### Manuální spuštění
@@ -128,9 +128,9 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 
 | Proměnná | Default | Popis |
 |----------|---------|-------|
-| `PERCENTILE_LEVEL` | `0.93` | Uživatelská citlivost namespace Pxx thresholdu |
-| `MIN_SAMPLES_FOR_THRESHOLD` | `10` | Min vzorků pro spolehlivý threshold |
-| `DEFAULT_THRESHOLD` | `100` | CAP pro namespace bez vlastního thresholdu v kompatibilním snapshotu |
+| `PERCENTILE_LEVEL` | `0.95` | Percentil pro každý UTC slot samostatně |
+| `MIN_SAMPLES_FOR_THRESHOLD` | `10` | Minimum pro mature profil, nelze snížit pod 10; méně vzorků je použitelný init |
+| `DEFAULT_THRESHOLD` | `100` | Legacy proměnná, slotový model ji nepoužívá; missing profil se nevyhodnotí |
 | `FINGERPRINT_SPIKE_MIN_COUNT` | `20` | Absolutní minimum pro historickou cause family |
 | `FINGERPRINT_SPIKE_MAD_MULTIPLIER` | `6` | MAD násobek pro namespace/fingerprint family gate |
 | `EWMA_ALPHA` | `0.3` | EWMA vyhlazovací faktor |
@@ -141,13 +141,6 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 | `ALERT_HEARTBEAT_MIN` | `120` | Opakovat alert pro trvající peak |
 | `ALERT_MIN_DELTA_PCT` | `30` | Min. % změna pro znovu-odeslání |
 | `ALERT_CONTINUATION_LOOKBACK_MIN` | `60` | Lookback pro pokračující peak |
-| `LIFECYCLE_ANALYSIS_ENABLED` | `false` | Nezávislá INFO-level diagnostika queue lifecycle |
-| `LIFECYCLE_ALERT_ENABLED` | `false` | Alert pouze po complete, persisted high-confidence lifecycle runu |
-| `LIFECYCLE_PROBE_MAX_HITS` | `200` | Horní mez levného scope discovery probe |
-| `LIFECYCLE_FETCH_BATCH_SIZE` | `1000` | Velikost PIT/search_after stránky lifecycle evidence |
-| `LIFECYCLE_MAX_RECORDS_PER_QUERY` | `50000` | Horní mez záznamů na scope/predecessor query |
-| `LIFECYCLE_MAX_PREDECESSOR_IDS` | `500` | Horní mez predecessor ID v jedné evidence query |
-| `LIFECYCLE_MIN_RETRIES` | `3` | Minimum processing/return cyklů pro hot-loop kandidáta |
 
 ### Init job
 
@@ -155,7 +148,7 @@ Credentials v K8s se injektují přes **CyberArk/Conjur** secrets provider → K
 |------------------------|---------|-------|
 | `init.backfillDays` | `21` | Dní zpětně pro bootstrap backfill |
 | `init.backfillWorkers` | `4` | Paralelní workery |
-| `init.thresholdWeeks` | `3` | Týdnů pro výpočet thresholdů |
+| `init.thresholdWeeks` | `12` | DB historie pro init i týdenní přepočet, požadavek nejméně 10 týdnů; kratší dostupná historie vytvoří init |
 | `init.activeDeadlineSeconds` | `14400` | Max doba běhu init jobu (4h) |
 
 ### CyberArk/Conjur
@@ -194,9 +187,9 @@ env:
 
 | Typ dat | Uložiště | Popis |
 |---------|----------|-------|
-| Úplná namespace fakta | DB `ailog_peak.v_complete_namespace_error_counts` | Vstupní data pro Pxx/CAP |
-| Pxx prahy | DB `ailog_peak.peak_thresholds` | Per (namespace, day_of_week), verzovaný snapshot |
-| CAP prahy | DB `ailog_peak.peak_threshold_caps` | Per namespace |
+| Úplná namespace fakta | DB `ailog_peak.v_complete_namespace_error_counts` | Vstupní data pro slotové P95/MAD, včetně pozorovaných nul |
+| Slotové prahy | DB `ailog_peak.threshold_slot_values` | Per (snapshot, namespace, UTC weekday, hour, quarter), počet vzorků a init/mature |
+| Metadata snapshotů | DB `ailog_peak.threshold_snapshot_runs` | Verze 5.0 a grain; staré denní tabulky zůstávají jen pro historii |
 | Evidované peaky | DB `ailog_peak.peak_investigation` | Pro Confluence reporty |
 | Známé problémy | `registry/known_problems.yaml` (PVC) | Append-only, nikdy se nemaže |
 | Známé peaky | `registry/known_peaks.yaml` (PVC) | Append-only, nikdy se nemaže |
@@ -218,8 +211,8 @@ ai-log-analyzer/
 │   ├── core/
 │   │   ├── email_notifier.py       # Email notifikace (digest + individuální)
 │   │   ├── problem_registry.py     # Registry: problem + fingerprint index + peaks
-│   │   ├── peak_detection.py       # Pxx/CAP spike detektor
-│   │   ├── calculate_peak_thresholds.py  # Výpočet robustního Pxx/CAP, zápis do DB
+│   │   ├── peak_detection.py       # UTC slot P95/MAD spike detektor
+│   │   ├── calculate_peak_thresholds.py  # Slotové prahy včetně nul, zápis do DB
 │   │   ├── baseline_loader.py      # Historický baseline z DB
 │   │   ├── fetch_unlimited.py      # Elasticsearch fetcher (search_after paging)
 │   │   ├── teams_notifier.py       # Microsoft Teams integrace
@@ -227,7 +220,7 @@ ai-log-analyzer/
 │   ├── pipeline/                   # Detection pipeline (6 fází: A→F)
 │   │   ├── phase_a_parse.py        # Parsování a normalizace ES dokumentů
 │   │   ├── phase_b_measure.py      # Měření a baseline porovnání
-│   │   ├── phase_c_detect.py       # Pxx/CAP + family-gate detekce anomálií
+│   │   ├── phase_c_detect.py       # UTC slot + family-gate detekce anomálií
 │   │   ├── phase_d_score.py        # Skórování závažnosti (0–100)
 │   │   ├── phase_e_classify.py     # Klasifikace typu chyby
 │   │   ├── phase_f_report.py       # Report a export

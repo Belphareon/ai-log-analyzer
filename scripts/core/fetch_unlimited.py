@@ -283,6 +283,27 @@ def _should_stop_fetch(
     return None
 
 
+def count_errors(date_from, date_to):
+    namespaces = _load_monitored_namespaces()
+    if not namespaces:
+        raise RuntimeError('no monitored namespaces configured')
+    query = _build_error_query(date_from, date_to, 0, namespaces)['query']
+    with requests.Session() as session:
+        session.auth = HTTPBasicAuth(ES_USER, ES_PASSWORD)
+        session.verify = False
+        response = session.post(
+            f'{BASE_URL}/{INDICES}/_count', json={'query': query}, timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    if payload.get('_shards', {}).get('failed', 0) or payload.get('timed_out'):
+        raise RuntimeError('incomplete Elasticsearch count')
+    count = payload.get('count')
+    if type(count) is not int or count < 0:
+        raise RuntimeError('invalid Elasticsearch count')
+    return count
+
+
 def fetch_unlimited(
     date_from,
     date_to,
@@ -520,43 +541,54 @@ def fetch_unlimited(
             return None
     return all_errors
 
+class TraceContextResult(dict):
+    def __init__(self, trace_ids, date_from, date_to):
+        super().__init__()
+        self.coverage = {
+            trace_id: {
+                'status': 'failed', 'reason': 'context_not_fetched',
+                'from': str(date_from), 'to': str(date_to),
+            }
+            for trace_id in trace_ids
+        }
+
+
 def fetch_trace_context(trace_ids, date_from, date_to, max_events=3000, retry=2):
-    """Fetch ALL levels (ne jen ERROR) pro konkrétní trace_ids.
+    """Fetch bounded all-level context independently for representative traces.
 
-    Účel (#3): primární sběr běží jen na ERROR (fetch_unlimited), ale pro
-    REPREZENTATIVNÍ trace reportovaných problémů dotáhneme kompletní balík eventů
-    VŠECH levelů (WARN/INFO/DEBUG). Skutečná příčina totiž často PŘEDCHÁZÍ prvnímu
-    ERRORu – tady ji zachytíme.
-
-    Returns: dict[trace_id] -> list[event dict] (message, application, namespace,
-    timestamp, trace_id, level, error_type). Časově NEseřazeno (řadí konzument).
+    Completeness applies only to the requested time range, not the operation's
+    entire lifetime. The mapping-compatible result exposes per-trace coverage;
+    consumers must preserve original ERROR evidence on incomplete enrichment.
     """
-    if not trace_ids or not ES_PASSWORD:
-        return {}
-    ids = [t for t in dict.fromkeys(trace_ids) if t][:200]  # dedup + cap
-    if not ids:
-        return {}
+    ids = [trace_id for trace_id in dict.fromkeys(trace_ids or ()) if trace_id][:200]
+    out = TraceContextResult(ids, date_from, date_to)
+    if not ids or not ES_PASSWORD:
+        return out
 
     session = requests.Session()
     session.auth = HTTPBasicAuth(ES_USER, ES_PASSWORD)
     session.verify = False
     session.trust_env = True
 
-    out = {}
+    deadline = time.monotonic() + 60
     try:
         namespaces = _load_monitored_namespaces()
         if not namespaces:
             print("   ⚠️ trace context fetch aborted: no monitored namespaces configured")
-            return {}
+            return out
         query = {
             "query": {"bool": {"must": [
                 {"range": {"@timestamp": {"gte": date_from, "lt": date_to}}},
-                {"terms": {"traceId": ids}},
+                {"bool": {"should": [
+                    {"term": {"traceId": ids[0]}},
+                    {"term": {"trace.id": ids[0]}},
+                ], "minimum_should_match": 1}},
             ], "filter": [
                 {"terms": {"kubernetes.namespace": namespaces}},
             ]}},
             "sort": [{"@timestamp": {"order": "asc"}}],
             "size": max_events,
+            "track_total_hits": True,
             "_source": [
                 "message", "application", "application.name", "application.version",
                 "@timestamp", "traceId", "trace.id", "spanId", "span.id",
@@ -567,33 +599,51 @@ def fetch_trace_context(trace_ids, date_from, date_to, max_events=3000, retry=2)
                 "context.originatorApplication",
             ],
         }
-        resp = None
-        for attempt in range(retry):
-            try:
-                resp = session.post(f"{BASE_URL}/{INDICES}/_search", json=query, timeout=120)
-                if resp.status_code == 200:
+        for trace_id in ids:
+            query['query']['bool']['must'][1] = {"bool": {"should": [
+                {"term": {"traceId": trace_id}},
+                {"term": {"trace.id": trace_id}},
+            ], "minimum_should_match": 1}}
+            for attempt in range(max(1, retry)):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    out.coverage[trace_id]['reason'] = 'context_budget_exhausted'
                     break
-                if resp.status_code in (401, 403) and attempt < retry - 1:
-                    time.sleep(2)
-                    continue
-                print(f"   ⚠️ trace context fetch error {resp.status_code}")
-                return {}
-            except requests.RequestException as e:
-                if attempt < retry - 1:
-                    time.sleep(1)
-                    continue
-                print(f"   ⚠️ trace context fetch exception: {e}")
-                return {}
-        if resp is None or resp.status_code != 200:
-            return {}
-        for hit in resp.json().get('hits', {}).get('hits', []):
-            s = hit.get('_source', {})
-            tid = _source_value(s, 'traceId', 'trace.id', default='') or ''
-            if not tid:
-                continue
-            event = _source_to_error(s, message_limit=1000)
-            event['level'] = _source_value(s, 'level', default='') or ''
-            out.setdefault(tid, []).append(event)
+                try:
+                    response = session.post(
+                        f"{BASE_URL}/{INDICES}/_search", json=query, timeout=min(30, remaining)
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    hits = data.get('hits', {}).get('hits', [])
+                    total = data.get('hits', {}).get('total')
+                    expected = total.get('value') if isinstance(total, dict) else total
+                    exact = not isinstance(total, dict) or total.get('relation') == 'eq'
+                    incomplete = (
+                        data.get('timed_out', False)
+                        or data.get('_shards', {}).get('failed', 0)
+                        or expected is None or not exact or expected != len(hits)
+                    )
+                    events = []
+                    for hit in hits:
+                        source = hit.get('_source', {})
+                        if _source_value(source, 'traceId', 'trace.id', default='') != trace_id:
+                            incomplete = True
+                            continue
+                        event = _source_to_error(source, message_limit=1000)
+                        event['level'] = _source_value(source, 'level', default='') or ''
+                        events.append(event)
+                    out[trace_id] = events
+                    out.coverage[trace_id].update({
+                        'status': 'truncated' if incomplete else (
+                            'complete_within_range' if events else 'missing'
+                        ),
+                        'reason': 'limit_or_partial_search' if incomplete else '',
+                        'expected': expected, 'fetched': len(events),
+                    })
+                    break
+                except (requests.RequestException, ValueError) as error:
+                    out.coverage[trace_id]['reason'] = str(error)[:200]
     finally:
         session.close()
     return out

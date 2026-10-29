@@ -293,6 +293,9 @@ fi
 # Generování values.yaml z .env
 info "Generuji values.yaml pro $ENVIRONMENT..."
 PROXY_VALUE="${CONFLUENCE_PROXY:-http://cntlm.speed-default:3128}"
+if [[ -z "${PERSISTENCE_STORAGE_SIZE:-}" ]]; then
+    PERSISTENCE_STORAGE_SIZE="$(python3 -c 'import pathlib, sys, yaml; path = pathlib.Path(sys.argv[1]); values = yaml.safe_load(path.read_text()) if path.exists() else {}; print((values or {}).get("persistence", {}).get("storageSize", "20Gi"))' "$INFRA_APPS_DIR/values.yaml")"
+fi
 
 cat > "$INFRA_APPS_DIR/values.yaml" << VALEOF
 # =============================================================================
@@ -323,10 +326,17 @@ persistence:
   enabled: true
   claimName: log-analyzer-data
   mountPath: /data
+  storageSize: "$PERSISTENCE_STORAGE_SIZE"
   subPaths:
     registry: registry
     exports: exports
     reports: reports
+
+scratch:
+  mountPath: /scratch
+  sizeLimit: 3500Mi
+  ephemeralStorageRequest: 2Gi
+  ephemeralStorageLimit: 3500Mi
 
 conjur:
   image: dockerhub.kb.cz/ps-sq008-pub/cyberark/secrets-provider-for-k8s:1.7.3-kb.1
@@ -355,6 +365,8 @@ env:
   ES_HOST: "$ES_HOST"
   ES_INDEX: "$ES_INDEX"
   MONITORED_NAMESPACES: "$MONITORED_NAMESPACES"
+  NAMESPACE_CONTRACT_STRICT: "${NAMESPACE_CONTRACT_STRICT:-true}"
+  STREAMING_SQLITE_DIR: /scratch
   CONFLUENCE_URL: "$CONFLUENCE_URL"
   CONFLUENCE_PROXY: "$PROXY_VALUE"
   HTTP_PROXY: "$PROXY_VALUE"
@@ -365,7 +377,7 @@ env:
   SPIKE_THRESHOLD: "${SPIKE_THRESHOLD:-3.0}"
   EWMA_ALPHA: "${EWMA_ALPHA:-0.3}"
   WINDOW_MINUTES: "${WINDOW_MINUTES:-15}"
-  PERCENTILE_LEVEL: "${PERCENTILE_LEVEL:-0.93}"
+  PERCENTILE_LEVEL: "${PERCENTILE_LEVEL:-0.95}"
   MIN_SAMPLES_FOR_THRESHOLD: "${MIN_SAMPLES_FOR_THRESHOLD:-10}"
   DEFAULT_THRESHOLD: "${DEFAULT_THRESHOLD:-100}"
   MAX_PEAK_ALERTS_PER_WINDOW: "${MAX_PEAK_ALERTS_PER_WINDOW:-3}"
@@ -383,11 +395,19 @@ env:
   ALERT_MIN_DELTA_PCT: "${ALERT_MIN_DELTA_PCT:-30}"
   ALERT_CONTINUATION_LOOKBACK_MIN: "${ALERT_CONTINUATION_LOOKBACK_MIN:-60}"
   FACT_RETENTION_DAYS: "${FACT_RETENTION_DAYS:-90}"
+  REGULAR_COLLECTION_START: "${REGULAR_COLLECTION_START:-}"
+  REGULAR_SETTLE_MINUTES: "${REGULAR_SETTLE_MINUTES:-2}"
+  REGULAR_MAX_WINDOWS: "${REGULAR_MAX_WINDOWS:-8}"
+  REGULAR_CATCHUP_BUDGET_SECONDS: "${REGULAR_CATCHUP_BUDGET_SECONDS:-480}"
+  REGULAR_LATE_RECHECK_HOURS: "${REGULAR_LATE_RECHECK_HOURS:-2}"
+  DAILY_REPORT_HOUR_UTC: "${DAILY_REPORT_HOUR_UTC:-7}"
 
 init:
+  bootstrap: ${INIT_BOOTSTRAP:-false}
+  quiesce: ${INIT_QUIESCE:-false}
   backfillDays: ${INIT_BACKFILL_DAYS:-21}
   backfillWorkers: ${INIT_BACKFILL_WORKERS:-4}
-  thresholdWeeks: ${INIT_THRESHOLD_WEEKS:-3}
+  thresholdWeeks: ${INIT_THRESHOLD_WEEKS:-12}
   forceThresholdRefresh: ${INIT_FORCE_THRESHOLD_REFRESH:-false}
   activeDeadlineSeconds: 14400
 

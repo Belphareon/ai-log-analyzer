@@ -42,7 +42,7 @@ class FakeOpener:
     def __init__(self):
         self.requests = []
 
-    def open(self, request):
+    def open(self, request, timeout=None):
         self.requests.append(request)
         if request.get_method() == 'GET':
             return FakeResponse({'title': 'Existing page title', 'version': {'number': 41}})

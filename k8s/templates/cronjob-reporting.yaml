@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.app.name }}-reports
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    job-type: reports
+spec:
+  schedule: "10 */2 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: {{ .Values.app.name }}
+            job-type: reports
+        spec:
+          serviceAccountName: log-analyzer
+          restartPolicy: Never
+          containers:
+            - name: reports
+              image: {{ .Values.app.image }}
+              imagePullPolicy: {{ .Values.app.imagePullPolicy }}
+              workingDir: /app
+              command: ["python3", "/app/scripts/report_from_facts.py"]
+              env:
+                {{- range $name := list "ENVIRONMENT" "DB_HOST" "DB_PORT" "DB_NAME" "DB_APP_ROLE" "ES_INDEX" "MONITORED_NAMESPACES" "CONFLUENCE_URL" "CONFLUENCE_PROXY" "HTTP_PROXY" "HTTPS_PROXY" "NO_PROXY" "CONFLUENCE_KNOWN_ERRORS_PAGE_ID" "CONFLUENCE_KNOWN_PEAKS_PAGE_ID" "CONFLUENCE_RECENT_INCIDENTS_PAGE_ID" }}
+                - name: {{ $name }}
+                  value: {{ index $.Values.env $name | default "" | quote }}
+                {{- end }}
+                {{- range $name := list "DB_USER" "DB_PASSWORD" "CONFLUENCE_PASSWORD" }}
+                - name: {{ $name }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $.Values.app.secretName }}
+                      key: {{ $name }}
+                {{- end }}
+                - name: DAILY_REPORT_HOUR_UTC
+                  value: {{ .Values.env.DAILY_REPORT_HOUR_UTC | default "7" | quote }}
+                - name: REPORT_OUTPUT_DIR
+                  value: /reports
+                - name: TEAMS_ENABLED
+                  value: {{ .Values.teams.enabled | quote }}
+                - name: TEAMS_EMAIL
+                  value: {{ .Values.teams.email | quote }}
+                - name: TEAMS_WEBHOOK_URL
+                  value: {{ .Values.teams.webhook_url | default "" | quote }}
+                - name: SMTP_HOST
+                  value: {{ .Values.email.smtpHost | quote }}
+                - name: SMTP_PORT
+                  value: {{ .Values.email.smtpPort | quote }}
+                - name: EMAIL_FROM
+                  value: {{ .Values.email.from | quote }}
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 256Mi
+                  ephemeral-storage: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+                  ephemeral-storage: 512Mi
+              volumeMounts:
+                - name: reports
+                  mountPath: /reports
+          volumes:
+            - name: reports
+              emptyDir:
+                sizeLimit: 512Mi
+          imagePullSecrets:
+            - name: dockerhub

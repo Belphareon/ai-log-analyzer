@@ -815,7 +815,8 @@ def persist_analysis_run(
                      window_start_utc, window_end_utc, detector_version,
                      threshold_snapshot_id, namespace_raw_lines, p93_threshold,
                      cap_threshold, effective_threshold, triggered_by, is_peak,
-                     verdict_reason, diagnosis_status, contract_hash, peak_identifier)
+                     verdict_reason, diagnosis_status, contract_hash, peak_identifier,
+                     profile_status, threshold_samples, is_evaluated)
                 VALUES %s
                 ON CONFLICT (window_decision_id)
                 DO UPDATE SET
@@ -835,7 +836,10 @@ def persist_analysis_run(
                     verdict_reason = EXCLUDED.verdict_reason,
                     diagnosis_status = EXCLUDED.diagnosis_status,
                     contract_hash = EXCLUDED.contract_hash,
-                    peak_identifier = EXCLUDED.peak_identifier
+                    peak_identifier = EXCLUDED.peak_identifier,
+                    profile_status = EXCLUDED.profile_status,
+                    threshold_samples = EXCLUDED.threshold_samples,
+                    is_evaluated = EXCLUDED.is_evaluated
             """, namespace_peak_decision_rows, page_size=1000)
 
             cursor.execute(

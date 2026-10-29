@@ -16,7 +16,9 @@ metadata:
     app: {{ .Values.app.name }}
     job-type: regular
 spec:
-  schedule: "*/15 * * * *"  # Každých 15 minut
+  schedule: "5,20,35,50 * * * *"
+  timeZone: "Etc/UTC"
+  startingDeadlineSeconds: 600
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -45,6 +47,7 @@ spec:
               command:
                 - python3
                 - /app/scripts/regular_phase.py
+                - --scheduled
 
               env:
                 # === Application Config ===
@@ -56,6 +59,12 @@ spec:
                   value: {{ .Values.env.REGISTRY_DIR | quote }}
                 - name: EXPORT_DIR
                   value: {{ .Values.env.EXPORT_DIR | quote }}
+                - name: STREAMING_SQLITE_DIR
+                  value: {{ .Values.scratch.mountPath | quote }}
+                {{- range $name := list "REGULAR_COLLECTION_START" "REGULAR_SETTLE_MINUTES" "REGULAR_MAX_WINDOWS" "REGULAR_CATCHUP_BUDGET_SECONDS" "REGULAR_LATE_RECHECK_HOURS" }}
+                - name: {{ $name }}
+                  value: {{ index $.Values.env $name | default "" | quote }}
+                {{- end }}
 
                 # === Database ===
                 - name: DB_HOST
@@ -170,20 +179,6 @@ spec:
                   value: {{ .Values.env.ALERT_MIN_DELTA_PCT | quote }}
                 - name: ALERT_CONTINUATION_LOOKBACK_MIN
                   value: {{ .Values.env.ALERT_CONTINUATION_LOOKBACK_MIN | quote }}
-                - name: LIFECYCLE_ANALYSIS_ENABLED
-                  value: {{ .Values.env.LIFECYCLE_ANALYSIS_ENABLED | default "false" | quote }}
-                - name: LIFECYCLE_ALERT_ENABLED
-                  value: {{ .Values.env.LIFECYCLE_ALERT_ENABLED | default "false" | quote }}
-                - name: LIFECYCLE_PROBE_MAX_HITS
-                  value: {{ .Values.env.LIFECYCLE_PROBE_MAX_HITS | default "200" | quote }}
-                - name: LIFECYCLE_FETCH_BATCH_SIZE
-                  value: {{ .Values.env.LIFECYCLE_FETCH_BATCH_SIZE | default "1000" | quote }}
-                - name: LIFECYCLE_MAX_RECORDS_PER_QUERY
-                  value: {{ .Values.env.LIFECYCLE_MAX_RECORDS_PER_QUERY | default "50000" | quote }}
-                - name: LIFECYCLE_MAX_PREDECESSOR_IDS
-                  value: {{ .Values.env.LIFECYCLE_MAX_PREDECESSOR_IDS | default "500" | quote }}
-                - name: LIFECYCLE_MIN_RETRIES
-                  value: {{ .Values.env.LIFECYCLE_MIN_RETRIES | default "3" | quote }}
                 - name: TEAMS_WEBHOOK_URL
                   value: {{ .Values.teams.webhook_url | quote }}
                 - name: TEAMS_EMAIL
@@ -198,11 +193,16 @@ spec:
                   value: {{ .Values.teams.enabled | quote }}
 
               resources:
-                {{- toYaml .Values.resources | nindent 16 }}
+                {{- $podResources := deepCopy .Values.resources }}
+                {{- $_ := set $podResources.requests "ephemeral-storage" .Values.scratch.ephemeralStorageRequest }}
+                {{- $_ := set $podResources.limits "ephemeral-storage" .Values.scratch.ephemeralStorageLimit }}
+                {{- toYaml $podResources | nindent 16 }}
 
               volumeMounts:
                 - name: data
                   mountPath: {{ .Values.persistence.mountPath }}
+                - name: scratch
+                  mountPath: {{ .Values.scratch.mountPath }}
 
           volumes:
             - name: data
@@ -212,6 +212,9 @@ spec:
               {{- else }}
               emptyDir: {}
               {{- end }}
+            - name: scratch
+              emptyDir:
+                sizeLimit: {{ .Values.scratch.sizeLimit | quote }}
 
           imagePullSecrets:
             - name: dockerhub
@@ -308,6 +311,7 @@ metadata:
     job-type: backfill
 spec:
   schedule: "0 9 * * *"  # Každý den v 09:00 UTC
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -358,6 +362,8 @@ spec:
                   value: {{ .Values.env.REGISTRY_DIR | quote }}
                 - name: EXPORT_DIR
                   value: {{ .Values.env.EXPORT_DIR | quote }}
+                - name: STREAMING_SQLITE_DIR
+                  value: {{ .Values.scratch.mountPath | quote }}
 
                 # === Database ===
                 - name: DB_HOST
@@ -491,11 +497,16 @@ spec:
                   value: {{ .Values.teams.enabled | quote }}
 
               resources:
-                {{- toYaml .Values.resources | nindent 16 }}
+                {{- $podResources := deepCopy .Values.resources }}
+                {{- $_ := set $podResources.requests "ephemeral-storage" .Values.scratch.ephemeralStorageRequest }}
+                {{- $_ := set $podResources.limits "ephemeral-storage" .Values.scratch.ephemeralStorageLimit }}
+                {{- toYaml $podResources | nindent 16 }}
 
               volumeMounts:
                 - name: data
                   mountPath: {{ .Values.persistence.mountPath }}
+                - name: scratch
+                  mountPath: {{ .Values.scratch.mountPath }}
 
           volumes:
             - name: data
@@ -505,6 +516,9 @@ spec:
               {{- else }}
               emptyDir: {}
               {{- end }}
+            - name: scratch
+              emptyDir:
+                sizeLimit: {{ .Values.scratch.sizeLimit | quote }}
 
           imagePullSecrets:
             - name: dockerhub
@@ -512,7 +526,7 @@ spec:
 ---
 # =============================================================================
 # CronJob 3: Threshold Recalculation (weekly, Sunday 03:00 UTC)
-# Přepočítá P93/CAP thresholdy z peak_raw_data (posledních 4 týdnů)
+# Train independent UTC weekly-slot profiles from completed namespace facts.
 # =============================================================================
 apiVersion: batch/v1
 kind: CronJob
@@ -554,8 +568,8 @@ spec:
                 - -c
                 - |
                   set -e
-                  echo "📈 Recalculating P93/CAP thresholds (last 4 weeks)..."
-                  python3 /app/scripts/core/calculate_peak_thresholds.py --weeks 4
+                  echo "Recalculating UTC weekly-slot percentile/MAD profiles..."
+                  python3 /app/scripts/core/calculate_peak_thresholds.py --weeks {{ .Values.init.thresholdWeeks | default 12 }}
 
                   echo ""
                   echo "✅ Thresholds recalculated"

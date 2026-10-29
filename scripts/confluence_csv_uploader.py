@@ -100,10 +100,7 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
         'occurrence_24h': '24h Count',
         'occurrence_2h': '2h Count',
     }
-    HIDDEN_COLUMNS = {
-        'jira',
-        'notes',
-    }
+    HIDDEN_COLUMNS = set()
     DEFAULT_WIDTH = 110
 
     # Cells that should preserve newlines (multi-line content)
@@ -240,7 +237,7 @@ def upload_to_confluence(page_id: str, html_content: str) -> bool:
     try:
         url = f"{CONFLUENCE_URL}/rest/api/content/{page_id}?expand=version"
         req = urllib.request.Request(url, headers=headers)
-        with opener.open(req) as response:
+        with opener.open(req, timeout=30) as response:
             page_data = json.loads(response.read().decode())
         current_version = page_data['version']['number']
         current_title = page_data['title']
@@ -269,7 +266,7 @@ def upload_to_confluence(page_id: str, html_content: str) -> bool:
             headers=headers,
             method='PUT'
         )
-        with opener.open(req) as response:
+        with opener.open(req, timeout=30) as response:
             response_data = json.loads(response.read().decode())
         print(f"✅ Successfully uploaded (version {response_data['version']['number']})")
         return True

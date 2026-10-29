@@ -1,0 +1,6 @@
+apiVersion: v2
+name: log-analyzer
+description: AI Log Analyzer scheduled analysis workloads
+type: application
+version: 0.3.0
+appVersion: "r109"

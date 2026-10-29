@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the operator-centered daily problem report."""
 
+import csv
 import os
 import sys
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ from backfill import (  # noqa: E402
     _validate_trace_evidence,
 )
 from core.streaming_aggregator import StreamingAggregator  # noqa: E402
+from core.problem_registry import PeakEntry, ProblemEntry  # noqa: E402
+from exports.table_exporter import TableExporter  # noqa: E402
 from pipeline import Pipeline  # noqa: E402
 
 
@@ -60,6 +63,119 @@ def _generator(analysis):
     return generator
 
 
+def test_known_peak_pattern_shares_include_hidden_contributors():
+    contributions = {'first': 40, 'second': 30, 'third': 20, 'fourth': 10}
+    registry = SimpleNamespace(problems={
+        key: SimpleNamespace(
+            behavior=f'Observed failure in {key}',
+            app_counts={f'app-{key}': count},
+        )
+        for key, count in contributions.items()
+    })
+    peak = SimpleNamespace(contributing_problems=contributions, raw_error_count=100)
+
+    behavior = TableExporter(registry)._format_peak_behavior(peak)
+
+    assert '100' in behavior
+    assert '40 ERROR lines, 40%' in behavior
+    assert '30 ERROR lines, 30%' in behavior
+    assert '20 ERROR lines, 20%' in behavior
+    assert '90 ERROR lines' not in behavior
+
+
+def test_known_peak_share_does_not_invent_diagnostic_confidence():
+    problem = ProblemEntry('KP-1', 'database:repair:lock', 'database', 'repair', 'LockException')
+    problem.behavior = 'Concurrent update rejected'
+    peak = SimpleNamespace(contributing_problems={problem.problem_key: 100}, raw_error_count=100)
+    exporter = TableExporter(SimpleNamespace(problems={problem.problem_key: problem}))
+
+    assert exporter._format_peak_root_cause(peak) == ''
+
+    problem.trace_root_cause = {
+        'message': 'Concurrent update rejected', 'service': 'cards', 'confidence': 'low',
+    }
+    root_cause = exporter._format_peak_root_cause(peak)
+    assert '[low]' in root_cause
+    assert '100% of ERROR lines' in root_cause
+    assert '[high' not in root_cause
+
+
+def test_known_errors_csv_is_a_catalog_with_separate_historical_evidence(tmp_path):
+    problem = ProblemEntry('KP-1', 'business:repair:missing', 'business', 'repair', 'NotFound')
+    problem.sample_messages = ['Client does not exist', 'Card does not exist | repair failed']
+    problem.occurrences = 500
+    problem.jira = 'KB-123'
+    problem.notes = 'Owner: cards; verify "repair" contract'
+    exporter = TableExporter(SimpleNamespace(problems={problem.problem_key: problem}, peaks={}))
+    output = tmp_path / 'errors.csv'
+
+    exporter.export_errors_csv(str(output))
+    with output.open(newline='', encoding='utf-8') as stream:
+        reader = csv.DictReader(stream)
+        assert reader.fieldnames[:3] == ['problem_id', 'cause', 'diagnosis']
+        row = next(reader)
+
+    assert row['cause'] == 'Client does not exist'
+    assert row['diagnosis'] == 'Not diagnosed; observed pattern only'
+    assert row['root_cause'] == ''
+    assert row['jira'] == problem.jira
+    assert row['notes'] == problem.notes
+    assert 'Client does not exist' not in row['behavior']
+    assert 'Card does not exist | repair failed' in row['behavior']
+    assert 'retained samples' in row['metric_scope']
+    assert row['occurrence_total'] == '500'
+
+
+def test_legacy_known_peak_does_not_turn_maximum_into_a_total(tmp_path):
+    peak = PeakEntry('PK-1', 'PEAK:business:repair:SPIKE', 'SPIKE', occurrences=3, max_value=200)
+    unrelated = ProblemEntry('KP-1', 'business:repair:unrelated', 'business', 'repair', 'Other')
+    unrelated.root_cause = 'Unrelated historical failure'
+    exporter = TableExporter(SimpleNamespace(
+        problems={unrelated.problem_key: unrelated}, peaks={peak.problem_key: peak},
+    ))
+    output = tmp_path / 'peaks.csv'
+
+    exporter.export_peaks_csv(str(output))
+    with output.open(newline='', encoding='utf-8') as stream:
+        reader = csv.DictReader(stream)
+        assert reader.fieldnames[:3] == ['peak_id', 'peak_type', 'diagnosis']
+        row = next(reader)
+
+    assert row['total_errors'] == ''
+    assert row['avg_errors_per_peak'] == ''
+    assert row['max_observed_errors'] == '200'
+    assert row['occurrence_count'] == '3'
+    assert row['root_cause'] == ''
+    assert 'not the UTC slot baseline' in row['metric_scope']
+    exporter.export_peaks_markdown(str(tmp_path / 'peaks.md'))
+    assert 'N/A' in (tmp_path / 'peaks.md').read_text(encoding='utf-8')
+
+
+def test_known_tables_markdown_preserves_structure_with_untrusted_log_text(tmp_path):
+    problem = ProblemEntry('KP-1', 'business:repair:missing', 'business', 'repair', 'NotFound')
+    problem.description = '<script>alert(1)</script> | rejected'
+    problem.affected_apps = {'cards|repair'}
+    problem.last_seen = datetime.now(timezone.utc)
+    problem.notes = '<img src=x> | operator note'
+    peak = PeakEntry('PK-1', 'PEAK:business:repair:SPIKE', 'SPIKE', occurrences=2)
+    peak.behavior = problem.description
+    peak.notes = problem.notes
+    exporter = TableExporter(SimpleNamespace(
+        problems={problem.problem_key: problem}, peaks={peak.problem_key: peak},
+    ))
+
+    for kind, width in [('errors', 12), ('peaks', 13)]:
+        output = tmp_path / f'{kind}.md'
+        getattr(exporter, f'export_{kind}_markdown')(str(output))
+        text = output.read_text(encoding='utf-8')
+        assert '<script>' not in text
+        assert '<img' not in text
+        assert '&#124;' in text
+        main_table = text.split('## All Problems', 1)[-1] if kind == 'errors' else text
+        table_lines = [line for line in main_table.splitlines() if line.startswith('|')]
+        assert all(len(line.split('|')) == width + 2 for line in table_lines)
+
+
 def test_operator_daily_report_uses_cause_families_and_operation_impact(monkeypatch):
     monkeypatch.setenv('OPERATOR_DAILY_REPORT_ENABLED', 'true')
     analysis = CauseFamilyAnalysis(
@@ -83,7 +199,18 @@ def test_operator_daily_report_uses_cause_families_and_operation_impact(monkeypa
     assert 'Logging amplification: 11.0x' in report
     assert 'Representative trace: trace-lock' in report
     assert 'Next action:' in report
+    assert 'Context coverage: not_fetched' in report
     assert 'Behavior (top patterns)' not in report
+
+
+def test_operator_report_exposes_incomplete_context(monkeypatch):
+    monkeypatch.setenv('OPERATOR_DAILY_REPORT_ENABLED', 'true')
+    analysis = CauseFamilyAnalysis(
+        families=(_family(context_coverage={'status': 'truncated'}),),
+        source_raw_error_lines=11, segmented_error_lines=11,
+        unsegmented_error_lines=0, unique_operations=1,
+    )
+    assert 'Context coverage: truncated' in _generator(analysis).generate_text_report()
 
 
 def test_operator_daily_report_marks_missing_trace_coverage(monkeypatch):

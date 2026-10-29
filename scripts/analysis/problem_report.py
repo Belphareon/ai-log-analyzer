@@ -338,6 +338,7 @@ class ProblemReportGenerator:
                 "",
                 "  Evidence:",
                 f"    Representative trace: {family.representative_trace_id or 'N/A'}",
+                f"    Context coverage: {family.context_coverage.get('status', 'not_fetched')} (representative trace, time-bounded)",
                 "",
                 "  Next action:",
                 f"    {family.next_action}",

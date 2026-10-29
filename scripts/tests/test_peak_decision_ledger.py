@@ -1,14 +1,16 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from scripts.core.peak_decision import (
     build_contributor_rows,
     build_decision_rows,
     decision_from_audit,
+    decision_from_dict,
     densify_decision_windows,
     materialize_namespace_decisions,
     materialize_decision_windows,
 )
-from scripts.pipeline.phase_c_detect import PhaseC_Detect
+from scripts.pipeline.phase_c_detect import DetectionResult, PhaseC_Detect
 
 
 WINDOW = datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
@@ -53,7 +55,7 @@ def _audit(namespace="pcb-sit-01-app", peak=True):
 
 
 class _PeakDetector:
-    def is_peak(self, value, namespace, day_of_week):
+    def is_peak(self, value, namespace, day_of_week, hour, quarter):
         return {
             "is_peak": True,
             "p93_threshold": 10,
@@ -185,3 +187,50 @@ def test_phase_c_peak_audit_carries_identifier_into_materialization():
     )
 
     assert decisions[0].peak_identifier == "SPIKE:NS:ns-a:2026-09-30T13:00:00+00:00"
+
+
+def test_phase_c_uses_utc_slot_and_exposes_init_and_missing_profiles():
+    from scripts.core.peak_detection import PeakDetector
+
+    profiles = PeakDetector()
+    profiles.load_thresholds_direct({
+        ('ns-a', 0, 0, 1): {'value': 100, 'samples': 2},
+        ('ns-a', 0, 2, 1): {'value': 10000, 'samples': 10},
+    })
+    detector = PhaseC_Detect(peak_detector=profiles, min_namespace_peak_value=1)
+    detector.namespace_fingerprint_baseline_available = True
+    detector.namespace_fingerprint_baselines[('ns-a', 'fp-a')] = [1] * 10
+    local = datetime(2026, 10, 26, 2, 15, tzinfo=timezone(timedelta(hours=2)))
+    detector.prepare_namespace_peak_results({
+        'fp-a': {'ns-a': {local: 200, local + timedelta(minutes=15): 200}},
+    })
+
+    init, missing = detector.namespace_peak_audit
+    assert init['is_namespace_peak']
+    assert init['p93_threshold'] == 100
+    assert init['cap_threshold'] is None
+    assert init['profile_status'] == 'init'
+    assert init['threshold_samples'] == 2
+    assert not missing['is_evaluated']
+    assert missing['verdict_reason'] == 'threshold_profile_missing'
+    detection = DetectionResult(fingerprint='fp-a')
+    assert detector._detect_spike(SimpleNamespace(fingerprint='fp-a'), detection)
+    assert 'profile=init' in detection.evidence[0].message
+    assert detection.evidence[0].details['threshold_samples'] == 2
+    from scripts.regular_phase import _threshold_evidence
+    payload = _threshold_evidence([SimpleNamespace(evidence=detection.evidence)])[0]
+    assert payload['profile_status'] == 'init'
+    assert payload['threshold_samples'] == 2
+    assert payload['cap_threshold'] is None
+
+    decisions = materialize_decision_windows(
+        detector.namespace_peak_audit,
+        ['ns-a'],
+        window_starts=[local, local + timedelta(minutes=15)],
+    )
+    restored = [decision_from_dict(item.to_dict()) for item in decisions]
+    assert restored[0].profile_status == 'init'
+    assert restored[0].threshold_samples == 2
+    assert restored[1].profile_status == 'missing'
+    assert not restored[1].is_evaluated
+    assert build_decision_rows(restored, 'run-1')[1][-3:] == ('missing', 0, False)

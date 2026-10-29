@@ -118,6 +118,9 @@ class NamespacePeakDecision:
     contract_hash: str = ""
     peak_identifier: str = ""
     run_id: str = ""
+    profile_status: str = "legacy"
+    threshold_samples: int = 0
+    is_evaluated: bool = True
 
     def validate(self) -> None:
         if not self.window_decision_id:
@@ -160,6 +163,9 @@ class NamespacePeakDecision:
             "contract_hash": self.contract_hash,
             "peak_identifier": self.peak_identifier,
             "run_id": self.run_id,
+            "profile_status": self.profile_status,
+            "threshold_samples": self.threshold_samples,
+            "is_evaluated": self.is_evaluated,
         }
 
 
@@ -199,6 +205,9 @@ def decision_from_dict(value: Mapping[str, Any]) -> NamespacePeakDecision:
         contract_hash=str(value.get("contract_hash") or ""),
         peak_identifier=str(value.get("peak_identifier") or "") if value.get("is_peak", value.get("is_namespace_peak", False)) else "",
         run_id=str(value.get("run_id") or ""),
+        profile_status=str(value.get("profile_status") or "legacy"),
+        threshold_samples=_count(value.get("threshold_samples")),
+        is_evaluated=bool(value.get("is_evaluated", True)),
     )
     decision.validate()
     return decision
@@ -287,6 +296,9 @@ def decision_from_audit(
         contract_hash=contract_hash,
         peak_identifier=peak_identifier,
         run_id=run_id,
+        profile_status=str(audit.get("profile_status") or "legacy"),
+        threshold_samples=_count(audit.get("threshold_samples")),
+        is_evaluated=bool(audit.get("is_evaluated", True)),
     )
     decision.validate()
     return decision
@@ -434,6 +446,9 @@ def build_decision_rows(
             decision.diagnosis_status,
             decision.contract_hash,
             decision.peak_identifier or None,
+            decision.profile_status,
+            decision.threshold_samples,
+            decision.is_evaluated,
         ))
     return sorted(rows, key=lambda row: (row[4], row[3]))
 

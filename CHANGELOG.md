@@ -4,6 +4,47 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r109 (2026-10-26) - Stabilizace uzitecnych zmen oproti r92
+
+### Opraveno
+
+- Cizi tichy namespace neobnovuje aktivni epizodu; vice-namespace recovery vyzaduje pozorovani vsech aktivnich scope. Rust se porovnava z cele cause family v okne, ne ze stridajicich se namespace prispevku.
+- Stabilni pokracovani se znovu neposila ani samotnym digestem. Stejne okno respektuje delivery dedup; high-confidence expected outcomes vstupuji do souhrnu a necerpaji limit primarnich detailu.
+- Namespace peak bez prokazane cause family dostane explicitni nizko-confidence souhrn i bez incident payloadu. Chyba odesilani uz nevraci uspesny beh; cooldown se zaznamena pred DB delivery auditem.
+- MAD=0 nesrazi nakonfigurovany percentil na median; matematika zustava zachovana i v novem slotovem modelu 5.0, ktery vyzaduje novy kompatibilni snapshot.
+- Reprezentativni trace kontext ma samostatny limit na trace a explicitni coverage. Neuplny fetch nenahradi puvodni ERROR dukazy; coverage zustava i po segmentaci operaci.
+- Selhani backfill registry zachova souhrn a nevyvola druhotnou chybu; odstranena reference na neexistujici storage helper.
+
+### Casovy Profil
+
+- Schvaleny model 5.0 pocita P95/MAD pro kazdy `(namespace, UTC weekday, hour, quarter)` samostatne vcetne skutecnych nul. Chybejici nebo neuspesne behy nejsou nuly. Globalni CAP, jine hodiny ani default threshold nesmi profil obejit.
+- Profil s 1-9 vzorky je pouzitelny `init`, od 10 `mature`; `missing` se nevyhodnoti a nesmi obnovit epizodu. Stav a pocet vzorku prochazi auditem i alert evidence. Migrace 011 pridava slotove snapshoty a auditni pole, starsi migrace zustavaji nedotcene.
+- DB historie pro init i tydenni trenovani je 12 tydnu, pozadovany horizont pod 10 tydnu je odmitnut. Kratsi dostupna historie vytvari init; kratka ES retence se nesmi vydavat za vyzraly model pomoci syntetickych nul.
+- Lokalni cached ES replay zachovava schvaleny UTC klic i pres CEST/CET; neni modelem stejne mistni hodiny. Kompletni aktualni coverage, vypocty a casy jsou v [reportu](plans/008_r109-prod-nprod-24h-replay.md). Nejde o potvrzeni produkcni presnosti ani nasazeni.
+
+### Zjednoduseno
+
+- Odstranen samostatny INFO workflow-lifecycle runtime, konfigurace a jeho testy. Historicka SQL migrace 008 zustava beze zmen kvuli checksum/upgrade kompatibilite.
+- Bezny init provede migrace a snapshot guard, ne nuceny historicky replay. Explicitni `init.bootstrap=true` pouziva `--bootstrap --facts-only` bez publikace, registry a notifikaci na sdilenem PVC.
+- Jedinym planovanym PVC writerem zustava regular kazdych 15 minut. Trvaly checkpoint a facts-only opravy doplnuji chybejici okna a zmenene nedavne pocty; summary ukazuje backlog. Backfill CronJob zustava pozastaven a vyzaduje rizene maintenance okno.
+- Novy DB-only reporter bez PVC a ES credentials publikuje trendy kazde 2 h a Known Peaks/Recent Daily Incidents jednou denne za poslednich 24 h, bez opakovaneho sberu. Neuplna coverage je oznacena, denni odeslani ceka na uplnost a reconciliaci; uspech a retry jsou evidovane pro kazdy cil migraci 012.
+- CSV/Markdown katalogy zacinaji pricinou/diagnostikou a zachovavaji Jira/notes. Historicky peak maximum neni soucet, podil contributoru neni confidence a historicky katalog je oddelen od denniho detekcniho ledgeru. Reporty escapujou logy a oznacuji metrický rozsah.
+- Zdrojova i GitOps sablona pouzivaji lokalni SQLite scratch. Installer zachovava existujici PVC request; nprod scope odpovida kanonickym 12 namespace.
+
+Produkce zustava na r92, dokud kandidat neprojde oznacenym replay/shadow porovnanim a canary. Lokalne pripravene tagy nejsou dukazem publikovane image ani nasazeni. Podrobnosti a akceptacni podminky jsou v `plans/007_r109-stabilization.md`.
+
+## r108 (2026-10-20) — Oddělení SQLite spill souborů od persistentního PVC
+
+### Opraveno
+
+- Streaming SQLite používá job-local `/scratch` místo `/data/registry`; backfill vždy zavře agregátor i při chybě ingestu a zachová počet načtených záznamů.
+- Selhání SQLite nyní uvádí cestu spill souboru a dostupné místo; backfill vypisuje volné místo registry a scratch před spuštěním workerů.
+- Selhání aktualizace registry vrací úplný chybový souhrn; CLI už nespadne sekundárním `KeyError: error_count`.
+
+### Změněno
+
+- Init, regular a backfill workloady používají `emptyDir` scratch s limitem 3500Mi; PVC pro registry a exporty se rozšiřuje na 40Gi bez mazání existujících dat.
+
 ## r107 (2026-10-19) — Oprava delivery audit FK a čitelnější peak reporty
 
 ### Opraveno

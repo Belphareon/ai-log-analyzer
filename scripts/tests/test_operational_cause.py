@@ -112,12 +112,13 @@ class OperationalCauseFamilyTests(unittest.TestCase):
         context = TraceTimeline("session-trace", [
             TraceEvent(None, "edge", "info", "context a", level="INFO", span_id="root-a"),
             TraceEvent(None, "edge", "info", "context b", level="INFO", span_id="root-b"),
-        ])
+        ], context_coverage={"status": "complete_within_range"})
 
         segments, estimate = segment_operation_timelines(timeline, context, 2)
 
         self.assertEqual(estimate.count, 2)
         self.assertEqual([segment.root_span_id for segment in segments], ["root-a", "root-b"])
+        self.assertTrue(all(segment.context_timeline.context_coverage == context.context_coverage for segment in segments))
         self.assertEqual(
             [[event.message for event in segment.context_timeline.events] for segment in segments],
             [["context a"], ["context b"]],

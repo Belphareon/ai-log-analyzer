@@ -8,22 +8,27 @@ Vše pro běžný provoz, manuální zásahy a diagnostiku. Systém běží **au
 
 | CronJob | Schedule | Co dělá | Typická doba |
 |---------|----------|---------|--------------|
-| `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → alert → export | 1–5 min |
-| `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish | 10–60 min |
-| `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet robustního Pxx/CAP z úplných fact rows | 1–5 min |
+| `log-analyzer` | `5,20,35,50 * * * *` UTC | Jediny PVC writer: live sber/detekce/alert, pak facts-only opravy pozdnich dat a mezer | 1–10 min |
+| `log-analyzer-reports` | `10 */2 * * *` UTC | DB-only trendy kazde 2 h; Known Peaks a Recent Daily Incidents jednou denne za poslednich 24 h | 1–15 min |
+| `log-analyzer-backfill` | pozastaven (`suspend: true`) | Rucni backfill + Confluence publish v maintenance okne | 10–60 min |
+| `log-analyzer-thresholds` | `0 3 * * 0` | Tydenni P95/MAD presnych UTC slotu z 12 tydnu uplnych faktu, bez globalniho CAP | 1–5 min |
 | `log-analyzer-maintenance` | `30 2 * * *` | Denní rollup + retention faktů | 1–30 min |
 
 ### Závislosti
 
 ```
-Init Job (jednorázově po instalaci)
-  └─ backfill → plní authoritative 15min facts + peak_investigation
-  └─ threshold calc → vypočítá robustní Pxx/CAP z complete facts
+Init Job (PreSync)
+  └─ migrace + snapshot guard → pri kompatibilnim modelu konec
+  └─ pri nekompatibilnim snapshotu → threshold calc z complete facts
+  └─ pouze init.bootstrap=true → facts-only backfill pred trenovanim
 
 Poté autonomně:
-  regular (*/15)       → fetch ES → Pxx/CAP + family gate → alert → plní complete facts
-  backfill (09:00)     → zpracuje předchozí den → publikuje Confluence
-  thresholds (Ne 03:00) → přepočítá robustní Pxx/CAP z posledních 4 týdnů
+  regular (kazdych 15 min) → live ES sber + UTC slot P95/MAD + alert → complete facts
+                          → count-only kontrola pozdnich dat → zmenena okna facts-only
+                          → nejstarsi chybejici okna facts-only → DB katalogova metadata
+  reports (kazde 2 h)  → pouze DB snapshot → trendy / denni Confluence a Teams report
+  backfill (rucne)     → pouze maintenance nebo explicitni bootstrap
+  thresholds (Ne 03:00) → P95/MAD presnych UTC slotu z poslednich 12 tydnu
   maintenance (02:30)  → denní rollupy → smaže fakta starší než retention limit
 ```
 
@@ -40,6 +45,8 @@ kubectl logs job/<job-name> -n ai-log-analyzer
 ## 2. Manuální spuštění jobů
 
 Když potřebujete spustit job mimo schedule:
+
+**r109 a RWO:** `regular` a rucni backfill nesmeji soucasne pouzivat PVC. Pred spustenim backfillu pozastavte regular CronJob, nechte existujici joby dobehnout a overte ukonceni vsech PVC podu i odpojeni volume. Samotne `concurrencyPolicy: Forbid` jine CronJoby ani rucni Joby neserializuje. Po uspesnem backfillu, dokonceni podu a odpojeni volume regular znovu povolte. Backfill zustava pozastaveny. Automatickou publikaci zajistuje samostatny `log-analyzer-reports` bez PVC a bez ES pristupovych udaju; data znovu nesbira.
 
 ```bash
 # Regular phase
@@ -60,7 +67,9 @@ kubectl delete job manual-regular manual-backfill manual-thresholds -n ai-log-an
 
 ### Re-bootstrap (init job)
 
-Pro přeplnění dat od nuly (změna namespace, nové prostředí):
+Pro doplneni historickych faktu (zmena namespace, nove prostredi) nastavte jednorazove `init.bootstrap=true`, pozadovany pocet dni a workeru. Init pouzije `--bootstrap --facts-only` a lokalni `emptyDir`, nikoli sdilene PVC. Nepublikuje reporty ani neodesila upozorneni. Po uspechu vratte `init.bootstrap=false`. `init.quiesce=false` je bezny default; quiesce/resume hooky jsou pouze explicitni maintenance volba.
+
+Model 5.0 vyzaduje novy snapshot presnych UTC slotu; stary denni model 4.1 neni kompatibilni. Pri prvnim prechodu nebo rozsireni nprod z 6 na kanonickych 12 namespace init zkusi trenovani nad existujicimi uplnymi fakty. Pokud coverage snapshotu nestaci, skonci chybou; operator musi explicitne povolit bootstrap. Kratsi historie muze vytvorit init profily, nikoli mature. Bez kompatibilniho snapshotu regular fail-closed nebezi. `init.forceThresholdRefresh=true` vynuti pouze trenovani, nikoli historicky fetch.
 
 ```bash
 # Uprav init values nebo image v infra-apps a spusť Argo sync.
@@ -68,13 +77,32 @@ Pro přeplnění dat od nuly (změna namespace, nové prostředí):
 kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
-Argo Application používá běžný apply a `ApplyOutOfSyncOnly=true`; globální `Replace=true` je zakázaný kvůli immutable bound PVC. Init Job je jediný resource s `Force=true,Replace=true`. Ruční mazání Jobu před běžným syncem není potřeba.
+Init je ArgoCD PreSync hook s `BeforeHookCreation,HookSucceeded`. Globalni `Replace=true` je zakazany kvuli immutable bound PVC. Hook nepotrebuje sdilene PVC a bezny release nezvetsuje volume automaticky. Zadna zmena chartu sama neopravi drive zaseknuty Cinder VolumeAttachment; ten vyzaduje samostatne platformni overeni.
 
 ---
 
 ## 3. Parametry — values.yaml
 
 Všechny parametry jsou v `values.yaml` daného prostředí (v infra-apps repu).
+
+### Sber a publikace z faktu
+
+| Parametr | Default | Popis |
+|----------|---------|-------|
+| `env.REGULAR_COLLECTION_START` | prazdny | Start prvni aktivace; prazdny znamena posledni uzavrene okno. Explicitni ISO UTC cas musi byt zarovnany na 15 minut. Ulozeny checkpoint uz dalsi behy neposouvaji ani touto promennou. |
+| `env.REGULAR_SETTLE_MINUTES` | `2` | Prodleva pred vyberem uzavreneho okna kvuli indexaci ES |
+| `env.REGULAR_MAX_WINDOWS` | `8` | Maximalni velikost planu live + starych mezer; opravy pozdnich dat maji vlastni horizont a sdileny casovy rozpocet |
+| `env.REGULAR_CATCHUP_BUDGET_SECONDS` | `480` | Po vycerpani se nespousti dalsi opravne okno; probihaici fetch se nepreemptuje |
+| `env.REGULAR_LATE_RECHECK_HOURS` | `2` | Nedavna complete okna se overi pres ES `_count`; plny fetch jen pri zmene poctu |
+| `env.DAILY_REPORT_HOUR_UTC` | `7` | Pevny konec klouzaveho 24h dne. Pri cron `10 */2` se den koncici 07:00 poprve publikuje v 08:10 UTC. |
+
+Migrace 012 pridava scope checkpoint, DB kopii katalogovych metadat a publication ledger. Regular nejdrive zpracuje aktualni live okno, pak nedavne count opravy a nakonec nejstarsi mezery. Historicke opravy nepocitaji nove alerty, nemeni epizody ani registry. Summary obsahuje `pending_window_count`; `success` znamena uspesne provedene kroky, nikoli nutne prazdny backlog. Prubeh live workflow ma samostatny completion marker: retry po commitu faktu nesmi preskocit nedokoncene alertovani.
+
+Prvni aktivace automaticky neopravuje starsi pre-r109 mezery. Pro pozadovany zaber nastavte start pred prvnim behom nebo pouzijte explicitni bootstrap. Mezery zustavaji planovatelne, ale doplneni zavisi na dostupnosti ES a kapacite jobu. Pozdni logy za horizontem se samy nereviduji; stejny pocet pri nahrade dokumentu `_count` neodhali. Skutecne nuly jsou complete okna, chybejici behy nikoli.
+
+Reporter pouziva scoped autoritativni fakta a konzistentni DB snapshot; nepouziva ES fetch, souborovy registry ani DDL credentials. Jira/notes a historicky Known Peaks katalog cte z DB kopie vytvorene regular writerem. Denni tabulka detekcnich rozhodnuti neni opraveny volume soucet ani dukaz odeslanych alertu; historicky katalog ma vlastni oznaceny metrický rozsah. Trendy porovnavaji sousedni stejne intervaly; bez uplneho zakladu jsou `N/A`.
+
+Neuplne stranky jsou viditelne oznacene a muzou se opravit po doplneni faktu. Denni Teams/email se odesle teprve pri vsech 96 oknech a shode cause-fact objemu s namespace fakty. Publication ledger eviduje uspech pro kazdy cil samostatne; uspesny cil se pri beznem retry neposila znovu a partial verze neblokuje finalni. Pad mezi externim prijetim zpravy a DB commitem stale muze zpusobit duplicitu: nejde o exactly-once doruceni ani potvrzeni precteni v Teams.
 
 ### Alerting
 
@@ -87,27 +115,13 @@ Všechny parametry jsou v `values.yaml` daného prostředí (v infra-apps repu).
 | `env.ALERT_MIN_DELTA_PCT` | `30` | Min. % změna pro znovu-odeslání |
 | `env.ALERT_CONTINUATION_LOOKBACK_MIN` | `60` | Lookback pro pokračující peak |
 
-### Workflow lifecycle diagnostics
-
-| Parametr | Default | Popis |
-|----------|---------|-------|
-| `env.LIFECYCLE_ANALYSIS_ENABLED` | `false` | Zapne INFO-level lifecycle probe a evidence fetch |
-| `env.LIFECYCLE_ALERT_ENABLED` | `false` | Povolí alert až po complete persisted high-confidence runu |
-| `env.LIFECYCLE_PROBE_MAX_HITS` | `200` | Cap discovery probe; cap znamená partial run |
-| `env.LIFECYCLE_FETCH_BATCH_SIZE` | `1000` | PIT/search_after page size |
-| `env.LIFECYCLE_MAX_RECORDS_PER_QUERY` | `50000` | Cap záznamů per root/predecessor query |
-| `env.LIFECYCLE_MAX_PREDECESSOR_IDS` | `500` | Cap predecessor ID per scope |
-| `env.LIFECYCLE_MIN_RETRIES` | `3` | Minimum retry/return cyklů pro kandidáta |
-
-Zavádění: nejprve zapnout pouze `LIFECYCLE_ANALYSIS_ENABLED`, ověřit complete/partial runy a evidence v DB i logu regular CronJobu, a teprve poté povolit `LIFECYCLE_ALERT_ENABLED`. Partial nebo failed run je diagnostický stav, nikdy alert.
-
 ### Detekce
 
 | Parametr | Default | Popis |
 |----------|---------|-------|
-| `env.PERCENTILE_LEVEL` | `0.93` | Uživatelská citlivost namespace Pxx thresholdu |
-| `env.MIN_SAMPLES_FOR_THRESHOLD` | `10` | Min vzorků pro spolehlivý threshold |
-| `env.DEFAULT_THRESHOLD` | `100` | CAP pro namespace bez vlastního thresholdu v kompatibilním snapshotu |
+| `env.PERCENTILE_LEVEL` | `0.95` | Percentil pro každý UTC týdenní 15min slot samostatně |
+| `env.MIN_SAMPLES_FOR_THRESHOLD` | `10` | Minimum pro mature, nelze snížit pod 10; méně vzorků je použitelný init |
+| `env.DEFAULT_THRESHOLD` | `100` | Legacy proměnná, slotový model ji nepoužívá; missing se nevyhodnotí |
 | `env.FINGERPRINT_SPIKE_MIN_COUNT` | `20` | Absolutní minimum pro historickou cause family |
 | `env.FINGERPRINT_SPIKE_MAD_MULTIPLIER` | `6` | MAD násobek pro namespace/fingerprint family gate |
 
@@ -117,10 +131,15 @@ Pokud nelze inicializovat `PeakDetector` z authoritative threshold snapshotu, re
 
 | Parametr | Default | Popis |
 |----------|---------|-------|
+| `init.bootstrap` | `false` | Explicitni facts-only historicky fetch pred trenovanim |
+| `init.quiesce` | `false` | Volitelne maintenance quiesce/resume hooky |
+| `init.forceThresholdRefresh` | `false` | Trenovani i pri kompatibilnim snapshotu |
 | `init.backfillDays` | `21` | Dní zpětně pro backfill |
 | `init.backfillWorkers` | `4` | Paralelní workery |
-| `init.thresholdWeeks` | `3` | Týdnů pro výpočet thresholdů |
+| `init.thresholdWeeks` | `12` | DB historie pro init i týdenní přepočet; požadovaný horizont alespoň 10 týdnů |
 | `init.activeDeadlineSeconds` | `14400` | Max doba běhu (4h) |
+
+Zdrojovy i pripraveny nprod chart maji DB-only maintenance a `FACT_RETENTION_DAYS=90`, tedy dostatecny planovany horizont pro 10 vzorku pri souvislem sberu. Jde o konfiguraci, ne dukaz skutecne retence firemni DB. Denni rollupy nenahradi 15min sloty. Pred nasazenim overte realnou DB coverage; kratky ES replay doklada jen init chovani, nikoli vyzralost modelu. Pozorovane nuly se pocitaji, chybejici behy nikoli.
 
 ### Alerting profily
 
@@ -167,7 +186,7 @@ env:
    kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
    ```
 
-> Bez historických dat pro nový namespace použije detektor fallback `DEFAULT_THRESHOLD`.
+> Bez profilu pro přesný UTC slot je rozhodnutí `missing`, `is_evaluated=False`, bez CAP/default fallbacku a bez recovery epizody. S 1-9 vzorky se použije vlastní slotový práh jako `init`, od 10 jako `mature` při výchozím minimu. UTC hodina není přes přechod CEST/CET stejná místní hodina.
 
 ---
 

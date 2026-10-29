@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional, Tuple
 
 
-POLICY_VERSION = "peak_notification_policy_v1"
+POLICY_VERSION = "peak_notification_policy_v2"
 STATE_ORDER = {
     "START": 0,
     "RECURRENCE": 1,
@@ -116,6 +116,7 @@ def decide_notification_candidates(
     values = [dict(candidate) for candidate in candidates]
     ranked = sorted(values, key=_rank)
     decisions = []
+    primary_count = 0
     for rank, candidate in enumerate(ranked, 1):
         episode_state = str(candidate.get("episode_state") or "CONTINUATION")
         episode_id = str(candidate.get("episode_id") or "")
@@ -124,23 +125,34 @@ def decide_notification_candidates(
         if candidate.get("route_suppressed"):
             outcome = "route_suppressed"
             reason = str(candidate.get("route_suppression_reason") or "route_policy")
+        elif candidate.get("no_material_change"):
+            outcome = "no_material_change"
+            reason = str(candidate.get("no_material_change_reason") or "no_material_change")
+        elif candidate.get("diagnosis_status") == "undiagnosed":
+            outcome = "digest_only"
+            reason = "namespace_peak_undiagnosed"
+        elif (
+            candidate.get("assessment") == "expected_outcome_logged_as_error"
+            and candidate.get("confidence") == "high"
+            and episode_state in {"START", "RECURRENCE"}
+        ):
+            outcome = "digest_only"
+            reason = "expected_outcome_high_confidence"
         elif episode_state in {"START", "RECURRENCE", "EXPANSION", "ESCALATION"}:
             outcome = "primary_send"
             reason = episode_state.lower()
         elif episode_state == "CONTINUATION":
-            if candidate.get("no_material_change"):
-                outcome = "no_material_change"
-                reason = str(candidate.get("no_material_change_reason") or "no_material_change")
-            else:
-                outcome = "primary_send" if _material_change(candidate) else "digest_only"
-                reason = "material_change" if outcome == "primary_send" else "stable_continuation"
+            outcome = "primary_send" if _material_change(candidate) else "no_material_change"
+            reason = "material_change" if outcome == "primary_send" else "stable_continuation"
         else:
             outcome = "digest_only"
             reason = episode_state.lower()
 
-        if outcome == "primary_send" and detail_limit > 0 and rank > detail_limit:
-            outcome = "digest_only"
-            reason = f"detail_limit_{detail_limit}"
+        if outcome == "primary_send":
+            primary_count += 1
+            if detail_limit > 0 and primary_count > detail_limit:
+                outcome = "digest_only"
+                reason = f"detail_limit_{detail_limit}"
 
         test_origin = str(
             candidate.get("test_origin_label")

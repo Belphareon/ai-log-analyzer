@@ -30,7 +30,9 @@ from __future__ import annotations
 import os
 import sys
 import gc
+import errno
 import sqlite3
+import shutil
 import tempfile
 import time
 from collections import Counter, deque
@@ -148,10 +150,30 @@ class StreamingAggregator:
     # ------------------------------------------------------------------ SQLite
     def _open_sqlite(self, sqlite_path: Optional[str]) -> None:
         if sqlite_path is None:
-            registry_dir = os.getenv('REGISTRY_DIR', '')
-            base_dir = registry_dir if registry_dir and os.path.isdir(registry_dir) else tempfile.gettempdir()
+            configured_dir = os.getenv('STREAMING_SQLITE_DIR', '').strip()
+            if configured_dir:
+                os.makedirs(configured_dir, exist_ok=True)
+                base_dir = configured_dir
+            else:
+                base_dir = tempfile.gettempdir()
             self._remove_stale_sqlite_files(base_dir)
-            fd, sqlite_path = tempfile.mkstemp(prefix='streaming_events_', suffix='.sqlite', dir=base_dir)
+            try:
+                fd, sqlite_path = tempfile.mkstemp(
+                    prefix='streaming_events_', suffix='.sqlite', dir=base_dir
+                )
+            except OSError as error:
+                if error.errno != errno.ENOSPC:
+                    raise
+                try:
+                    free_bytes = shutil.disk_usage(base_dir).free
+                except OSError:
+                    free_bytes = None
+                raise OSError(
+                    error.errno,
+                    f'Cannot create SQLite spill in {base_dir}; '
+                    f'free_bytes={free_bytes}',
+                    base_dir,
+                ) from error
             os.close(fd)
         self._sqlite_path = sqlite_path
         # fresh file
@@ -160,15 +182,40 @@ class StreamingAggregator:
                 os.remove(sqlite_path)
         except OSError:
             pass
-        self._conn = sqlite3.connect(sqlite_path)
-        self._conn.execute('PRAGMA journal_mode=OFF')
-        self._conn.execute('PRAGMA synchronous=OFF')
-        self._conn.execute(
-            'CREATE TABLE ev ('
-            'fp TEXT, trace_id TEXT, ts TEXT, ns TEXT, app TEXT, '
-            'span TEXT, parent TEXT, msg TEXT, etype TEXT, norm TEXT)'
-        )
-        self._conn.commit()
+        try:
+            self._conn = sqlite3.connect(sqlite_path)
+            self._conn.execute('PRAGMA journal_mode=OFF')
+            self._conn.execute('PRAGMA synchronous=OFF')
+            self._conn.execute(
+                'CREATE TABLE ev ('
+                'fp TEXT, trace_id TEXT, ts TEXT, ns TEXT, app TEXT, '
+                'span TEXT, parent TEXT, msg TEXT, etype TEXT, norm TEXT)'
+            )
+            self._conn.commit()
+        except (OSError, sqlite3.Error) as error:
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except sqlite3.Error:
+                    pass
+                self._conn = None
+            try:
+                os.remove(sqlite_path)
+            except OSError:
+                pass
+            self._sqlite_path = None
+            if 'full' in str(error).lower() or (
+                isinstance(error, OSError) and error.errno == errno.ENOSPC
+            ):
+                try:
+                    free_bytes = shutil.disk_usage(os.path.dirname(sqlite_path) or '.').free
+                except OSError:
+                    free_bytes = None
+                raise RuntimeError(
+                    f'SQLite spill initialization failed at {sqlite_path}; '
+                    f'free_bytes={free_bytes}: {error}'
+                ) from error
+            raise
 
     @staticmethod
     def _remove_stale_sqlite_files(base_dir: str) -> None:
@@ -193,10 +240,24 @@ class StreamingAggregator:
     def _flush_sqlite(self) -> None:
         if self._conn is None or not self._pending:
             return
-        self._conn.executemany(
-            'INSERT INTO ev VALUES (?,?,?,?,?,?,?,?,?,?)', self._pending
-        )
-        self._conn.commit()
+        try:
+            self._conn.executemany(
+                'INSERT INTO ev VALUES (?,?,?,?,?,?,?,?,?,?)', self._pending
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError as error:
+            if 'full' not in str(error).lower():
+                raise
+            try:
+                free_bytes = shutil.disk_usage(
+                    os.path.dirname(self._sqlite_path or '.') or '.'
+                ).free
+            except OSError:
+                free_bytes = None
+            raise sqlite3.OperationalError(
+                f'{error}; SQLite spill path={self._sqlite_path}; '
+                f'free_bytes={free_bytes}'
+            ) from error
         self._pending.clear()
 
     # ------------------------------------------------------------------ ingest
@@ -412,6 +473,8 @@ class StreamingAggregator:
         if self._conn is not None:
             try:
                 self._conn.close()
+            except sqlite3.Error:
+                pass
             finally:
                 self._conn = None
         if self._sqlite_path and os.path.exists(self._sqlite_path):

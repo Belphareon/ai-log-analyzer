@@ -52,6 +52,7 @@ def test_same_cause_continues_and_new_namespace_expands():
     assert set(episode.material_change_reasons) == {
         "new_namespace",
         "material_impact_increase",
+        "operation_impact_increase",
     }
     states = [transition.state for transition in correlator.last_transitions]
     assert states == ["START", "EXPANSION", "EXPANSION"]
@@ -74,6 +75,26 @@ def test_duplicate_observation_is_a_noop_for_persistence_transitions():
         ]},
     )()
     assert len(build_peak_episode_window_rows(collection)) == 1
+
+
+def test_missing_slot_profile_does_not_count_as_episode_recovery():
+    peak = {
+        'window_decision_id': 'peak-1', 'stream_key': 'test',
+        'signal_namespace': 'ns-a', 'window_start_utc': START.isoformat(),
+        'is_peak': True, 'namespace_raw_lines': 100,
+    }
+    missing = {
+        **peak, 'window_decision_id': 'missing-1',
+        'window_start_utc': (START + timedelta(minutes=15)).isoformat(),
+        'is_peak': False, 'profile_status': 'missing', 'is_evaluated': False,
+        'verdict_reason': 'threshold_profile_missing',
+    }
+
+    episodes, transitions = materialize_episode_state([peak, missing], [])
+
+    assert [item['state'] for item in transitions] == ['START']
+    assert episodes[0]['state'] == 'START'
+    assert episodes[0]['non_peak_windows'] == 0
 
 
 def test_multi_namespace_family_counts_are_added_once_per_window():
@@ -105,7 +126,7 @@ def test_multi_namespace_family_counts_are_added_once_per_window():
 
     episodes, transitions = materialize_episode_state(decisions, families)
 
-    assert episodes[0]["current_raw_error_lines"] == 40
+    assert episodes[0]["current_raw_error_lines"] == 100
     assert episodes[0]["cumulative_raw_error_lines"] == 100
     assert episodes[0]["cumulative_operation_occurrences"] == 4
     assert [item["allocated_raw_error_lines"] for item in transitions] == [60, 40]
@@ -274,8 +295,59 @@ def test_prior_diagnosed_episode_recovers_from_no_cause_decisions():
     assert second_episodes[0].non_peak_windows == 1
     assert [transition.state for transition in second_correlator.last_transitions] == [
         "RECOVERY",
-        "RECOVERY",
     ]
+
+
+def test_unrelated_quiet_namespaces_cannot_recover_an_active_episode():
+    for quiet_namespace in ("a-unrelated", "z-unrelated"):
+        correlator = PeakEpisodeCorrelator()
+        correlator.correlate([
+            observation(offset, namespace=namespace, peak=peak, lines=50)
+            for offset in range(3)
+            for namespace, peak in (("m-active", True), (quiet_namespace, False))
+        ])
+        assert [item.state for item in correlator.last_transitions] == [
+            "START", "CONTINUATION", "CONTINUATION"
+        ]
+
+
+def test_multi_namespace_recovery_requires_all_scopes_to_be_quiet():
+    correlator = PeakEpisodeCorrelator()
+    episodes = correlator.correlate([
+        observation(0, namespace="ns-a"),
+        observation(0, namespace="ns-b"),
+        observation(1, namespace="ns-a", peak=False),
+        observation(1, namespace="ns-b"),
+    ])
+    assert len(episodes) == 1
+    assert all(item.state != "RECOVERY" for item in correlator.last_transitions)
+
+
+def test_quiet_namespace_recovers_all_its_active_causes():
+    correlator = PeakEpisodeCorrelator()
+    episodes = correlator.correlate([
+        observation(0, cause="cause-a"),
+        observation(0, cause="cause-b"),
+        observation(1, peak=False),
+    ])
+    assert len(episodes) == 2
+    assert all(item.state == "RECOVERY" for item in episodes)
+
+
+def test_stable_multi_namespace_family_does_not_escalate_between_namespaces():
+    correlator = PeakEpisodeCorrelator()
+    episodes = correlator.correlate([
+        observation(offset, namespace=namespace, lines=lines)
+        for offset in range(3)
+        for namespace, lines in (("ns-a", 60), ("ns-b", 40))
+    ])
+    assert len(episodes) == 1
+    assert episodes[0].current_raw_error_lines == 100
+    assert episodes[0].cumulative_raw_error_lines == 300
+    assert all(
+        item.state == "CONTINUATION"
+        for item in correlator.last_transitions if item.window_start_utc > START
+    )
 
 
 def test_undiagnosed_fallback_requires_contributor_overlap():

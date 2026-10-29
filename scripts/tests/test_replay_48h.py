@@ -5,6 +5,8 @@ import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.normpath(os.path.join(HERE, '..'))
@@ -84,27 +86,30 @@ def test_replay_threshold_bundle_is_versioned_and_uses_training_cutoff():
     cutoff = datetime(2026, 9, 20, 11, 0, tzinfo=timezone.utc)
     bundle = replay._serialize_threshold_bundle(
         {
-            ('ns-a', 6): [0.0, 10.0, 20.0, 30.0],
+            ('ns-a', 6, 11, 0): [0.0, 10.0, 20.0, 30.0],
         },
         {
             'min': datetime(2026, 8, 23, 0, 0, tzinfo=timezone.utc),
             'max': datetime(2026, 9, 20, 10, 45, tzinfo=timezone.utc),
         },
         cutoff,
-        weeks=4,
+        weeks=12,
         percentile_level=0.93,
     )
 
-    assert bundle['bundle_id'] == 'replay-memory-v4.0-asof-20260920T110000Z'
+    assert bundle['bundle_id'] == 'replay-memory-v5.0-asof-20260920T110000Z'
     assert bundle['metadata']['training_cutoff'] == cutoff.isoformat()
     assert bundle['metadata']['persistence'] == 'none'
     assert bundle['thresholds'] == [{
         'namespace': 'ns-a',
         'day_of_week': 6,
+        'hour_of_day': 11,
+        'quarter_hour': 0,
         'value': 30.0,
-        'samples': 3,
+        'samples': 4,
+        'profile_status': 'init',
     }]
-    assert bundle['caps']['ns-a'] == {'value': 30.0, 'samples': 3}
+    assert bundle['caps'] == {}
 
 
 def test_replay_stops_after_first_window_crash_without_result(monkeypatch):
@@ -147,3 +152,108 @@ def test_replay_stops_after_first_window_crash_without_result(monkeypatch):
     assert report['status'] == 'incomplete'
     assert report['summary']['completed_windows'] == 0
     assert report['failures'][0]['output'] == 'detector traceback'
+
+
+def test_es_count_query_requires_exact_dense_reconciled_windows():
+    start = datetime(2026, 10, 26, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 26, 0, 15, tzinfo=timezone.utc)
+    payload = {
+        'hits': {'total': {'value': 5, 'relation': 'eq'}},
+        '_shards': {'failed': 0}, 'timed_out': False,
+        'aggregations': {'namespaces': {'buckets': {'ns-a': {'windows': {'buckets': [
+            {'key': int(start.timestamp() * 1000), 'doc_count': 5},
+        ]}}}}},
+    }
+    session = SimpleNamespace(post=lambda *_args, **_kwargs: SimpleNamespace(
+        raise_for_status=lambda: None, json=lambda: payload,
+    ))
+    assert replay.fetch_es_namespace_counts(session, 'https://es', 'logs-*', ['ns-a'], start, end) == [(start, 'ns-a', 5)]
+    payload['hits']['total']['value'] = 6
+    with pytest.raises(RuntimeError, match='reconcile'):
+        replay.fetch_es_namespace_counts(session, 'https://es', 'logs-*', ['ns-a'], start, end)
+    payload['timed_out'] = True
+    with pytest.raises(RuntimeError, match='incomplete'):
+        replay.fetch_es_namespace_counts(session, 'https://es', 'logs-*', ['ns-a'], start, end)
+
+
+@pytest.mark.parametrize('percentile_level', [0.94, 0.95])
+@pytest.mark.parametrize('retained_weeks', [1, 2])
+def test_es_replay_trains_only_before_holdout_and_uses_real_detector(monkeypatch, percentile_level, retained_weeks):
+    from datetime import timedelta
+    import dotenv
+    import requests
+    import core.namespace_contract as contract
+    end = datetime(2026, 10, 27, 7, tzinfo=timezone.utc)
+    cutoff = end - timedelta(hours=24)
+    retained_start = cutoff - timedelta(weeks=retained_weeks)
+    captured_hosts = []
+
+    class Session:
+        def mount(self, _host, adapter):
+            assert adapter.max_retries.total == 2
+            assert adapter.max_retries.allowed_methods == ['POST']
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+    def counts(_session, host, _indices, _namespaces, start, stop):
+        captured_hosts.append(host)
+        return [
+            (timestamp, 'ns-a', 0 if timestamp < retained_start else 100 if timestamp == cutoff else 10)
+            for timestamp in [start + timedelta(minutes=15 * index)
+                              for index in range(int((stop - start).total_seconds() // 900))]
+        ]
+
+    monkeypatch.setattr(dotenv, 'dotenv_values', lambda *_args: {'ES_USER': 'test', 'ES_PASSWORD': 'test', 'ES_INDEX': 'logs-*'})
+    monkeypatch.setattr(requests, 'Session', Session)
+    monkeypatch.setattr(contract, 'load_canonical_namespaces', lambda: ('ns-a',))
+    monkeypatch.setattr(replay, 'fetch_es_namespace_counts', counts)
+    monkeypatch.setenv('ES_HOST', 'https://wrong-global-profile')
+    monkeypatch.delenv('NPROD_ES_HOST', raising=False)
+    monkeypatch.delenv('NPROD_MONITORED_NAMESPACES', raising=False)
+    report = replay.run_es_replay(end, 24, 12, 'nprod', percentile_level)
+    assert set(captured_hosts) == {'https://elasticsearch-test.kb.cz:9500'}
+    assert report['threshold_bundle']['metadata']['training_cutoff'] == cutoff.isoformat()
+    assert report['threshold_bundle']['metadata']['training_weeks'] == 12
+    assert report['threshold_bundle']['metadata']['training_start'] == retained_start.isoformat()
+    assert {item['samples'] for item in report['threshold_bundle']['thresholds']} == {retained_weeks}
+    assert report['threshold_bundle']['metadata']['history_completeness'] == 'unverified_es_retention_and_ingestion'
+    assert report['period_start'] == '2026-10-26T07:00:00+00:00'
+    assert report['windows'][0]['window_start'] == report['period_start']
+    assert report['windows'][0]['error_count'] == 100
+    assert report['windows'][0]['is_peak']
+    assert len(report['windows']) == 96
+    assert report['summary']['errors'] == 1050
+    assert report['summary']['namespace_volume_peaks'] == 1
+    assert report['summary']['profile_status_counts'] == {'init': 96, 'mature': 0, 'missing': 0}
+    assert all(item['percentile_level'] == percentile_level for item in report['windows'])
+    assert report['verification_scope'] == 'namespace_volume_detector_only'
+
+
+@pytest.mark.parametrize('fault', ['shard', 'missing_namespace', 'missing_window', 'misaligned_window'])
+def test_es_count_query_rejects_partial_namespace_grids(fault):
+    start = datetime(2026, 10, 26, tzinfo=timezone.utc)
+    end = datetime(2026, 10, 26, 0, 15, tzinfo=timezone.utc)
+    payload = {
+        'hits': {'total': {'value': 0, 'relation': 'eq'}}, '_shards': {'failed': 0},
+        'aggregations': {'namespaces': {'buckets': {'ns-a': {'windows': {'buckets': [
+            {'key': int(start.timestamp() * 1000), 'doc_count': 0},
+        ]}}}}},
+    }
+    session = SimpleNamespace(post=lambda *_args, **_kwargs: SimpleNamespace(
+        raise_for_status=lambda: None, json=lambda: payload,
+    ))
+    assert replay.fetch_es_namespace_counts(session, 'https://es', 'logs-*', ['ns-a'], start, end) == [(start, 'ns-a', 0)]
+    if fault == 'shard':
+        payload['_shards']['failed'] = 1
+    elif fault == 'missing_namespace':
+        payload['aggregations']['namespaces']['buckets'] = {}
+    elif fault == 'missing_window':
+        payload['aggregations']['namespaces']['buckets']['ns-a']['windows']['buckets'] = []
+    else:
+        payload['aggregations']['namespaces']['buckets']['ns-a']['windows']['buckets'][0]['key'] += 1
+    with pytest.raises(RuntimeError):
+        replay.fetch_es_namespace_counts(session, 'https://es', 'logs-*', ['ns-a'], start, end)

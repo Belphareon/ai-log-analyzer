@@ -10,7 +10,7 @@ Detailní popis celého procesu: od načtení logů přes detekci anomálií až
 2. [Načítání logů z Elasticsearch](#2-načítání-logů-z-elasticsearch)
 3. [Fingerprinting a normalizace](#3-fingerprinting-a-normalizace)
 4. [Měření a baseline](#4-měření-a-baseline)
-5. [Detekce anomálií — Pxx/CAP a cause-family gate](#5-detekce-anomálií--pxxcap-a-cause-family-gate)
+5. [Detekce anomálií: UTC slot a cause-family gate](#5-detekce-anomálií-utc-slot-a-cause-family-gate)
 6. [Ostatní detekční pravidla](#6-ostatní-detekční-pravidla)
 7. [Skórování (0–100)](#7-skórování-0100)
 8. [Klasifikace](#8-klasifikace)
@@ -123,51 +123,50 @@ Tyto metriky se ukládají do DB (`peak_investigation`) a používají v Phase D
 
 ---
 
-## 5. Detekce anomálií — Pxx/CAP a cause-family gate
+## 5. Detekce anomálií: UTC slot a cause-family gate
 
 **Fáze C** (`phase_c_detect.py`) rozhoduje, zda je aktuální počet chyb anomální.
 
-### Pxx/CAP metodika
+### UTC Slot P95/MAD
 
 Spike detekce má dvě samostatné podmínky. Namespace volume gate odpovídá na otázku, zda je celkový ERROR provoz neobvyklý; cause-family gate určuje, která konkrétní family smí spike vlastnit.
 
 ```
-namespace_peak = (namespace_total > effective_Pxx_per_DOW) OR (namespace_total > CAP)
+namespace_peak = namespace_total > effective_Pxx_for_exact_UTC_slot
 family_peak = contribution > max(20, median(namespace/fingerprint history) + 6 * 1.4826 * MAD)
 is_spike = namespace_peak AND family_peak
 ```
 
-**Pxx** = uživatelem zvolený percentil `PERCENTILE_LEVEL` historických aktivních 15min oken pro danou kombinaci `(namespace, day_of_week)`. Jeho efektivní hodnota je chráněna před opakovanou kontaminací incidenty:
+**Pxx** = percentil `PERCENTILE_LEVEL` (default P95) pro přesnou kombinaci `(namespace, UTC weekday, UTC hour, quarter)`. Vstupem jsou dokončená autoritativní 15min fakta včetně skutečných nul. Chybějící nebo neúspěšné běhy se nedoplňují jako nula a jiné hodiny se neslučují. Efektivní hodnota je chráněna před opakovanou kontaminací incidenty:
 
 ```
 effective_Pxx = min(configured_Pxx, median + 6 * 1.4826 * MAD)
 ```
 
-Konfigurovaný Pxx zůstává hlavním ovladačem citlivosti. Robustní cap jej pouze sníží, když by opakované extrémní incidenty zvýšily práh natolik, že by se další incident ztratil.
+Percentil používá seřazený prvek na indexu `min(floor(N * p), N - 1)`, od nuly, bez interpolace. Při MAD=0 je robustní strop maximum vzorků. Porovnání je ostré `>`. Percentil i robustní strop se počítají jen uvnitř stejného slotu.
 
-**CAP** = `(median_Pxx + avg_Pxx) / 2` přes všechny dny týdne pro daný namespace.
-- Záložní práh, pokud pro konkrétní den není dostatek historických dat.
+**Globální CAP ani default threshold nejsou součástí modelu 5.0.** Od 10 vzorků je profil `mature`; s 1-9 vzorky se vlastní práh použije jako `init` a tento stav i počet vzorků se uloží do auditu a předají do alert evidence. Neexistující slot je `missing`, `is_evaluated=False`, bez náhradního prahu. Nesmí znamenat klidové okno ani recovery epizody. UTC klíč zachovává UTC hodinu i přes změnu letního času, nikoli stejnou hodinu v Europe/Prague.
 
 **Cause-family gate** používá hustou, zero-inclusive sedmidenní historii stejného `(namespace, fingerprint)`. Family s historií musí překročit vlastní robustní práh. Nová family bez historie smí vlastnit namespace peak až od `new_error_min_count` (výchozí `50`). Pokud se authoritative family baseline nenačte, peak se fail-closed nepřiřadí žádné family.
 
 ### Jak to funguje v pipeline
 
 1. **`detect_batch()`** agreguje total error count per namespace a contribution každého fingerprintu.
-2. **`PeakDetector.is_peak()`** zkontroluje každý namespace proti efektivnímu Pxx/CAP ze kompatibilního snapshotu.
+2. **`PeakDetector.is_peak()`** zkontroluje namespace proti vlastnímu UTC slotu z kompatibilního snapshotu verze 5.0.
 3. **`_fingerprint_peak_gate()`** porovná contribution s historií stejného `(namespace, fingerprint)`.
 4. **`_detect_spike()`** označí pouze vítěznou kvalifikovanou family jako `is_spike=True`.
 
 ### Příklad
 
 ```
-Namespace: pcb-sit-01-app, Pondělí
-Effective P98 threshold: 360 errors/window
-CAP threshold: 373 errors/window
+Namespace: pcb-sit-01-app, pondělí 12:00 UTC, Q0
+Effective P95/MAD threshold: 360 errors/window
+Profile: mature, samples: 12, global CAP: disabled
 Aktuální celkový count: 487 errors
 Cause family contribution: 200 errors
 Family threshold: 20 errors
 
-487 > 360 (P98) a 200 > 20 → SPIKE (triggered_by=percentile)
+487 > 360 (slot P95/MAD) a 200 > 20 → SPIKE
 ```
 
 ### Jak se thresholdy počítají
@@ -177,14 +176,14 @@ Regular phase a backfill
   └─ ukládají úplná 15-min fakta
 
 calculate_peak_thresholds.py (týdně)
-  └─ čte complete namespace facts
-  └─ počítá robustní Pxx per (namespace, DOW)
-  └─ počítá CAP per namespace
-  └─ ukládá → peak_thresholds + peak_threshold_caps
+  └─ čte 12 týdnů complete namespace facts včetně nul
+  └─ počítá P95/MAD per (namespace, UTC weekday, hour, quarter)
+  └─ označuje init/mature podle počtu vzorků
+  └─ ukládá → threshold_snapshot_runs + threshold_slot_values
 
 Pipeline (Phase C)
   └─ PeakDetector čte thresholdy z DB
-  └─ porovnává aktuální namespace total vs Pxx/CAP a family contribution vs namespace/fingerprint historii
+  └─ porovnává namespace total vs přesný UTC slot a family contribution vs namespace/fingerprint historii
 ```
 
 ### DB tabulky pro spike detekci
@@ -192,8 +191,8 @@ Pipeline (Phase C)
 | Tabulka | Účel | Kdo plní |
 |---------|------|----------|
 | `v_complete_namespace_error_counts` | Complete 15-min namespace facts | authoritative complete runs |
-| `peak_thresholds` | Robust Pxx per (namespace, DOW) | calculate_peak_thresholds.py |
-| `peak_threshold_caps` | CAP per namespace | calculate_peak_thresholds.py |
+| `threshold_slot_values` | P95/MAD per (snapshot, namespace, UTC weekday, hour, quarter), samples, init/mature | calculate_peak_thresholds.py |
+| `threshold_snapshot_runs` | Metadata a kompatibilita snapshotu 5.0; staré denní tabulky jsou pouze historické | calculate_peak_thresholds.py |
 | `v_complete_error_kind_counts` | Zero-inclusive namespace/fingerprint facts | authoritative complete runs |
 
 ### Nová cause family
@@ -295,12 +294,6 @@ Regular phase rozhoduje, zda odeslat notifikaci:
 
 Continuation: peak detekovaný v předchozím okně se považuje za pokračující. Potlačuje se, pokud nedošlo k materiální změně.
 
-### Workflow lifecycle větev
-
-Před ERROR fetch se volitelně spustí nezávislý probe raw INFO zpráv pro queue processing, blocking predecessor, návrat `PROCESSING -> REGISTERED` bez delay a completion predecessorů. Kandidátní scope se načítají přes PIT/search_after a každý root/predecessor query se počítá do completeness ledgeru.
-
-`LIFECYCLE_ANALYSIS_ENABLED` a `LIFECYCLE_ALERT_ENABLED` jsou defaultně `false`. Alert je možný jen po úplném fetchi, high-confidence detekci a commitnutém `workflow_lifecycle_runs` záznamu. Probe cap, evidence cap, timeout nebo chybný fetch vytvoří pouze partial auditní run a žádný alert.
-
 ---
 
 ## 12. Email digest
@@ -356,20 +349,20 @@ Na konci: daily report + Teams notifikace.
 
 ## 16. Přepočet thresholdů
 
-`scripts/core/calculate_peak_thresholds.py` přepočítá robustní Pxx/CAP z complete namespace facts:
+`scripts/core/calculate_peak_thresholds.py` přepočítá slotové P95/MAD z complete namespace facts včetně nul:
 
 ```bash
-# Přepočítat z posledních 4 týdnů
-python3 scripts/core/calculate_peak_thresholds.py --weeks 4
+# Přepočítat z posledních 12 týdnů
+python3 scripts/core/calculate_peak_thresholds.py --weeks 12
 
 # Dry-run (jen zobrazí, neuloží)
-python3 scripts/core/calculate_peak_thresholds.py --weeks 4 --dry-run
+python3 scripts/core/calculate_peak_thresholds.py --weeks 12 --dry-run
 ```
 
 V K8s běží automaticky jako CronJob `log-analyzer-thresholds` každou neděli 03:00 UTC.
 
 ### Edge cases
 
-- **Nový namespace** (bez thresholdů): PeakDetector použije CAP (pokud existuje pro jiný DOW) nebo `default_threshold` (100)
-- **Málo dat** (< 7 dní): Pxx bude méně přesný; CAP z kompatibilního snapshotu slouží jako namespace fallback
-- **Víkend vs pracovní den**: thresholdy se liší per day_of_week
+- **Chybějící slot**: `missing`, nevyhodnocený; žádný CAP/default ani recovery epizody.
+- **Málo dat**: 1-9 vzorků znamená použitelný `init`, nikoli mature profil nebo důkaz přesnosti modelu. Požadovaný DB horizont nesmí být kratší než 10 týdnů.
+- **Časový profil**: každá UTC čtvrthodina a den týdne mají samostatný práh; při přechodu CEST/CET se místní hodina vůči UTC posune.

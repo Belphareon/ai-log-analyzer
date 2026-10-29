@@ -1,36 +1,5 @@
 #!/usr/bin/env python3
-"""
-Peak Detection - P93 OR CAP Methodology (DATABASE VERSION)
-==============================================================
-Thresholds se načítají DYNAMICKY z databáze (tabulky peak_thresholds a peak_threshold_caps).
-Žádné hardcoded hodnoty!
-
-ALGORITMUS:
------------
-is_peak = (value > P93_per_DOW) OR (value > CAP)
-
-P93_per_DOW = percentil pro daný (namespace, den_týdne) - z DB tabulky peak_thresholds
-CAP = (median_P93 + avg_P93) / 2 per namespace - z DB tabulky peak_threshold_caps
-
-DATABÁZOVÉ TABULKY:
--------------------
-- ailog_peak.peak_thresholds: percentil per (namespace, day_of_week)
-- ailog_peak.peak_threshold_caps: CAP per namespace
-
-POUŽITÍ:
---------
-from peak_detection import PeakDetector
-
-# S DB connection
-detector = PeakDetector(conn=db_connection)
-
-# Nebo lazy load (načte při prvním použití)
-detector = PeakDetector()
-detector.set_connection(conn)
-
-# Detekuj peak
-result = detector.is_peak(value=500, namespace='pcb-sit-01-app', day_of_week=0)
-"""
+"""Peak detection using only the matching UTC weekly-slot percentile/MAD profile."""
 
 import os
 import yaml
@@ -53,8 +22,7 @@ except ImportError:  # pragma: no cover - direct script execution
 
 class PeakDetector:
     """
-    Peak Detection using P93 OR CAP methodology
-    Loads thresholds from database tables
+    Load versioned UTC slot profiles; never fall back to another slot or a global CAP.
     """
     
     def __init__(self, conn=None, config_path: str = None):
@@ -64,9 +32,8 @@ class PeakDetector:
         Configuration priority: env vars (from K8s values.yaml) > config file > defaults.
 
         Env vars (set by K8s CronJob from k8s/values.yaml):
-            PERCENTILE_LEVEL          - percentile level (default: 0.93)
-            DEFAULT_THRESHOLD         - fallback threshold (default: 100)
-            MIN_SAMPLES_FOR_THRESHOLD - min samples for reliable P93 (default: 10)
+            PERCENTILE_LEVEL          - percentile level (default: 0.95)
+            MIN_SAMPLES_FOR_THRESHOLD - mature profile sample count (default: 10)
 
         Args:
             conn: psycopg2 database connection (optional, can be set later)
@@ -74,19 +41,18 @@ class PeakDetector:
         """
         self._conn = conn
         self._thresholds_cache = None
-        self._caps_cache = None
         self._threshold_snapshot_id = None
         self._cache_loaded_at = None
         self._cache_ttl_seconds = 300  # 5 minutes cache
 
         # Load config: env vars take priority over file config
         self._config = self._load_config(config_path)
-        self._default_threshold = float(os.getenv(
-            'DEFAULT_THRESHOLD', self._config.get('default_threshold', 100)))
         self._percentile_level = float(os.getenv(
-            'PERCENTILE_LEVEL', self._config.get('percentile_level', 0.93)))
+            'PERCENTILE_LEVEL', self._config.get('percentile_level', 0.95)))
         self._min_samples = int(float(os.getenv(
             'MIN_SAMPLES_FOR_THRESHOLD', self._config.get('min_samples_for_threshold', 10))))
+        if self._min_samples < 10:
+            raise ValueError('mature profiles require at least 10 samples')
 
     def _load_config(self, config_path: str = None) -> dict:
         """Load configuration from values.yaml (legacy fallback)"""
@@ -111,25 +77,22 @@ class PeakDetector:
     def load_thresholds_direct(
         self,
         thresholds: Dict[tuple, dict],
-        caps: Dict[str, dict],
         snapshot_id: str = None,
     ):
-        """
-        Load thresholds directly from dicts (for standalone/testing without DB).
-
-        Args:
-            thresholds: {(namespace, day_of_week): {'value': float, 'samples': int}}
-            caps: {namespace: {'value': float, 'samples': int}}
-        """
-        self._thresholds_cache = thresholds
-        self._caps_cache = caps
+        """Load exact-slot profiles for standalone replay or testing."""
+        for key, profile in thresholds.items():
+            namespace, weekday, hour, quarter = key
+            if not namespace or not 0 <= weekday <= 6 or not 0 <= hour <= 23 or not 0 <= quarter <= 3:
+                raise ValueError('invalid UTC weekly slot')
+            if profile['samples'] <= 0 or profile['value'] < 0:
+                raise ValueError('invalid UTC slot profile')
+        self._thresholds_cache = {key: dict(profile) for key, profile in thresholds.items()}
         self._threshold_snapshot_id = snapshot_id
         self._cache_loaded_at = datetime.now()
 
     def _invalidate_cache(self):
         """Invalidate threshold cache"""
         self._thresholds_cache = None
-        self._caps_cache = None
         self._threshold_snapshot_id = None
         self._cache_loaded_at = None
     
@@ -149,14 +112,13 @@ class PeakDetector:
         try:
             cur.execute("""
                 SELECT threshold_row.snapshot_id, threshold_row.namespace,
-                       threshold_row.day_of_week, threshold_row.percentile_value,
-                       threshold_row.cap_value, threshold_row.sample_count,
-                       threshold_row.percentile_level, snapshot.population_grain,
+                      threshold_row.day_of_week, threshold_row.hour_of_day,
+                      threshold_row.quarter_hour, threshold_row.percentile_value,
+                      threshold_row.sample_count, threshold_row.profile_status,
+                      threshold_row.percentile_level, threshold_row.population_grain,
                        threshold_row.percentile_method,
                        threshold_row.calculation_version
-                FROM ailog_peak.v_latest_threshold_values threshold_row
-                JOIN ailog_peak.threshold_snapshot_runs snapshot
-                  ON snapshot.snapshot_id = threshold_row.snapshot_id
+                  FROM ailog_peak.v_latest_threshold_slots threshold_row
             """)
             rows = cur.fetchall()
         finally:
@@ -170,7 +132,7 @@ class PeakDetector:
             raise RuntimeError(f'latest threshold view mixed snapshots: {sorted(snapshot_ids)}')
 
         metadata = {
-            (float(row[6]), str(row[7]), str(row[8]), str(row[9]))
+            (float(row[8]), str(row[9]), str(row[10]), str(row[11]))
             for row in rows
         }
         if len(metadata) != 1:
@@ -197,104 +159,49 @@ class PeakDetector:
             raise RuntimeError('incompatible threshold snapshot: ' + '; '.join(mismatches))
 
         thresholds = {}
-        caps = {}
-        for snapshot_id, ns, dow, value, cap, samples, *_metadata in rows:
-            thresholds[(ns, dow)] = {
+        for snapshot_id, ns, dow, hour, quarter, value, samples, status, *_metadata in rows:
+            thresholds[(ns, dow, hour, quarter)] = {
                 'value': float(value),
-                'samples': samples
-            }
-            caps[ns] = {
-                'value': float(cap),
                 'samples': samples,
+                'profile_status': status,
             }
-        self._thresholds_cache = thresholds
-        self._caps_cache = caps
-        self._threshold_snapshot_id = next(iter(snapshot_ids), None)
-        self._cache_loaded_at = datetime.now()
+        self.load_thresholds_direct(thresholds, snapshot_id=next(iter(snapshot_ids)))
     
     def _ensure_cache_loaded(self):
         """Ensure threshold cache is loaded and valid"""
         if not self._is_cache_valid():
             self._load_thresholds_from_db()
     
-    def get_threshold(self, namespace: str, day_of_week: int) -> Tuple[float, float]:
-        """
-        Get P93 and CAP thresholds for given namespace and day of week
-        
-        Args:
-            namespace: e.g. 'pcb-dev-01-app'
-            day_of_week: 0=Monday, 6=Sunday
-        
-        Returns:
-            tuple (p93_threshold, cap_threshold)
-        """
+    def get_threshold(self, namespace: str, day_of_week: int, hour: int, quarter: int) -> Optional[float]:
+        """Return this slot's limit, including init profiles, or None when untrained."""
         self._ensure_cache_loaded()
-        
-        # Get P93 for this (namespace, dow)
-        p93_data = self._thresholds_cache.get((namespace, day_of_week))
-        if p93_data and p93_data['samples'] >= self._min_samples:
-            p93 = p93_data['value']
-        else:
-            p93 = None  # Will use CAP or default
-        
-        # Get CAP for this namespace
-        cap_data = self._caps_cache.get(namespace)
-        cap = cap_data['value'] if cap_data else self._default_threshold
-        
-        # If P93 not available, use CAP
-        if p93 is None:
-            p93 = cap
-        
-        return p93, cap
-    
-    def is_peak(self, value: float, namespace: str, day_of_week: int) -> Dict[str, Any]:
-        """
-        Detect if value is a peak using P93 OR CAP methodology
-        
-        Algorithm:
-            is_peak = (value > P93_per_DOW) OR (value > CAP)
-        
-        Args:
-            value: the value to check
-            namespace: e.g. 'pcb-dev-01-app'
-            day_of_week: 0=Monday, 6=Sunday
-        
-        Returns:
-            dict with:
-                'is_peak': bool
-                'value': float
-                'p93_threshold': float
-                'cap_threshold': float
-                'triggered_by': 'p93' | 'cap' | 'both' | None
-                'namespace': str
-                'day_of_week': int
-        """
-        p93_thr, cap_thr = self.get_threshold(namespace, day_of_week)
-        
-        exceeds_p93 = value > p93_thr
-        exceeds_cap = value > cap_thr
-        
-        peak_detected = exceeds_p93 or exceeds_cap
-        
-        if exceeds_p93 and exceeds_cap:
-            triggered_by = 'both'
-        elif exceeds_p93:
-            triggered_by = 'p93'
-        elif exceeds_cap:
-            triggered_by = 'cap'
-        else:
-            triggered_by = None
-        
+        profile = self._thresholds_cache.get((namespace, day_of_week, hour, quarter))
+        return profile['value'] if profile else None
+
+    def is_peak(self, value: float, namespace: str, day_of_week: int, hour: int, quarter: int) -> Dict[str, Any]:
+        """Compare only with the exact UTC slot; missing profiles remain unevaluated."""
+        if not 0 <= day_of_week <= 6 or not 0 <= hour <= 23 or not 0 <= quarter <= 3:
+            raise ValueError('invalid UTC weekly slot')
+        threshold = self.get_threshold(namespace, day_of_week, hour, quarter)
+        profile = self._thresholds_cache.get((namespace, day_of_week, hour, quarter)) or {}
+        samples = profile.get('samples', 0)
+        status = 'missing' if not samples else ('mature' if samples >= self._min_samples else 'init')
+        peak_detected = threshold is not None and value > threshold
         return {
             'is_peak': peak_detected,
+            'is_evaluated': threshold is not None,
             'value': value,
-            'p93_threshold': p93_thr,
+            'p93_threshold': threshold,
             'percentile_level': self._percentile_level,
-            'percentile_threshold': p93_thr,
-            'cap_threshold': cap_thr,
-            'triggered_by': triggered_by,
+            'percentile_threshold': threshold,
+            'cap_threshold': None,
+            'triggered_by': 'p93' if peak_detected else None,
+            'profile_status': status,
+            'threshold_samples': samples,
             'namespace': namespace,
             'day_of_week': day_of_week,
+            'hour_of_day': hour,
+            'quarter_hour': quarter,
             'threshold_snapshot_id': self._threshold_snapshot_id,
         }
     
@@ -314,25 +221,28 @@ class PeakDetector:
         Returns:
             dict compatible with existing ingest scripts
         """
-        result = self.is_peak(value, namespace, day)
+        result = self.is_peak(value, namespace, day, hour, quarter)
         
         # For replacement, use aggregation_mean if provided, otherwise use threshold
         if result['is_peak']:
             if aggregation_mean is not None:
                 replacement = aggregation_mean
             else:
-                replacement = min(result['p93_threshold'], result['cap_threshold'])
+                replacement = result['percentile_threshold']
         else:
             replacement = value
         
         percentile_label = f"P{int(self._percentile_level * 100)}"
-        reason = f"{percentile_label}={result['p93_threshold']:.0f}, CAP={result['cap_threshold']:.0f}"
-        if result['is_peak']:
+        reason = f"{percentile_label}={result['percentile_threshold']}, profile={result['profile_status']}"
+        if not result['is_evaluated']:
+            reason = 'UNEVALUATED: missing UTC slot profile'
+        elif result['is_peak']:
             reason = f"PEAK ({result['triggered_by']}): value={value:.0f} > {reason}"
         else:
             reason = f"OK: value={value:.0f} <= {reason}"
         
         return {
+            **result,
             'is_peak': result['is_peak'],
             'original_value': value,
             'replacement_value': replacement,
@@ -353,8 +263,7 @@ class PeakDetector:
         
         return {
             'thresholds': self._thresholds_cache.copy(),
-            'caps': self._caps_cache.copy(),
-            'default_threshold': self._default_threshold,
+            'caps': {},
             'percentile_level': self._percentile_level,
             'cache_loaded_at': self._cache_loaded_at,
         }
@@ -363,31 +272,10 @@ class PeakDetector:
         """Print summary of all thresholds"""
         self._ensure_cache_loaded()
         
-        # Get all namespaces
-        namespaces = sorted(set(ns for (ns, dow) in self._thresholds_cache.keys()))
-        days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-        
-        print("\n" + "=" * 120)
-        print(f"Peak Thresholds (P{int(self._percentile_level * 100)} OR CAP)")
-        print("=" * 120)
-        
-        print(f"\n{'NS':<25} {'CAP':>7} | {'Mon':>7} {'Tue':>7} {'Wed':>7} {'Thu':>7} {'Fri':>7} {'Sat':>7} {'Sun':>7}")
-        print("-" * 100)
-        
-        for ns in namespaces:
-            cap = self._caps_cache.get(ns, {}).get('value', self._default_threshold)
-            row = f"{ns:<25} {cap:>7.0f} |"
-            
-            for dow in range(7):
-                data = self._thresholds_cache.get((ns, dow))
-                if data:
-                    row += f" {data['value']:>7.0f}"
-                else:
-                    row += f" {'--':>7}"
-            
-            print(row)
-        
-        print(f"\nDefault threshold: {self._default_threshold}")
+        print(f"UTC slot P{int(self._percentile_level * 100)}/MAD; global CAP disabled")
+        for (namespace, weekday, hour, quarter), profile in sorted(self._thresholds_cache.items()):
+            status = 'mature' if profile['samples'] >= self._min_samples else 'init'
+            print(f"{namespace} DOW={weekday} {hour:02d}:{quarter * 15:02d}Z {profile} status={status}")
         print(f"Cache loaded at: {self._cache_loaded_at}")
 
 
@@ -408,7 +296,7 @@ def get_detector(conn=None) -> PeakDetector:
     return _global_detector
 
 
-def is_peak(value: float, namespace: str, day_of_week: int, conn=None) -> Dict[str, Any]:
+def is_peak(value: float, namespace: str, day_of_week: int, hour: int, quarter: int, conn=None) -> Dict[str, Any]:
     """
     Detect if value is a peak (standalone function)
     
@@ -422,7 +310,7 @@ def is_peak(value: float, namespace: str, day_of_week: int, conn=None) -> Dict[s
         dict with is_peak, thresholds, etc.
     """
     detector = get_detector(conn)
-    return detector.is_peak(value, namespace, day_of_week)
+    return detector.is_peak(value, namespace, day_of_week, hour, quarter)
 
 
 def detect_peak_for_row(day: int, hour: int, quarter: int, namespace: str, 
@@ -450,10 +338,10 @@ if __name__ == '__main__':
         print("❌ Required: pip install psycopg2-binary python-dotenv")
         sys.exit(1)
     
-    parser = argparse.ArgumentParser(description='Peak Detection - P93 OR CAP (DB thresholds)')
+    parser = argparse.ArgumentParser(description='Peak Detection - exact UTC weekly slots')
     parser.add_argument('--show-thresholds', action='store_true', help='Show all thresholds from DB')
-    parser.add_argument('--check', nargs=3, metavar=('VALUE', 'NAMESPACE', 'DOW'), 
-                        help='Check if value is peak (e.g. --check 500 pcb-sit-01-app 0)')
+    parser.add_argument('--check', nargs=5, metavar=('VALUE', 'NAMESPACE', 'DOW', 'HOUR', 'QUARTER'),
+                        help='Check a UTC slot (quarter 0..3)')
     
     args = parser.parse_args()
     
@@ -490,7 +378,7 @@ if __name__ == '__main__':
         namespace = args.check[1]
         dow = int(args.check[2])
         
-        result = detector.is_peak(value, namespace, dow)
+        result = detector.is_peak(value, namespace, dow, int(args.check[3]), int(args.check[4]))
         days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
         
         print(f"\n{'=' * 60}")

@@ -78,8 +78,8 @@ def fetch_raw_data(conn, start_date: datetime = None, end_date: datetime = None)
         SELECT 
             namespace,
             day_of_week,
-            hour,
-            quarter,
+            hour_of_day,
+            quarter_hour,
             original_value,
             timestamp,
             is_peak
@@ -180,7 +180,7 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
                 'by_dow': {d: {'total': 0, 'peaks_detected': 0, 'peaks_db': 0} for d in range(7)}
             }
         
-        result = detector.is_peak(value, ns, dow)
+        result = detector.is_peak(value, ns, dow, row['hour'], row['quarter'])
         
         stats_by_ns[ns]['total'] += 1
         stats_by_ns[ns]['max_value'] = max(stats_by_ns[ns]['max_value'], value)
@@ -205,7 +205,7 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
     with open(output_path, 'w') as f:
         f.write(f"# {title}\n\n")
         f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"**Method:** P{int(all_thresholds['percentile_level'] * 100)} OR CAP (DB thresholds)\n")
+        f.write(f"**Method:** UTC weekly-slot P{int(all_thresholds['percentile_level'] * 100)}/MAD; no global CAP\n")
         f.write(f"**Data points:** {len(data)}\n\n")
         
         # Summary table
@@ -226,23 +226,16 @@ def generate_report(data: list, detector: 'PeakDetector', output_path: str, titl
         
         # Thresholds used (from DB)
         f.write("\n## Thresholds (from Database)\n\n")
-        f.write("| NS | CAP | Mon | Tue | Wed | Thu | Fri | Sat | Sun |\n")
-        f.write("|----|-----|-----|-----|-----|-----|-----|-----|-----|\n")
+        f.write("| NS | UTC Day | UTC Time | Limit | Samples | Profile |\n")
+        f.write("|----|---------|----------|-------|---------|---------|\n")
         
         thresholds = all_thresholds['thresholds']
-        caps = all_thresholds['caps']
-        namespaces = sorted(set(ns for (ns, dow) in thresholds.keys()))
-        
-        for ns in namespaces:
-            cap = caps.get(ns, {}).get('value', all_thresholds['default_threshold'])
-            row = f"| {ns} | **{cap:.0f}** |"
-            for dow in range(7):
-                data_thr = thresholds.get((ns, dow))
-                if data_thr:
-                    row += f" {data_thr['value']:.0f} |"
-                else:
-                    row += f" -- |"
-            f.write(row + "\n")
+        for (ns, dow, hour, quarter), profile in sorted(thresholds.items()):
+            status = profile['profile_status']
+            f.write(
+                f"| {ns} | {days[dow]} | {hour:02d}:{quarter * 15:02d} | "
+                f"{profile['value']:.4f} | {profile['samples']} | {status} |\n"
+            )
         
         # Per-NS breakdown
         f.write("\n## Per-Namespace Breakdown\n\n")

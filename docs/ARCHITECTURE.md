@@ -73,7 +73,7 @@ Elasticsearch
 [ FÁZE C: Detect ]
       │  DetectionResult: is_spike, is_burst, is_new, is_regression,
       │  is_cross_namespace + evidence (proč byl flag nastaven)
-      │  (spike detekce: robustní Pxx/CAP + namespace/fingerprint family gate z DB)
+      │  (spike detekce: přesný UTC slot P95/MAD + namespace/fingerprint family gate z DB)
       ▼
 [ FÁZE D: Score ]
       │  score 0–100 (váhový součet flagů + škálovací bonusy)
@@ -88,7 +88,7 @@ Elasticsearch
       │  IncidentAnalysis: timeline, scope, causal_chain, recommended_actions
       ▼
 [ Persistence ]
-      ├── DB: complete 15min facts (vstup pro Pxx/CAP a family baseline)
+      ├── DB: complete 15min facts včetně nul (vstup pro slotové prahy a family baseline)
       ├── DB: peak_investigation (evidované peaky pro Confluence)
       ├── YAML: registry/known_problems.yaml + known_peaks.yaml (append-only)
       └── JSON: registry/alert_state_regular_phase.json (stav alertů)
@@ -176,20 +176,20 @@ class MeasurementResult:
 
 - **Vstup:** `Dict[fingerprint, MeasurementResult]` + records + registry + PeakDetector
 - **Výstup:** `Dict[fingerprint, DetectionResult]` s boolean flagy
-- **Činnost:** Spike detekce na úrovni namespace (robustní Pxx/CAP) a automatický gate pro `(namespace, fingerprint)` cause family; ostatní pravidla per fingerprint
+- **Činnost:** Spike detekce na úrovni namespace (P95/MAD přesného UTC slotu bez globálního CAP) a automatický gate pro `(namespace, fingerprint)` cause family; ostatní pravidla per fingerprint
 
 **Detection flags:**
 
 | Flag | Pravidlo | Popis |
 |------|----------|-------|
-| `is_spike` | Pxx/CAP + family gate | Namespace total překročí robustní Pxx/CAP a family překročí vlastní namespace historii |
+| `is_spike` | UTC slot + family gate | Namespace total překročí vlastní slotový práh a family překročí vlastní namespace historii |
 | `is_burst` | Sliding window (60s), rate > 5.0× | Náhlá lokální koncentrace v krátkém okně |
 | `is_new` | Registry lookup | Fingerprint/problem_key dosud nebyl viděn |
 | `is_cross_namespace` | NS count ≥ 2 | Stejný error se objevuje ve více prostředích |
 | `is_silence` | Absence check | Očekávaný error se neobjevil (baseline > 5, current = 0) |
 | `is_regression` | Version check | Error, který byl opraven, se znovu objevil |
 
-Podrobný popis spike detekce viz [HOW_IT_WORKS.md](HOW_IT_WORKS.md#5-detekce-anomálií--pxxcap-a-cause-family-gate).
+Podrobný popis spike detekce viz [HOW_IT_WORKS.md](HOW_IT_WORKS.md#5-detekce-anomálií-utc-slot-a-cause-family-gate).
 
 ### Phase D: Score
 
@@ -294,12 +294,6 @@ Dvě varianty (řízeno `ALERT_DIGEST_ENABLED`):
 - **Digest** (`send_regular_phase_peak_digest`) — jeden email per cron okno; souhrn unikátních aplikací a namespaces, HTML tabulka aktivních peaků a detail s deduplikovaným behavior a inferred root cause
 - **Detail** (`send_regular_phase_peak_alert_detailed`) — jeden email per peak; fallback/specifické případy
 
-### Workflow Lifecycle Diagnostics
-
-`run_regular_phase()` spouští před ERROR-only fetchem oddělenou, defaultně vypnutou větev `run_workflow_lifecycle_diagnostics()`. Její probe hledá raw INFO lifecycle zprávy bez závislosti na ERROR nebo trace ID, následuje bounded PIT/search_after fetch pro topic/namespace a predecessor evidence.
-
-Výsledek se vždy nejdřív uloží jako `complete` nebo `partial` run. Pouze complete fetch, high-confidence hot loop a úspěšný commit mohou vyústit v `send_workflow_lifecycle_alert()`. Cap, timeout, chybějící PIT nebo neúplný probe jsou auditovatelné jako partial a fail-closed potlačí alert.
-
 ### Confluence Export (`scripts/exports/table_exporter.py`)
 
 - **Known Errors** — tabulka `ErrorTableRow`: kategorie, root cause, behavior, activity status (ACTIVE/STALE/OLD)
@@ -317,12 +311,13 @@ Schema: `ailog_peak`
 | `error_kind_counts` | 15min facts per namespace/app/fingerprint | `(run_id, window_start, namespace, application, fingerprint)` |
 | `v_complete_namespace_error_counts` | Autoritativní úplné namespace facts | `(namespace, window_start)` |
 | `v_complete_error_kind_counts` | Autoritativní complete family facts | `(namespace, fingerprint, window_start)` |
-| `peak_thresholds` | Robustní Pxx per (namespace, day_of_week) | `(namespace, day_of_week)` |
-| `peak_threshold_caps` | CAP per namespace | `(namespace)` |
+| `threshold_slot_values` | Slotové P95/MAD, počet vzorků, init/mature | `(snapshot_id, namespace, day_of_week, hour_of_day, quarter_hour)` v UTC |
+| `threshold_snapshot_runs` | Metadata a kompatibilita modelu 5.0 | `(id)` |
 | `peak_investigation` | Detekované incidenty | `(peak_key, problem_key, namespace, ...)` |
-| `workflow_lifecycle_runs` | Complete/partial lifecycle fetch ledger | `run_id` |
-| `workflow_lifecycle_incidents` | Lifecycle hot-loop evidence a confidence | `(run_id, topic, namespace, queue_event_id)` |
-| `workflow_lifecycle_evidence` | ES evidence použitá pro incident | `(run_id, topic, namespace, queue_event_id, es_index, es_id)` |
+
+Migration 008 is retained unchanged for upgrade compatibility. Its workflow-lifecycle tables are not used by r109; the separate INFO-level diagnostic subsystem was removed from this release.
+
+Migrace 011 přidává slotové hodnoty a audit `profile_status`, `threshold_samples`, `is_evaluated`. Staré denní threshold/CAP tabulky zůstávají historické, runtime je nepoužívá. Chybějící profil nemá náhradní práh a není důkaz recovery.
 
 **Zápis do DB** vyžaduje sekvenci:
 1. Připojit se jako DDL user (`DB_DDL_USER`)
@@ -408,7 +403,7 @@ Pro každý den: fetch 24h dat po 15-min oknech → pipeline → DB save → reg
 
 ### calculate_peak_thresholds.py (týdně)
 
-Čte complete namespace facts za N týdnů → počítá robustní Pxx per (namespace, DOW) → CAP per namespace → ukládá kompatibilní snapshot do DB.
+Čte 12 týdnů complete namespace facts včetně pozorovaných nul → počítá P95/MAD per (namespace, UTC weekday, hour, quarter) → označí init/mature → uloží kompatibilní snapshot 5.0. DB požadavek pod 10 týdnů je odmítnut; kratší dostupná historie je init, ne globální fallback. Chybějící běhy se nedoplňují jako nuly.
 
 ---
 
@@ -430,7 +425,7 @@ scripts/exports/latest/     # CSV/MD pro Confluence upload
 4. **Registry = append-only** — nikdy se nemaže
 5. **Scope ≠ Propagation** — oddělené datové struktury
 6. **FACT vs HYPOTHESIS** — jasně oddělené v reportech
-7. **Pxx/CAP + family gate** — namespace volume i vlastní history cause family musí projít DB-backed prahy
+7. **UTC slot + family gate** — namespace volume i vlastní history cause family musí projít DB-backed prahy; žádný globální CAP
 8. **Fail-closed baseline** — nekompatibilní snapshot nebo nedostupná authoritative baseline ukončí job bez legacy EWMA fallbacku
 
 ---
@@ -441,7 +436,7 @@ scripts/exports/latest/     # CSV/MD pro Confluence upload
 |-----|----------|--------|
 | `log-analyzer` | `*/15 * * * *` | `scripts/regular_phase.py` |
 | `log-analyzer-backfill` | `0 9 * * *` | `scripts/backfill.py --days 1` |
-| `log-analyzer-thresholds` | `0 3 * * 0` | `scripts/core/calculate_peak_thresholds.py --weeks 4` |
+| `log-analyzer-thresholds` | `0 3 * * 0` | `scripts/core/calculate_peak_thresholds.py --weeks 12` (sdílí `init.thresholdWeeks`) |
 | `log-analyzer-maintenance` | `30 2 * * *` | `scripts/core/run_data_maintenance.py` |
 
 Image: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:<tag>`
