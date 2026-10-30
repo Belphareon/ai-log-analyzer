@@ -36,6 +36,9 @@ AUTHORITY_SQL = """
         ORDER BY run_row.window_start, run_row.completed_at DESC, run_row.run_id DESC
     )
 """
+MAX_REPORT_ROWS = 100
+MAX_REPORT_CELL_CHARS = 192
+MAX_DAILY_REPORT_TEXT_CHARS = 128 * 1024
 
 
 def report_periods(now, daily_hour=7):
@@ -209,19 +212,46 @@ def peak_catalog_rows(snapshot):
     return [asdict(row) for row in TableExporter(registry).get_peaks_rows()]
 
 
-def render_table(path, title, rows, fields, snapshot):
+def render_table(path, title, rows, fields, snapshot, *, heading_level=1):
     from confluence_csv_uploader import csv_to_html_table
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open('w', newline='', encoding='utf-8') as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
-        writer.writerows({key: '' if row.get(key) is None else row.get(key, '') for key in fields} for row in rows)
+        writer.writerows(
+            {key: '' if row.get(key) is None else row.get(key, '') for key in fields}
+            for row in rows
+        )
     complete, coverage = coverage_label(set(snapshot['namespace_counts']), snapshot['end'], 24)
-    header = f'<h1>{html.escape(title)}</h1><p>As of {snapshot["end"].isoformat()}; {coverage}. '
-    header += 'Complete data.' if complete else 'INCOMPLETE DATA: missing windows are not zero.'
-    header += '</p>'
-    return header + csv_to_html_table(path)
+    header = f'<h{heading_level}>{html.escape(title)}</h{heading_level}>'
+    header += f'<p>As of {snapshot["end"].isoformat()}; {coverage}. '
+    header += 'Complete data.</p>' if complete else 'INCOMPLETE DATA: missing windows are not zero.</p>'
+    visible_rows = min(len(rows), MAX_REPORT_ROWS)
+    if visible_rows < len(rows):
+        header += (
+            f'<p>Showing {visible_rows} of {len(rows)} rows; remaining rows are omitted from this page. '
+            'Underlying database facts are unchanged.</p>'
+        )
+    has_long_cells = any(
+        value is not None and len(str(value)) > MAX_REPORT_CELL_CHARS
+        for row in rows[:MAX_REPORT_ROWS]
+        for value in (row.get(field) for field in fields)
+    )
+    if has_long_cells:
+        header += (
+            f'<p>Cell values longer than {MAX_REPORT_CELL_CHARS} characters are truncated on this page.</p>'
+        )
+    return header + csv_to_html_table(
+        path, max_rows=MAX_REPORT_ROWS, max_cell_chars=MAX_REPORT_CELL_CHARS,
+    )
+
+
+def bound_daily_report_text(text):
+    if len(text) <= MAX_DAILY_REPORT_TEXT_CHARS:
+        return text
+    marker = '\n[Report text truncated to fit Confluence request limits.]'
+    return text[:MAX_DAILY_REPORT_TEXT_CHARS - len(marker)] + marker
 
 
 def daily_text(snapshot):
@@ -253,7 +283,13 @@ def daily_text(snapshot):
             '',
         ])
     if len(families) > 20:
-        lines.append(f'{len(families) - 20} additional cause families are included in the Confluence table.')
+        included = min(len(families), MAX_REPORT_ROWS) - 20
+        lines.append(f'{included} additional cause families are included in the Confluence table.')
+    if len(families) > MAX_REPORT_ROWS:
+        lines.append(
+            f'{len(families) - MAX_REPORT_ROWS} additional cause families are omitted from the page; '
+            'complete data remain in the database and CSV export.'
+        )
     return '\n'.join(lines)
 
 
@@ -327,20 +363,20 @@ def run_reports(*, connection_factory=connect_from_env, now=None, output_dir=Non
         for kind, end, page_env, title, table_rows, fields, snapshot in specs:
             content = render_table(output / f'{kind}.csv', title, table_rows, fields, snapshot)
             if kind == 'peaks':
-                from confluence_csv_uploader import csv_to_html_table
-
                 catalog = peak_catalog_rows(snapshot)
                 catalog_fields = ['peak_id', 'peak_type', 'diagnosis', 'root_cause', 'behavior',
                                   'max_observed_errors', 'total_errors', 'occurrence_count', 'periodicity',
                                   'affected_namespaces', 'affected_apps', 'status', 'jira', 'notes', 'metric_scope']
                 catalog_path = output / 'peaks-catalog.csv'
-                render_table(catalog_path, 'Historical Peak Catalog', catalog, catalog_fields, snapshot)
-                content += ('<h2>Historical Peak Catalog</h2><p>Registry metadata at report time. '
+                content += ('<p>Registry metadata at report time. '
                             'Historical counts and patterns are not limited to this daily interval; '
                             'they are not current-slot thresholds or notification evidence.</p>')
-                content += csv_to_html_table(catalog_path)
+                content += render_table(
+                    catalog_path, 'Historical Peak Catalog', catalog, catalog_fields, snapshot,
+                    heading_level=2,
+                )
             if kind == 'daily':
-                content = '<pre>' + html.escape(daily_body) + '</pre>' + content
+                content = '<pre>' + html.escape(bound_daily_report_text(daily_body)) + '</pre>' + content
             (output / f'{kind}.html').write_text(content, encoding='utf-8')
             if dry_run:
                 continue

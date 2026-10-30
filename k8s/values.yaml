@@ -19,7 +19,7 @@ environment: nprod                     # nprod | prod
 # -----------------------------------------------------------------------------
 app:
   name: log-analyzer
-  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r109
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r110
   imagePullPolicy: IfNotPresent
   secretName: log-analyzer-secrets
 

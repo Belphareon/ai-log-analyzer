@@ -104,6 +104,8 @@ Reporter pouziva scoped autoritativni fakta a konzistentni DB snapshot; nepouziv
 
 Neuplne stranky jsou viditelne oznacene a muzou se opravit po doplneni faktu. Denni Teams/email se odesle teprve pri vsech 96 oknech a shode cause-fact objemu s namespace fakty. Publication ledger eviduje uspech pro kazdy cil samostatne; uspesny cil se pri beznem retry neposila znovu a partial verze neblokuje finalni. Pad mezi externim prijetim zpravy a DB commitem stale muze zpusobit duplicitu: nejde o exactly-once doruceni ani potvrzeni precteni v Teams.
 
+Confluence report je omezeny nahled: kazda tabulka zobrazi nejvyse 100 radku, bunky nejvyse 192 znaku a uvodni denni text nejvyse 128 Ki znaku. Stranka vyslovne oznaci vynechane radky a zkracene hodnoty; zdrojova DB fakta a kompletni CSV export v `REPORT_OUTPUT_DIR` se neorezavaji. CSV je lokalni artefakt reporter podu, nikoli automaticky publikovana priloha; pri zruseni podu muze zaniknout. Known Errors zachovava poradi podle objemu za 2 h a 24 h, denni priciny podle objemu ERROR. Historicky katalog peaku ma stejna omezeni jako ostatni tabulky. Uploader meri cely serializovany UTF-8 JSON a odmitne PUT nad 4 MiB, tedy s rezervou proti overenemu Confluence limitu 5 MiB. Odmitnuti neni evidovane jako uspesna publikace.
+
 ### Alerting
 
 | Parametr | Default | Popis |
@@ -219,6 +221,8 @@ kubectl logs job/<failed-job> -n ai-log-analyzer
 | `connection refused DB_HOST` | DB nedostupná z K8s | Ověřit DB_HOST, network policy |
 | `ES connection timeout` | ES nedostupný | Ověřit ES_HOST, proxy |
 | `401/403 (Confluence)` | Neplatný Bearer token nebo chybějící edit oprávnění | Ověřit token v `CONFLUENCE_PASSWORD`/`CONFLUENCE_TOKEN` a oprávnění cílové stránky |
+| `413 Request Entity Too Large` | Serializovany report prekrocil Confluence request limit (overeno 5 MiB) | Overit image s omezenym nahledem a 4MiB pojistkou; stejny nadlimitni payload neopakovat jako reseni |
+| `FailedAttachVolume`, `ContainerCreating` bez startu kontejneru | Cinder/CSI nedokazal pripojit RWO volume; kod analyzatoru dosud nebezel | Predat platforme PVC/PV, Cinder UUID, cilovy node a casy attach/detach; nemazat PVC ani attachment finalizery bez potvrzeni storage vlastnika |
 | Daily Incident Analysis je prázdná | Chybné `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` nebo selhal publisher v `backfill.py` | Ověřit page ID v rendered backfill CronJobu a hledat `Recent Incidents` v logu posledního backfill jobu |
 | Argo sync selže na immutable Job/PVC | Globální `Replace=true` v Application | Odstranit globální Replace; ponechat Force/Replace pouze na init Jobu a zapnout `ApplyOutOfSyncOnly=true` |
 | `No thresholds found` | Prázdná DB | Spustit init job |

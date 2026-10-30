@@ -49,7 +49,7 @@ class FakeOpener:
         return FakeResponse({'version': {'number': 42}})
 
 
-def test_uploader_keeps_existing_page_title(monkeypatch):
+def test_uploader_keeps_existing_page_title(monkeypatch, capsys):
     fake_opener = FakeOpener()
     monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', 'test-token')
     monkeypatch.setattr(uploader.urllib.request, 'getproxies', lambda: {})
@@ -60,6 +60,35 @@ def test_uploader_keeps_existing_page_title(monkeypatch):
     update_payload = json.loads(fake_opener.requests[1].data.decode())
     assert update_payload['title'] == 'Existing page title'
     assert update_payload['version']['number'] == 42
+    prepared = json.loads(capsys.readouterr().out.splitlines()[0])
+    assert prepared['event'] == 'confluence_request_prepared'
+    assert prepared['request_bytes'] == len(fake_opener.requests[1].data)
+    assert prepared['max_request_bytes'] == uploader.MAX_CONFLUENCE_REQUEST_BYTES
+
+
+def test_uploader_rejects_oversized_request_before_put(monkeypatch):
+    fake_opener = FakeOpener()
+    monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', 'test-token')
+    monkeypatch.setattr(uploader.urllib.request, 'getproxies', lambda: {})
+    monkeypatch.setattr(uploader.urllib.request, 'build_opener', lambda *handlers: fake_opener)
+
+    assert not uploader.upload_to_confluence(
+        '123', 'x' * (uploader.MAX_CONFLUENCE_REQUEST_BYTES + 1),
+    )
+    assert [request.get_method() for request in fake_opener.requests] == ['GET']
+
+
+def test_uploader_measures_serialized_request_not_html_character_count(monkeypatch):
+    fake_opener = FakeOpener()
+    monkeypatch.setattr(uploader, 'CONFLUENCE_TOKEN', 'test-token')
+    monkeypatch.setattr(uploader, 'MAX_CONFLUENCE_REQUEST_BYTES', 300)
+    monkeypatch.setattr(uploader.urllib.request, 'getproxies', lambda: {})
+    monkeypatch.setattr(uploader.urllib.request, 'build_opener', lambda *handlers: fake_opener)
+    content = '\U0001f4a5' * 100
+
+    assert len(content) < uploader.MAX_CONFLUENCE_REQUEST_BYTES
+    assert not uploader.upload_to_confluence('123', content)
+    assert [request.get_method() for request in fake_opener.requests] == ['GET']
 
 
 def test_uploader_persists_one_outcome_per_page(tmp_path, monkeypatch):

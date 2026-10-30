@@ -4,6 +4,13 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r110 (2026-10-30) - Confluence report request limits
+
+- DB-only Confluence tables show at most 100 rows and 192 characters per cell, with explicit notices for omitted rows and shortened values. Full CSV exports and database facts remain unchanged; the historical peak catalog uses the same bounds.
+- The daily Confluence preface is bounded separately. Summary text identifies families omitted from the page instead of claiming every family is displayed.
+- Uploads log the serialized UTF-8 JSON request size and refuse PUT requests above 4 MiB, below the observed Confluence 5 MiB limit. Oversized requests are not recorded as successful publications.
+- Regression tests cover Unicode and escaping, combined peak tables, complete CSV preservation, request-size logging, and rejection before PUT. This release does not repair Cinder/CSI volume attachment failures or change the configured percentile.
+
 ## r109 (2026-10-26) - Stabilizace uzitecnych zmen oproti r92
 
 ### Opraveno

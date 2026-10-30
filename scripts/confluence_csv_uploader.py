@@ -38,6 +38,7 @@ CONFLUENCE_KNOWN_PEAKS_PAGE_ID = os.getenv('CONFLUENCE_KNOWN_PEAKS_PAGE_ID', '13
 
 SCRIPT_DIR = Path(__file__).parent
 EXPORTS_DIR = SCRIPT_DIR / 'exports' / 'latest'
+MAX_CONFLUENCE_REQUEST_BYTES = 4 * 1024 * 1024
 
 
 def get_confluence_auth_header() -> str:
@@ -46,7 +47,11 @@ def get_confluence_auth_header() -> str:
     return ''
 
 
-def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
+def csv_to_html_table(
+    csv_file: Path,
+    max_rows: Optional[int] = None,
+    max_cell_chars: Optional[int] = None,
+) -> str:
     """Convert CSV file to HTML table (Confluence storage format).
 
         Column widths are derived from observed name lengths in real registries:
@@ -176,6 +181,8 @@ def csv_to_html_table(csv_file: Path, max_rows: Optional[int] = None) -> str:
                 width = widths[col_idx] if col_idx < len(widths) else DEFAULT_WIDTH
                 if col_key == 'problem_key':
                     cell = cell.replace(':', ': ')
+                if max_cell_chars is not None and len(cell) > max_cell_chars:
+                    cell = cell[:max(0, max_cell_chars - 3)] + '...'
                 # Escape HTML special chars
                 escaped = cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
                 cell_style = (
@@ -257,12 +264,23 @@ def upload_to_confluence(page_id: str, html_content: str) -> bool:
             }
         }
     }
+    payload = json.dumps(update_data, ensure_ascii=False).encode('utf-8')
+    print(json.dumps({
+        'event': 'confluence_request_prepared', 'page_id': str(page_id),
+        'request_bytes': len(payload), 'max_request_bytes': MAX_CONFLUENCE_REQUEST_BYTES,
+    }, sort_keys=True), flush=True)
+    if len(payload) > MAX_CONFLUENCE_REQUEST_BYTES:
+        print(
+            f"❌ Refusing Confluence update: request is {len(payload)} bytes; "
+            f"limit is {MAX_CONFLUENCE_REQUEST_BYTES} bytes"
+        )
+        return False
     
     try:
         url = f"{CONFLUENCE_URL}/rest/api/content/{page_id}"
         req = urllib.request.Request(
             url,
-            data=json.dumps(update_data).encode(),
+            data=payload,
             headers=headers,
             method='PUT'
         )
