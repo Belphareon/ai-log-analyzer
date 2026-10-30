@@ -10,6 +10,7 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 - The explicit `runtimeState.backend=postgres` chart option uses pod-local `/data`, never mounts the RWO PVC in regular, and limits the Job to 900 seconds. The old PVC remains intact; suspended legacy backfill is not resumed.
 - Controlled bootstrap imports the existing DB knowledge mirror and successful-delivery ledger. Missing or stale mirrors stop the transition instead of silently resetting state; existing checkpoints are never overwritten by bootstrap.
 - Includes the r110 Confluence bounds. Cinder infrastructure is not modified, percentile and coverage gates remain unchanged, and no historical alert replay is enabled.
+- Documentation covers the PostgreSQL/PVC handoff and fail-closed hooks, explicit bootstrap/import requirements, DB backup and rollback, image publication, schedules, Confluence limits and regression gates. The operations guide records the timestamped nprod deployment evidence separately from remaining historical coverage.
 
 ## r110 (2026-10-30) - Confluence report request limits
 

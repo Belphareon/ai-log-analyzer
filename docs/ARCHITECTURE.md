@@ -314,6 +314,10 @@ Schema: `ailog_peak`
 | `threshold_slot_values` | Slotové P95/MAD, počet vzorků, init/mature | `(snapshot_id, namespace, day_of_week, hour_of_day, quarter_hour)` v UTC |
 | `threshold_snapshot_runs` | Metadata a kompatibilita modelu 5.0 | `(id)` |
 | `peak_investigation` | Detekované incidenty | `(peak_key, problem_key, namespace, ...)` |
+| `collection_checkpoints` | Scoped coverage start a samostatne dokonceni live workflow | `query_hash` |
+| `report_knowledge` | Registry metadata pro DB-only reporter a pocatecni runtime import | `(query_hash, problem_key)` |
+| `report_publications` | Doruceni kazdeho cile, vcetne partial/final reportu | `(query_hash, report_kind, period_end, destination)` |
+| `runtime_state` | Trvaly checkpoint obou registry YAML a alert cooldown JSON (migrace 013) | `query_hash` |
 
 Migration 008 is retained unchanged for upgrade compatibility. Its workflow-lifecycle tables are not used by r109; the separate INFO-level diagnostic subsystem was removed from this release.
 
@@ -342,15 +346,11 @@ Adresář `registry/` — **append-only, nikdy se nemaže**.
 Cesta k registry je řízena proměnnou **`REGISTRY_DIR`** (default lokálně
 `<repo>/registry`, v podu **`/data/registry`**).
 
-- **V Kubernetes je `/data` namountovaný na PVC `log-analyzer-data` (20 Gi, RWO)**
-  — viz `infra-apps/ai-log-analyzer/templates/pvc.yaml` + `values.yaml`
-  (`storage.claimName`, `env.REGISTRY_DIR`). PVC sdílí všechny joby (regular,
-  backfill, init), proto je registry **perzistentní napříč restarty podů i
-  napříč joby** — NENÍ ephemeral.
-- Důsledek: cokoli uloženého do `REGISTRY_DIR` (registry, alert state a
-  budoucí self-learning korpus) přežije restart podu. Bez PVC (jen image) by se
-  data při každém běhu ztrácela.
-- PVC je třeba zálohovat (Velero / KB backup) — obsahuje historické patterny.
+- **Nprod r111: `runtimeState.backend=postgres`.** `RuntimeStateStore` nejprve ziska session advisory lease pro query scope a obnovi obe registry a alert cooldown JSON do `emptyDir` na `/data`. Scheduled collector teprve pote zacne sber; druhy writer je odmitnut. Kazdy registry save a potvrzeni dorucenych peak alertu synchronne aktualizuje `ailog_peak.runtime_state`.
+- Fingerprint index a nejvyssi KP/PK ID se rekonstruuji ze stejnych zachovanych zaznamu. Pracovni soubory preziti podu nepotrebuji: trvalou autoritou je DB checkpoint. Poskozeny/chybejici checkpoint a DB chyba nejsou duvodem pro prazdny fallback.
+- Bootstrap po migraci 013 importuje existujici `report_knowledge` a uspesna scoped doruceni alertu. Je idempotentni, existujici stav neprepise a chybejici nebo starsi mirror nez posledni complete sber odmitne. Pred cutoverem musi skoncit stari filesystem writeri.
+- **Legacy `filesystem` default** nadale pouziva YAML na PVC podle `persistence.claimName`. Puvodni nprod 40Gi RWO claim zustal zachovan, ale regular, reporter a init v novem provozu nemaji PVC mount. Pozastaveny backfill nesmi vytvaret druhou autoritu registry.
+- Zalohujte DB vcetne runtime checkpointu, faktu a delivery/publication ledgeru. Lokalni CSV/MD/JSON exporty a stare PVC po cutoveru nejsou aktualni zalohou; rollback potrebuje explicitni export soucasneho DB stavu. Zmena Cinder rezervaci nebo VolumeAttachment finalizeru neni soucasti tohoto navrhu.
 
 ---
 
@@ -434,13 +434,12 @@ scripts/exports/latest/     # CSV/MD pro Confluence upload
 
 | Job | Schedule | Skript |
 |-----|----------|--------|
-| `log-analyzer` | `*/15 * * * *` | `scripts/regular_phase.py` |
-| `log-analyzer-backfill` | `0 9 * * *` | `scripts/backfill.py --days 1` |
+| `log-analyzer` | `5,20,35,50 * * * *` UTC | `scripts/regular_phase.py --scheduled` |
+| `log-analyzer-reports` | `10 */2 * * *` UTC | `scripts/report_from_facts.py`, DB-only bez PVC/ES credentials |
+| `log-analyzer-backfill` | pozastaven | Legacy manualni maintenance, nikoli pravidelny writer/publisher |
 | `log-analyzer-thresholds` | `0 3 * * 0` | `scripts/core/calculate_peak_thresholds.py --weeks 12` (sdílí `init.thresholdWeeks`) |
 | `log-analyzer-maintenance` | `30 2 * * *` | `scripts/core/run_data_maintenance.py` |
 
 Image: `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:<tag>`
 
-**Perzistence:** všechny joby mountují PVC `log-analyzer-data` (20 Gi) na `/data`
-(`REGISTRY_DIR=/data/registry`). Registry, alert state, exporty a reporty tak
-přežívají restarty podů a sdílí se mezi joby (regular ↔ backfill ↔ init).
+**Perzistence r111:** scoped registry/cooldown checkpoint v PostgreSQL, pod-local `/data` a SQLite scratch v `emptyDir`. Regular ma deadline 900 s, `concurrencyPolicy: Forbid` a nad ramec CronJobu DB lease. Reporter cte scoped facts/metadata a publikuje pouze omezene Confluence nahledy s byte-size guardem; plne CSV zustavaji lokalni artefakty. Quiesce/init zajistuji handoff bez soubezneho stareho writera; po chybe zustava regular pozastaveny. Podrobnosti konfigurace a rollbacku jsou v [OPERATIONS.md](OPERATIONS.md#r111-runtime-bez-pvc).

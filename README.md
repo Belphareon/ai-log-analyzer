@@ -16,7 +16,7 @@ Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespac
 4. **Vyhodnotí závažnost** — deterministické bodování 0–100
 5. **Koreluje** — různé logové projevy stejné události se sloučí do jednoho alertu
 6. **Notifikuje** — při peaku odešle digest přes nakonfigurovaný Teams webhook, email, nebo oba kanály
-7. **Aktualizuje Confluence** — Known Errors a Known Peaks z registry exportů; Recent Incidents z denního problem reportu
+7. **Aktualizuje Confluence** — samostatny DB-only reporter publikuje Known Errors, Known Peaks a Recent Incidents z autoritativnich faktu a katalogovych metadat
 8. **Sbírá historická data** — ukládá úplná 15min fakta včetně skutečných nul pro zpětný přepočet slotových prahů a namespace/fingerprint baseline; chybějící běhy nejsou nuly
 
 ---
@@ -30,9 +30,15 @@ Systém každých 15 minut načte error logy ze sledovaných Kubernetes namespac
 | **CyberArk (SPEED)** | Safe s credentials (DB, ES, Confluence) + Application Identity v PSIAM |
 | **Confluence** | Služební účet + 3 stránky (Known Errors, Known Peaks, Recent Incidents) |
 | **Email/SMTP** | SMTP relay dostupný z K8s clusteru |
-| **K8s namespace** | `ai-log-analyzer` namespace s ServiceAccount a PVC |
+| **K8s namespace** | `ai-log-analyzer` namespace se ServiceAccount a RBAC; r111 PostgreSQL rezim pravidelneho sberu a reporter nepotrebuji PVC mount |
 
 Kompletní postup založení → [docs/INSTALLATION.md](docs/INSTALLATION.md)
+
+### r111: Ochrana proti cekani na PVC
+
+Nasazeny nprod pouziva `runtimeState.backend=postgres`: migrace 013 uchovava registry i alert cooldowny v DB, kazdy regular pod je obnovi do lokalniho `/data` a zmeny synchronne checkpointuje. DB advisory lock brani soubeznym writerum; chybejici nebo poskozeny checkpoint zastavi beh misto resetu na prazdnou registry. Regular nema PVC mount a ma deadline 900 s. Puvodni PVC je zachovane pouze pro legacy data, nikoli jako aktualni autorita. Zdrojovy chart a instalator maji kvuli zpetne kompatibilite stale explicitne volitelny `filesystem` default.
+
+r110/r111 omezuji Confluence nahled na 100 radku v tabulce, 192 znaku v bunce a 128 Ki znaku denniho uvodu; skryta data jsou oznacena, uplna DB fakta a lokalni CSV zustavaji zachovana. Uploader meri cely serializovany UTF-8 request a odmitne PUT nad 4 MiB. Prechod, fail-closed handoff, rollback a casove oznacene overeni nasazeni jsou v [provoznim navodu](docs/OPERATIONS.md#r111-runtime-bez-pvc).
 
 ---
 
@@ -67,12 +73,15 @@ python3 scripts/backfill.py --days 1 --dry-run
 
 | CronJob | Schedule | Popis | Typická doba |
 |---------|----------|-------|-------------|
-| `log-analyzer` | `*/15 * * * *` | Hlavní pipeline: ES fetch → detect peaks → alert → export | 1–5 min |
-| `log-analyzer-backfill` | `0 9 * * *` | Denní backfill + Confluence publish | 10–60 min |
+| `log-analyzer` | `5,20,35,50 * * * *` UTC | Live ES sber, detekce, alert; pak facts-only doplneni mezer a pozdnich dat | 1–10 min |
+| `log-analyzer-reports` | `10 */2 * * *` UTC | DB-only trendy kazde 2 h; denni Known Peaks a Recent Incidents, bez PVC a ES credentials | 1–15 min |
+| `log-analyzer-backfill` | pozastaven (`suspend: true`) | Legacy manualni maintenance, nikoli zdroj pravidelne publikace | 10–60 min |
 | `log-analyzer-thresholds` | `0 3 * * 0` | Týdenní přepočet slotového P95/MAD z 12 týdnů úplných fact rows | 1–5 min |
 | `log-analyzer-maintenance` | `30 2 * * *` | Denní rollup a retention jemnozrnných faktů | 1–30 min |
 
 ### Manuální spuštění
+
+V PostgreSQL rezimu nespoustejte legacy backfill jako druheho registry writera. Historicke opravy zajistuje scheduled regular bez alert replay; explicitni init bootstrap pouziva facts-only rezim. Postup maintenance a rollbacku je v provoznim navodu.
 
 ```bash
 kubectl create job manual-regular --from=cronjob/log-analyzer -n ai-log-analyzer
@@ -191,13 +200,14 @@ env:
 | Slotové prahy | DB `ailog_peak.threshold_slot_values` | Per (snapshot, namespace, UTC weekday, hour, quarter), počet vzorků a init/mature |
 | Metadata snapshotů | DB `ailog_peak.threshold_snapshot_runs` | Verze 5.0 a grain; staré denní tabulky zůstávají jen pro historii |
 | Evidované peaky | DB `ailog_peak.peak_investigation` | Pro Confluence reporty |
-| Známé problémy | `registry/known_problems.yaml` (PVC) | Append-only, nikdy se nemaže |
-| Známé peaky | `registry/known_peaks.yaml` (PVC) | Append-only, nikdy se nemaže |
-| Index fingerprintů | `registry/fingerprint_index.yaml` (PVC) | Lookup: fingerprint → problem_key |
-| Stav alertů | `registry/alert_state_regular_phase.json` (PVC) | Cooldown, trend, počet alertů |
+| Registry a stav alertu (r111 PostgreSQL) | DB `ailog_peak.runtime_state` | Scoped checkpoint obou registry YAML a alert cooldown JSON, autorita prezivajici vymenu podu |
+| Katalog pro DB reporter | DB `ailog_peak.report_knowledge` | Kopie problem/peak metadat; vstup prvniho runtime bootstrapu |
+| Publication ledger | DB `ailog_peak.report_publications` | Doruceni kazdeho reportovaciho cile, oddelene partial/final verze |
+| Registry soubory v podu | `/data/registry` v `emptyDir` | Pracovni kopie z DB; fingerprint index a ID countery se obnovi z registry |
+| Legacy filesystem registry | `/data/registry` na PVC | Pouze `runtimeState.backend=filesystem`; po DB cutoveru neni zachovane PVC aktualni zalohou |
 | Sledované namespace | `config/namespaces.yaml` | Seznam namespace pro monitoring |
 
-> V K8s jsou YAML registry soubory na PVC (`/data/registry`), ne v kontejneru.
+> Nprod r111 drzi trvaly runtime stav v PostgreSQL. Pod-local YAML a CSV/MD/JSON exporty nejsou trvale zalohy. Prepnuti tagu zpet na starou filesystem image bez exportu aktualniho DB stavu neni bezpecny rollback.
 
 ---
 
@@ -268,7 +278,7 @@ ai-log-analyzer/
 
 ## Image pro instalaci
 
-Instalátor používá explicitní `IMAGE_TAG` z `.env`. Standardně image sestaví a pushne; `--skip-docker` použij pouze tehdy, když daný tag už v registry existuje. V manifestu nepoužívej implicitní `latest`.
+Instalator pouziva explicitni `IMAGE_TAG` z `.env`, ale image nebuildi ani nepushuje. Release se sestavi z commitnuteho aplikacniho stromu s offline wheels, publikuje do registry a overi pullnutim zpet pred zmenou GitOps image. V manifestu nepouzivejte implicitni `latest` ani existujici tag neprepisujte. Nprod r111 byl overen z aplikacniho commitu `41d1a12`; dokumentacni commity nevyzaduji novou image.
 
 ---
 

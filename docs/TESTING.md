@@ -1,5 +1,23 @@
 # Testing Guide - AI Log Analyzer
 
+## r111 Regression Gate
+
+Automated tests are the release gate; the legacy smoke commands below may contact services, mutate registries or publish notifications. Do not run legacy backfill as a second writer in the deployed PostgreSQL mode. Direct regular invocation in that mode requires `--scheduled` and its DB lease.
+
+Use only a disposable PostgreSQL database whose name contains `test`. The integration fixture drops/recreates the entire `ailog_peak` schema; never point these variables at the application database. Set `TEST_POSTGRES_DSN` privately before running from the repository root, and pass the same disposable DSN to runtime-state tests:
+
+```bash
+export AILOG_TEST_POSTGRES_DSN="$TEST_POSTGRES_DSN"
+python3 -m pytest scripts/tests/test_runtime_state.py scripts/tests/test_postgres_integration.py scripts/tests/test_install_values_yaml.py scripts/tests/test_report_from_facts.py scripts/tests/test_confluence_csv_delivery.py -q
+python3 -m pytest scripts/tests -q --junitxml=/tmp/ai-log-analyzer-results.xml
+```
+
+Without both DSNs, DB tests may be skipped; a green offline result alone is not the full PostgreSQL gate. Helm must be installed for chart contracts. Covered risks include pod replacement with registry/fingerprint/ID/cooldown preservation, immediate checkpoints, competing writers, bootstrap idempotency, stale/missing-state refusal, PVC-free regular rendering, complete CSV preservation, Unicode/escaping byte sizes and oversized-request rejection before PUT.
+
+The isolated r111 source `41d1a12` passed 256 tests and 2 subtests against PostgreSQL 16 with zero skips. The actual Python 3.11 image passed an offline import smoke test; nprod separately verified one complete eight-window collector Job and all three Confluence publications. That live run did not exercise a peak-alert branch or prove historical daily completeness. Timestamped results and backlog are recorded in [OPERATIONS.md](OPERATIONS.md#overene-nasazeni-r111).
+
+For deployment validation, render the actual GitOps chart with its existing Helm parameter overrides, not just the source chart. Verify no PVC volume in regular/init/reporter, no duplicate env names, valid embedded quiesce Python, rejection of running/restarted containers by the never-started policy, no DB-mode SyncFail resume hook, preserved percentile and suspended legacy backfill. Do not send live reports merely as an unapproved test; normal reporter execution publishes externally.
+
 ## Quick Reference
 
 | Test | Command | Expected |

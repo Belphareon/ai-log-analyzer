@@ -9,9 +9,9 @@ Kompletní průvodce od prerekvizit po běžící systém v K8s.
 ```
 1. Prerekvizity (manuální)       — DB, CyberArk, Confluence, email kanál
 2. Konfigurace (.env)            — non-secret instalační vstup + názvy CyberArk účtů
-3. Instalační skript (install.sh) — Docker build, values.yaml, K8s manifesty, git push
+3. Release + install.sh          — overena publikovana image, values.yaml, K8s manifesty, git push
 4. PR & ArgoCD sync              — merge PR, ArgoCD nasadí
-5. Init joby                     — bootstrap historických dat (kubectl)
+5. Init hook                     — migrace, runtime checkpoint, snapshot guard; historie jen explicitne
 6. Ověření                       — CronJoby běží, Confluence aktualizován
 ```
 
@@ -142,6 +142,26 @@ Vygenerovaný `values.yaml` je autoritativní konfigurace pro K8s prostředí. N
 - `env.DB_HOST`, `env.ES_HOST`, `env.ES_INDEX`, Confluence page IDs
 - `teams.email`, `teams.enabled`, `email.smtpHost`
 
+### 2.3 PostgreSQL runtime bez PVC (r111)
+
+Pro provoz bez RWO attachment zavislosti nastavte v instalacnim vstupu `RUNTIME_STATE_BACKEND=postgres` a `INIT_QUIESCE=true`. Bez explicitni volby zustava default `filesystem`; pri pre-generovani existujiciho nprod chartu proto tyto hodnoty zachovejte. V GitOps zkontrolujte:
+
+```yaml
+runtimeState:
+	backend: postgres
+	activeDeadlineSeconds: 900
+init:
+	quiesce: true
+	bootstrap: false
+	forceThresholdRefresh: false
+```
+
+Puvodni `persistence.enabled=true` a claim ponechte beze zmeny, aby se nesmazala legacy data. Regular v PostgreSQL rezimu presto pouzije `emptyDir`, nikoli PVC. Reporter je DB-only v obou rezimech. Backend nemenejte pouhym tag rollbackem; DB se po cutoveru stava jedinou autoritou aktualni registry a cooldownu.
+
+Pred povolenim prvniho DB collectoru je nutna migrace 013 a uspesny `regular_phase.py --bootstrap-runtime-state` s `RUNTIME_STATE_BACKEND=postgres`. Nprod init hook tento prikaz spousti mezi migracemi a snapshot guardem. Bootstrap prevezme existujici scoped `report_knowledge` a uspesna doruceni alertu, existujici checkpoint neprepise a chybejici/starsi mirror odmitne. Zcela nova instalace bez mirroru vyzaduje explicitni import pocatecniho stavu; tato verze nema automaticky prazdny bootstrap. Samostatny zdrojovy chart obsahuje jen CronJob sablony; doplnte odpovidajici init hook/RBAC do ciloveho chartu, ne pouze backend value.
+
+Quiesce ukoncuje zkracenim Job deadline jen nikdy nespustene Pending joby, bezici writer necha dobehnout a v DB rezimu neprovadi PVC operace. Pri chybe zustava regular pozastaveny, bez automatickeho navratu stareho writera. Podrobny handoff, rollback a skutecne vysledky nprod jsou v [OPERATIONS.md](OPERATIONS.md#r111-runtime-bez-pvc).
+
 ---
 
 ## 3. Instalace — install.sh
@@ -152,7 +172,7 @@ chmod +x install.sh
 # Plná instalace
 ./install.sh
 
-# Náhled bez Docker build/push, DB migrací a git změn.
+# Nahled bez DB migraci a git zmen; image se publikuje samostatne.
 # Pozor: values.yaml a chart se i v dry-run režimu přegenerují v INFRA_APPS_DIR.
 ./install.sh --dry-run
 
@@ -164,7 +184,7 @@ chmod +x install.sh
 |------|---------|
 | **1. Validace** | Ověří, že všechny povinné proměnné v `.env` jsou vyplněné |
 | **2. Databáze** | Standardně přeskočí lokální migrace; s `--run-db-migrations` je spustí pomocí lokálních DB credentials |
-| **3. Docker image** | Sestaví a pushne image; `--skip-docker` tento krok přeskočí |
+| **3. Image** | Pouzije explicitni `IMAGE_TAG`; build/push patri do predchoziho aplikacniho release, ne do instalatoru |
 | **4. K8s chart** | Přegeneruje `values.yaml` a zkopíruje `templates/` a `Chart.yaml` do existujícího `infra-apps/ai-log-analyzer/` |
 | **5. Git commit & push** | Z aktuálního checkoutu infra repa vytvoří feature branch, commitne chart a pushne ji |
 | **6. Souhrn** | Deployment checklist + instrukce pro další kroky |
@@ -179,9 +199,9 @@ Skript na konci vypíše přesné kroky — v souhrnu:
 
 1. **Vytvořit PR** z branch `feat/ai-log-analyzer-<env>` v infra-apps repu
 2. **Review a merge PR**
-3. **ArgoCD sync** — po merge ArgoCD automaticky nasadí CronJoby, PVC, ServiceAccount, Secret a init Job
+3. **ArgoCD sync** — po merge nasadi CronJoby, zachovany PVC, ServiceAccount/RBAC, Secret a init hook; pokud je autosync vypnuty jako v overenem nprod, sync spustte explicitne
 
-Argo Application nesmí mít globální `Replace=true`: Kubernetes nedovolí replace bound PVC. `Force=true,Replace=true` patří pouze na immutable init Job a `ApplyOutOfSyncOnly=true` zajistí, že se Job znovu vytvoří jen při skutečné změně jeho manifestu. Před syncem proto není potřeba Job ručně mazat.
+Argo Application nesmi mit globalni `Replace=true`: Kubernetes nedovoli replace bound PVC. Init pouziva `PreSync` s `BeforeHookCreation,HookSucceeded`, nikoli Force/Replace. Pro migracni release nevynechavejte hooky selektivnim ani out-of-sync-only syncem; overeny r111 postup nepotreboval force, replace ani prune. Pred syncem neni potreba rucne mazat PVC nebo VolumeAttachment.
 
 ---
 
@@ -199,9 +219,9 @@ kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 
 Init job provede:
 1. **DB migrations** — spustí SQL migrace přes `DB_DDL_USER`/`DB_DDL_PASSWORD` z CyberArku a nastaví oprávnění pro roli z `DB_APP_ROLE`
-2. **Backfill** — stáhne error logy z ES za posledních N dní (default: 21)
-3. **Threshold calc** — vypočítá P93/CAP prahy z backfill dat
-4. **Verify** — zobrazí vypočtené thresholdy
+2. **Runtime checkpoint** — v PostgreSQL rezimu provede idempotentni bootstrap registry a alert cooldownu, fail-closed pri chybejicim nebo zastaralem mirroru
+3. **Snapshot guard** — pri kompatibilnim UTC slot modelu a `init.bootstrap=false`, `init.forceThresholdRefresh=false` skonci bez historickeho fetch nebo pretrenovani
+4. **Explicitni bootstrap/verify** — jen pri pozadovanem bootstrapu stahne historii `--bootstrap --facts-only` bez alertu/publikace; potrebne slotove profily pocita z complete facts, ne z vymyslenych nul. Bez kompatibilniho vysledku regular nepovoli.
 
 Po dokončení init jobu systém běží autonomně přes CronJoby.
 
@@ -234,7 +254,7 @@ SELECT namespace, COUNT(*) FROM ailog_peak.peak_thresholds GROUP BY namespace;
 
 ### Confluence
 
-Po prvním úspěšném backfill jobu mají být aktualizované všechny tři stránky. `backfill.py` publikuje Recent Incidents z `problem_report_*.txt` na `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID`; následný `confluence_csv_uploader.py` publikuje Known Errors a Known Peaks z registry CSV exportů.
+Pravidelnou publikaci zajistuje `log-analyzer-reports`, nikoli legacy backfill. Overte vsechny tri vysledky doruceni a `confluence_request_prepared.request_bytes`; 4MiB pojistka chrani cely serializovany request a nadlimitni PUT se neposle ani neoznaci jako uspesny. Tabulky jsou omezene nahledy s viditelnym upozornenim, DB fakta a lokalni CSV zustavaji uplne. CSV nejsou automaticke Confluence prilohy. `daily_complete=false` muze zustat pravdive pri historickych mezerach i po uspesnem uploadu vsech stranek a dal blokuje denni notifikaci.
 
 ---
 
@@ -255,9 +275,11 @@ Po prvním úspěšném backfill jobu mají být aktualizované všechny tři st
 - [ ] Branch pushnuta (`install.sh` krok 5)
 - [ ] PR vytvořen a mergnut
 - [ ] ArgoCD sync proběhl — Synced & Healthy
-- [ ] Argo Application nemá globální `Replace=true`; init Job má resource-level `Force=true,Replace=true`
-- [ ] Init job dokončen (DB migrations + backfill + thresholds)
-- [ ] CronJoby běží (regular, backfill, thresholds)
+- [ ] Argo Application nema globalni `Replace=true`; PreSync hooky probehly bez force/prune a prerequisites skutecne existuji
+- [ ] V PostgreSQL rezimu uspesny runtime bootstrap a regular ma jen `emptyDir`, deadline 900 s, backend `postgres`; stary PVC zachovan
+- [ ] Init uspesny: migrace + checkpoint + kompatibilni snapshot, historie/pretrenovani jen pri explicitnim pozadavku
+- [ ] Regular, DB-only reporter, thresholds a maintenance maji spravne schedule; legacy backfill zustava pozastaveny
+- [ ] Prvni regular Job uspesny vcetne reconciliace; `pending_window_count` a coverage zkontrolovany oddelene od Job statusu
 - [ ] Email/Teams notifikace ověřena
 - [ ] Confluence stránky aktualizovány
 

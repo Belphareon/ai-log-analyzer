@@ -1,5 +1,22 @@
 # Troubleshooting - AI Log Analyzer
 
+## r111: DB Runtime And Reporting
+
+The deployed nprod PostgreSQL mode supersedes the legacy filesystem recovery examples below. Never fix a missing DB checkpoint by deleting registry files, clearing `runtime_state`, rerunning bootstrap over existing state, or switching to the old PVC image: these actions can lose known fingerprints or replay delivered alerts. Use [the operations guide](OPERATIONS.md#r111-runtime-bez-pvc) for a controlled handoff or rollback.
+
+| Symptom | Check And Action |
+|---------|------------------|
+| Collector Pending / `FailedAttachVolume` | Verify its actual image and pod volumes. r111 regular in `postgres` mode has only `emptyDir`; a PVC mount means a legacy/stale workload or wrong backend. Do not delete the PVC, Cinder reservation or attachment finalizers. |
+| `runtime state is not seeded` | Check migration 013, init bootstrap result and query scope. Missing or stale `report_knowledge` requires explicit import, not an empty fallback. Bootstrap never overwrites an existing checkpoint. |
+| `another runtime state writer is active` | Locate the current scoped scheduled/manual collector and let it finish; do not disable the lease. A PostgreSQL session close releases it. |
+| Direct regular invocation rejects missing writer lease | Use the configured `--scheduled` workflow; no unleased `postgres` fallback is supported. |
+| Handoff failed and regular remains suspended | This is deliberate fail-closed behavior. Resolve the specific init/quiesce failure and repeat the complete sync; do not resume the old filesystem writer against a seeded DB. |
+| Argo says hook prerequisites succeeded but Job has `FailedCreate: serviceaccount ... not found` | Verify the actual ServiceAccount/Role/RoleBinding and current operation results. The r111 incident recovered by terminating only the blocked Argo operation and starting a fresh official full sync, without force/replace/prune. Underlying km helper cause was not investigated. Core CLI mode needs the Argo namespace in the selected context; avoid changing the user's active kubeconfig. |
+| Confluence HTTP 413 | Check `confluence_request_prepared.request_bytes` and image version. Bound tables/preface and the 4MiB serialized UTF-8 request guard prevent the observed 5MiB rejection; repeating the same oversized payload is not a fix. The historical peak catalog must use the same bounds. |
+| Report uploaded but `daily_complete=false` | Check 96-window coverage, reconciliation and `pending_window_count`. Partial publication is allowed; daily Teams/email remains gated. Missing windows are not zero-error windows and historical catch-up does not replay alerts. |
+
+Report tables display at most 100 rows and 192 characters per cell, with explicit truncation notices; the daily preface has its own 128 Ki-character limit. Full DB facts and pod-local CSV are not truncated, but CSV files are neither durable backups nor automatically published attachments. A refused PUT is not recorded as successful delivery. State persistence does not provide exactly-once external delivery across a crash between provider acceptance and DB commit.
+
 ## Časté problémy a řešení
 
 ### 1. Reporty se negenerují

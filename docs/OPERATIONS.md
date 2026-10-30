@@ -18,7 +18,8 @@ Vše pro běžný provoz, manuální zásahy a diagnostiku. Systém běží **au
 
 ```
 Init Job (PreSync)
-  └─ migrace + snapshot guard → pri kompatibilnim modelu konec
+  └─ migrace + v PostgreSQL rezimu bootstrap runtime checkpointu
+  └─ snapshot guard → pri kompatibilnim modelu konec
   └─ pri nekompatibilnim snapshotu → threshold calc z complete facts
   └─ pouze init.bootstrap=true → facts-only backfill pred trenovanim
 
@@ -38,7 +39,19 @@ Poté autonomně:
 
 Pred prvnim prepnutim pozastavte regular, nechte stare filesystem joby skoncit a overte, ze zadny stary writer nebezi. Nprod init hook po migracich a pred snapshot guardem spusti `regular_phase.py --bootstrap-runtime-state` s `RUNTIME_STATE_BACKEND=postgres`. Bootstrap prevezme DB kopii registry z migrace 012 a cooldowny poslednich uspesnych doruceni ze stejneho query scope. Existujici checkpoint nikdy neprepise; chybejici nebo starsi mirror nez posledni complete sber je chyba vyzadujici explicitni import, nikoli duvod resetovat stav. Samostatny zdrojovy chart obsahuje jen CronJob sablony; pri jeho jinem pouziti zajistete tento bootstrap pred povolenim regularu.
 
+Nprod ma pro rizeny prechod `init.quiesce=true`. Quiesce nejprve pozastavi regular a backfill a ceka na ukonceni starych writeru. Pouze Jobum, jejichz vsechny pody jsou `Pending` a aplikacni kontejnery nikdy nebezely, zkrati `activeDeadlineSeconds` na 1; ukonceni provede normalni Job controller. Bezicimu nebo drive spustenemu kontejneru deadline nemeni. Role proto potrebuje `patch` na Jobs v namespace. Po zklidneni PostgreSQL rezim preskoci PVC resize/attach operace. Pri chybe quiesce nebo initu zustava regular pozastaveny: SyncFail resume hook se v DB rezimu nevytvari, aby stary filesystem writer nerozesel stav s DB. Po oprave chyby zopakujte cely sync; regular povoli az aplikace noveho CronJob manifestu.
+
 Puvodni PVC a pozastaveny legacy backfill zustavaji zachovane, ale nejsou soucasti noveho pravidelneho sberu ani reporteru. Pod-local CSV/MD/JSON exporty nejsou trvale zalohy. Po prepnuti nesmi legacy backfill ani stary filesystem image upravovat registry jako druhou autoritu; pripadny navrat na starsi image vyzaduje zastaveni collectoru a export aktualniho DB checkpointu, nikoli pouhe prepnuti tagu na stale stare PVC. DB zalohy/retence jsou nadale nutne. Cinder attachment ani jeho finalizery se kvuli teto zmene nemeni a jejich stav uz neblokuje bezny sber.
+
+### Overene nasazeni r111
+
+Stav k 2026-10-30 11:29 UTC, nikoli prubezne aktualizovany health dashboard:
+
+- Aplikacni commit `41d1a12`, nprod GitOps commit `27be0fb`, image `dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r111`. Image po push/pull zachovala ID `4120f6822ac4a2a12663262a226128e6e570c184cf62c0ff4d2624d8b8833b1a` a revision label. r110 byl report-only zdrojovy mezikrok; nasazena kombinovana oprava je r111.
+- Argo sync uspesne dokoncil vsechny kroky v 11:20:32 UTC. Nprod zachoval existujici Argo override `env.PERCENTILE_LEVEL=0.94`; release nemenil model ani netrenoval novy percentil.
+- Cely izolovany release prosel 256 testy a 2 subtesty proti PostgreSQL 16, bez preskocenych testu. Pokryte jsou bootstrap, konkurencni writer, obnova registry/cooldownu po vymene podu, chybejici/stary checkpoint, Confluence limity a Helm kontrakty.
+- Prvni regular Job `log-analyzer-29889320` obnovil 8 694 znamych fingerprintu, zpracoval vsech 1 771 ERROR radku aktualniho okna 11:00-11:15 UTC a uspesne dokoncil vsech osm naplanovanych oken v 11:29:03 UTC. Zbyvalo 42 historickych oken; jejich dalsi doplneni zavisi na nasledujicich schedulech a ES retenci. Historicke opravy neodesilaji stare peak alerty.
+- Validacni reporter `log-analyzer-reports-r111-validation-20261030` uspesne publikoval vsechny tri Confluence cile. Pozadavky mely 348 333 / 89 662 / 252 950 bajtu; verze stranek 1914 / 1905 / 4011. `daily_complete=false` kvuli historickym mezeram zustalo pravdive a denni notifikacni gate se neobchazel.
 
 ### Stav
 
@@ -75,13 +88,13 @@ kubectl delete job manual-regular manual-backfill manual-thresholds -n ai-log-an
 
 ### Re-bootstrap (init job)
 
-Pro doplneni historickych faktu (zmena namespace, nove prostredi) nastavte jednorazove `init.bootstrap=true`, pozadovany pocet dni a workeru. Init pouzije `--bootstrap --facts-only` a lokalni `emptyDir`, nikoli sdilene PVC. Nepublikuje reporty ani neodesila upozorneni. Po uspechu vratte `init.bootstrap=false`. `init.quiesce=false` je bezny default; quiesce/resume hooky jsou pouze explicitni maintenance volba.
+Pro doplneni historickych faktu (zmena namespace, nove prostredi) nastavte jednorazove `init.bootstrap=true`, pozadovany pocet dni a workeru. Init pouzije `--bootstrap --facts-only` a lokalni `emptyDir`, nikoli sdilene PVC. Nepublikuje reporty ani neodesila upozorneni. Po uspechu vratte `init.bootstrap=false`. Instalator ma default `init.quiesce=false`, ale nasazeny nprod r111 pouziva `true` pro rizeny handoff; DB rezim pri selhani neobnovuje stareho filesystem writera. Runtime bootstrap checkpointu neni totizna operace jako historicky `init.bootstrap`.
 
 Model 5.0 vyzaduje novy snapshot presnych UTC slotu; stary denni model 4.1 neni kompatibilni. Pri prvnim prechodu nebo rozsireni nprod z 6 na kanonickych 12 namespace init zkusi trenovani nad existujicimi uplnymi fakty. Pokud coverage snapshotu nestaci, skonci chybou; operator musi explicitne povolit bootstrap. Kratsi historie muze vytvorit init profily, nikoli mature. Bez kompatibilniho snapshotu regular fail-closed nebezi. `init.forceThresholdRefresh=true` vynuti pouze trenovani, nikoli historicky fetch.
 
 ```bash
 # Uprav init values nebo image v infra-apps a spusť Argo sync.
-# Argo Job samo delete/create díky resource-level Force/Replace.
+# PreSync hook se obnovi pres BeforeHookCreation, bez Force/Replace.
 kubectl logs -f job/log-analyzer-init -n ai-log-analyzer
 ```
 
@@ -97,6 +110,9 @@ Všechny parametry jsou v `values.yaml` daného prostředí (v infra-apps repu).
 
 | Parametr | Default | Popis |
 |----------|---------|-------|
+| `runtimeState.backend` | `filesystem`; nprod `postgres` | Volba autoritativniho stavu. PostgreSQL rezim vyzaduje migraci 013 a explicitni bootstrap pred prvnim regular behom; PVC nenamountuje. |
+| `runtimeState.activeDeadlineSeconds` | `900` | Deadline regular Jobu v PostgreSQL rezimu. Legacy filesystem rezim zachovava 3600 s. |
+| `RUNTIME_STATE_BACKEND` | `filesystem` | Aplikacni env generovane z `runtimeState.backend`; stejnojmenny vstup instalatoru vybira backend pro generovane values. |
 | `env.REGULAR_COLLECTION_START` | prazdny | Start prvni aktivace; prazdny znamena posledni uzavrene okno. Explicitni ISO UTC cas musi byt zarovnany na 15 minut. Ulozeny checkpoint uz dalsi behy neposouvaji ani touto promennou. |
 | `env.REGULAR_SETTLE_MINUTES` | `2` | Prodleva pred vyberem uzavreneho okna kvuli indexaci ES |
 | `env.REGULAR_MAX_WINDOWS` | `8` | Maximalni velikost planu live + starych mezer; opravy pozdnich dat maji vlastni horizont a sdileny casovy rozpocet |
@@ -232,7 +248,7 @@ kubectl logs job/<failed-job> -n ai-log-analyzer
 | `413 Request Entity Too Large` | Serializovany report prekrocil Confluence request limit (overeno 5 MiB) | Overit image s omezenym nahledem a 4MiB pojistkou; stejny nadlimitni payload neopakovat jako reseni |
 | `FailedAttachVolume`, `ContainerCreating` bez startu kontejneru | Cinder/CSI nedokazal pripojit RWO volume; kod analyzatoru dosud nebezel | Predat platforme PVC/PV, Cinder UUID, cilovy node a casy attach/detach; nemazat PVC ani attachment finalizery bez potvrzeni storage vlastnika |
 | Daily Incident Analysis je prázdná | Chybné `CONFLUENCE_RECENT_INCIDENTS_PAGE_ID` nebo selhal publisher v `backfill.py` | Ověřit page ID v rendered backfill CronJobu a hledat `Recent Incidents` v logu posledního backfill jobu |
-| Argo sync selže na immutable Job/PVC | Globální `Replace=true` v Application | Odstranit globální Replace; ponechat Force/Replace pouze na init Jobu a zapnout `ApplyOutOfSyncOnly=true` |
+| Argo sync selže na immutable Job/PVC | Globalni `Replace=true` nebo nespravny lifecycle init Jobu | Odstranit globalni Replace; pro init pouzit PreSync `BeforeHookCreation,HookSucceeded`, migracni hooky nepreskakovat |
 | `No thresholds found` | Prázdná DB | Spustit init job |
 | `Pxx/CAP peak detector initialization failed` | DB snapshot nebo baseline není dostupný/kompatibilní | Ověřit DB přístup, complete facts a `PERCENTILE_LEVEL`; job nespustí legacy EWMA fallback |
 | `SMTP connection refused` | Mail server | Ověřit SMTP_HOST z K8s |
