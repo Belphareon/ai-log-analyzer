@@ -513,8 +513,9 @@ class ProblemRegistry:
         registry.save()
     """
     
-    def __init__(self, registry_dir: str):
+    def __init__(self, registry_dir: str, state_store=None):
         self.registry_dir = Path(registry_dir)
+        self.state_store = state_store
         
         # Problem registry (problem_key → ProblemEntry)
         self.problems: Dict[str, ProblemEntry] = {}
@@ -717,6 +718,8 @@ class ProblemRegistry:
         self._write_peaks_md(sorted_peaks)
         self._save_fingerprint_index()
         self._check_health_warnings()
+        if self.state_store is not None:
+            self.state_store.checkpoint(self.registry_dir)
         return True
     
     def _atomic_write_yaml(self, filepath: Path, data: Any):

@@ -8,7 +8,7 @@ Vše pro běžný provoz, manuální zásahy a diagnostiku. Systém běží **au
 
 | CronJob | Schedule | Co dělá | Typická doba |
 |---------|----------|---------|--------------|
-| `log-analyzer` | `5,20,35,50 * * * *` UTC | Jediny PVC writer: live sber/detekce/alert, pak facts-only opravy pozdnich dat a mezer | 1–10 min |
+| `log-analyzer` | `5,20,35,50 * * * *` UTC | Live sber/detekce/alert, pak facts-only opravy pozdnich dat a mezer; r111 PostgreSQL rezim bez PVC | 1–10 min |
 | `log-analyzer-reports` | `10 */2 * * *` UTC | DB-only trendy kazde 2 h; Known Peaks a Recent Daily Incidents jednou denne za poslednich 24 h | 1–15 min |
 | `log-analyzer-backfill` | pozastaven (`suspend: true`) | Rucni backfill + Confluence publish v maintenance okne | 10–60 min |
 | `log-analyzer-thresholds` | `0 3 * * 0` | Tydenni P95/MAD presnych UTC slotu z 12 tydnu uplnych faktu, bez globalniho CAP | 1–5 min |
@@ -31,6 +31,14 @@ Poté autonomně:
   thresholds (Ne 03:00) → P95/MAD presnych UTC slotu z poslednich 12 tydnu
   maintenance (02:30)  → denní rollupy → smaže fakta starší než retention limit
 ```
+
+### r111: Runtime bez PVC
+
+`runtimeState.backend=postgres` odstrani PVC mount z regularu a pouzije pod-local `/data`. Migrace 013 uchovava oba registry a alert cooldown JSON v PostgreSQL; fingerprint index a ID countery se obnovi ze stejnych zaznamu. Kazde ulozeni registry a doruceneho alertu synchronne aktualizuje checkpoint. Session advisory lock pro query scope odmita druheho collectora i rucni soubezny Job. DB chyba, chybejici checkpoint nebo poskozeny obsah zastavi beh misto resetu na prazdny registry. Regular ma v tomto rezimu `activeDeadlineSeconds=900`, takze dalsi schedule neblokuje hodinovy zivy Job.
+
+Pred prvnim prepnutim pozastavte regular, nechte stare filesystem joby skoncit a overte, ze zadny stary writer nebezi. Nprod init hook po migracich a pred snapshot guardem spusti `regular_phase.py --bootstrap-runtime-state` s `RUNTIME_STATE_BACKEND=postgres`. Bootstrap prevezme DB kopii registry z migrace 012 a cooldowny poslednich uspesnych doruceni ze stejneho query scope. Existujici checkpoint nikdy neprepise; chybejici nebo starsi mirror nez posledni complete sber je chyba vyzadujici explicitni import, nikoli duvod resetovat stav. Samostatny zdrojovy chart obsahuje jen CronJob sablony; pri jeho jinem pouziti zajistete tento bootstrap pred povolenim regularu.
+
+Puvodni PVC a pozastaveny legacy backfill zustavaji zachovane, ale nejsou soucasti noveho pravidelneho sberu ani reporteru. Pod-local CSV/MD/JSON exporty nejsou trvale zalohy. Po prepnuti nesmi legacy backfill ani stary filesystem image upravovat registry jako druhou autoritu; pripadny navrat na starsi image vyzaduje zastaveni collectoru a export aktualniho DB checkpointu, nikoli pouhe prepnuti tagu na stale stare PVC. DB zalohy/retence jsou nadale nutne. Cinder attachment ani jeho finalizery se kvuli teto zmene nemeni a jejich stav uz neblokuje bezny sber.
 
 ### Stav
 

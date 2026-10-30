@@ -2,18 +2,18 @@
 # AI Log Analyzer - Docker Image
 # ============================================================================
 # Build:
-#   podman build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r110 .
+#   podman build -t dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r111 .
 #
 # Run:
-#   podman run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r110 python scripts/regular_phase.py
+#   podman run --env-file .env dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r111 python scripts/regular_phase.py
 # ============================================================================
 
 FROM python:3.11-slim
 
 # Labels
 LABEL maintainer="your-team@company.com"
-LABEL version="r110"
-LABEL description="AI Log Analyzer - bounded Confluence reports and request-size safeguards"
+LABEL version="r111"
+LABEL description="AI Log Analyzer - PVC-free scheduled runtime state and bounded Confluence reports"
 
 # Set working directory
 WORKDIR /app

@@ -73,3 +73,20 @@ def test_source_chart_has_one_scheduled_pvc_writer_and_local_scratch():
     assert report_pod['containers'][0]['command'] == ['python3', '/app/scripts/report_from_facts.py']
     report_env = {item['name'] for item in report_pod['containers'][0]['env']}
     assert not {'ES_USER', 'ES_PASSWORD', 'DB_DDL_USER', 'DB_DDL_PASSWORD', 'REGISTRY_DIR'} & report_env
+
+
+def test_postgres_runtime_regular_never_mounts_pvc():
+    if not shutil.which('helm'):
+        pytest.skip('Helm is required for the source chart contract')
+    chart = Path(os.environ['AILOG_TEST_CHART']) if os.getenv('AILOG_TEST_CHART') else Path(__file__).parents[2] / 'k8s'
+    result = subprocess.run(
+        ['helm', 'template', str(chart), '--set', 'runtimeState.backend=postgres'],
+        capture_output=True, text=True, check=True,
+    )
+    cronjobs = [item for item in yaml.safe_load_all(result.stdout) if item and item['kind'] == 'CronJob']
+    regular = next(item for item in cronjobs if item['metadata']['name'] == 'log-analyzer')
+    pod = regular['spec']['jobTemplate']['spec']['template']['spec']
+    assert all('persistentVolumeClaim' not in volume for volume in pod['volumes'])
+    assert next(volume for volume in pod['volumes'] if volume['name'] == 'data')['emptyDir'] == {}
+    assert regular['spec']['jobTemplate']['spec']['activeDeadlineSeconds'] == 900
+    assert {item['name']: item.get('value') for item in pod['containers'][0]['env']}['RUNTIME_STATE_BACKEND'] == 'postgres'

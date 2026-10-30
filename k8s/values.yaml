@@ -19,7 +19,7 @@ environment: nprod                     # nprod | prod
 # -----------------------------------------------------------------------------
 app:
   name: log-analyzer
-  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r110
+  image: dockerhub.kb.cz/pccm-sq016/ai-log-analyzer:r111
   imagePullPolicy: IfNotPresent
   secretName: log-analyzer-secrets
 
@@ -45,6 +45,10 @@ persistence:
     registry: registry                # /data/registry - YAML fingerprinty
     exports: exports                  # /data/exports - JSON/MD/CSV reporty
     reports: reports                  # /data/reports - dočasné výstupy
+
+runtimeState:
+  backend: filesystem
+  activeDeadlineSeconds: 900
 
 scratch:
   mountPath: /scratch

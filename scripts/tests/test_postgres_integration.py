@@ -87,6 +87,66 @@ def migrated_database():
         connection.close()
 
 
+@pytest.mark.parametrize('stale', [False, True])
+def test_runtime_bootstrap_preserves_knowledge_and_delivered_cooldowns(stale, tmp_path):
+    import json
+    from core.problem_registry import ProblemEntry, PeakEntry, ProblemRegistry
+    from core.regular_schedule import sync_report_knowledge
+    from core.runtime_state import RuntimeStateStore, bootstrap_runtime_state
+    from scripts.core.run_persistence import build_query_hash
+
+    window = datetime(2026, 10, 30, 8, 15, tzinfo=timezone.utc)
+    source = f'runtime-bootstrap-{stale}-*'
+    query_hash = build_query_hash(source, ['ns-a'])
+    run_id = f'runtime-bootstrap-{stale}'
+    persist_analysis_run(
+        connection_factory=_connect, collection=_collection(run_id, window, [('known-fp', 'cards', 10)]),
+        run_type='regular', window_start=window, window_end=window + timedelta(minutes=15),
+        monitored_namespaces=['ns-a'], expected_count=10, fetched_count=10, source_index=source,
+    )
+    problem = ProblemEntry(id='KP-000042', problem_key='db:cards:timeout', category='db', flow='cards', error_class='timeout')
+    problem.fingerprints = ['known-fp']
+    problem.occurrences = 123
+    peak = PeakEntry(id='PK-000007', problem_key='db:cards:SPIKE', peak_type='SPIKE')
+    registry = SimpleNamespace(problems={problem.problem_key: problem}, peaks={peak.problem_key: peak})
+    connection = _connect()
+    sync_report_knowledge(connection, source, ['ns-a'], registry)
+    if stale:
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE ailog_peak.report_knowledge SET updated_at = NOW() - INTERVAL '1 day' WHERE query_hash = %s", (query_hash,))
+        connection.commit()
+    connection.close()
+    sent_at = datetime.now(timezone.utc)
+    persist_notification_deliveries(_connect, [{
+        'dedup_key': 'already-delivered', 'destination': 'email', 'status': 'delivered',
+        'attempted_at': sent_at, 'metadata': {
+            'alert_identity': 'CAUSE:known', 'window_key': '2026-10-30T08:15:00Z',
+            'peak_key': peak.problem_key, 'error_count': 123, 'cause_signatures': ['known'],
+        },
+    }], notification_type='regular_peak', run_id=run_id, window_start=window)
+    if stale:
+        with pytest.raises(RuntimeError, match='older than completed collection'):
+            bootstrap_runtime_state(_connect, query_hash)
+        with RuntimeStateStore(_connect, query_hash).writer() as store:
+            with pytest.raises(RuntimeError, match='not seeded'):
+                store.restore(tmp_path)
+        return
+    assert bootstrap_runtime_state(_connect, query_hash)
+    assert not bootstrap_runtime_state(_connect, query_hash)
+    with RuntimeStateStore(_connect, query_hash).writer() as store:
+        store.restore(tmp_path)
+    restored = ProblemRegistry(str(tmp_path))
+    assert restored.load()
+    assert restored._problem_counter == 42
+    assert restored._peak_counter == 7
+    assert restored.is_fingerprint_known('known-fp')
+    assert restored.problems[problem.problem_key].occurrences == 123
+    cooldown = json.loads((tmp_path / 'alert_state_regular_phase.json').read_text())['peaks']['CAUSE:known']
+    assert cooldown['last_sent_at'] == sent_at.isoformat()
+    assert cooldown['cooldown_until'] == (sent_at + timedelta(minutes=45)).isoformat()
+    assert cooldown['last_error_count'] == 123
+
+
 def _fact(window_start, fingerprint, application, count):
     return {
         'window_start': window_start,

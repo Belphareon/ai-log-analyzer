@@ -4,6 +4,13 @@ Všechny změny projektu AI Log Analyzer, seřazeno od nejnovějšího.
 
 ---
 
+## r111 (2026-10-30) - PVC-free scheduled collector
+
+- PostgreSQL runtime checkpoints preserve known problems, known peaks, fingerprints, ID counters and delivered-alert cooldowns across pod replacement. Registry and cooldown writes checkpoint synchronously; a DB session advisory lease excludes competing collectors for the same query scope.
+- The explicit `runtimeState.backend=postgres` chart option uses pod-local `/data`, never mounts the RWO PVC in regular, and limits the Job to 900 seconds. The old PVC remains intact; suspended legacy backfill is not resumed.
+- Controlled bootstrap imports the existing DB knowledge mirror and successful-delivery ledger. Missing or stale mirrors stop the transition instead of silently resetting state; existing checkpoints are never overwritten by bootstrap.
+- Includes the r110 Confluence bounds. Cinder infrastructure is not modified, percentile and coverage gates remain unchanged, and no historical alert replay is enabled.
+
 ## r110 (2026-10-30) - Confluence report request limits
 
 - DB-only Confluence tables show at most 100 rows and 192 characters per cell, with explicit notices for omitted rows and shortened values. Full CSV exports and database facts remain unchanged; the historical peak catalog uses the same bounds.

@@ -131,6 +131,7 @@ except ImportError:
 # =============================================================================
 
 _registry: Optional[ProblemRegistry] = None
+_runtime_state_store = None
 
 
 def _floor_to_window(ts: datetime, window_minutes: int) -> datetime:
@@ -610,6 +611,9 @@ def _save_alert_state_unlocked(registry: ProblemRegistry, state: Dict[str, Any])
     with open(tmp_path, 'w', encoding='utf-8') as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
     tmp_path.replace(path)
+    state_store = getattr(registry, 'state_store', None)
+    if state_store is not None:
+        state_store.checkpoint(registry.registry_dir)
 
 
 def _record_delivered_peak_alerts(
@@ -1920,11 +1924,16 @@ def init_registry() -> Optional[ProblemRegistry]:
     """Initialize registry"""
     global _registry
     
-    # IMPORTANT: Registry MUST be on persistence volume!
     registry_base = os.getenv('REGISTRY_DIR') or str(SCRIPT_DIR.parent / 'registry')
     registry_dir = Path(registry_base)
-    _registry = ProblemRegistry(str(registry_dir))
-    _registry.load()
+    backend = os.getenv('RUNTIME_STATE_BACKEND', 'filesystem')
+    if backend not in {'filesystem', 'postgres'}:
+        raise ValueError('RUNTIME_STATE_BACKEND must be filesystem or postgres')
+    if backend == 'postgres' and _runtime_state_store is None:
+        raise RuntimeError('PostgreSQL runtime state requires --scheduled and a writer lease')
+    _registry = ProblemRegistry(str(registry_dir), state_store=_runtime_state_store)
+    if not _registry.load():
+        raise RuntimeError('Could not load the problem registry')
     
     return _registry
 
@@ -3118,6 +3127,27 @@ signal.signal(signal.SIGTERM, signal_handler)
 # =============================================================================
 
 def run_scheduled_collection(output_dir=None):
+    global _runtime_state_store
+    backend = os.getenv('RUNTIME_STATE_BACKEND', 'filesystem')
+    if backend == 'filesystem':
+        return _run_scheduled_collection(output_dir)
+    if backend != 'postgres':
+        raise ValueError('RUNTIME_STATE_BACKEND must be filesystem or postgres')
+    from core.runtime_state import RuntimeStateStore
+
+    registry_dir = os.environ['REGISTRY_DIR']
+    query_hash = build_query_hash(INDICES, _load_monitored_namespaces())
+    store = RuntimeStateStore(get_db_connection, query_hash)
+    with store.writer():
+        store.restore(registry_dir)
+        _runtime_state_store = store
+        try:
+            return _run_scheduled_collection(output_dir)
+        finally:
+            _runtime_state_store = None
+
+
+def _run_scheduled_collection(output_dir=None):
     import time
     from core.fetch_unlimited import count_errors
 
@@ -3226,6 +3256,7 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='No DB writes')
     parser.add_argument('--output', type=str, help='Output directory for reports')
     parser.add_argument('--scheduled', action='store_true', help='Collect the live window, missing windows, and changed late data')
+    parser.add_argument('--bootstrap-runtime-state', action='store_true', help='Import the mirrored registry and delivered alert cooldowns into PostgreSQL')
     parser.add_argument(
         '--replay-window-end',
         type=parse_replay_window_end,
@@ -3248,6 +3279,18 @@ def main():
     )
     
     args = parser.parse_args()
+    if args.bootstrap_runtime_state:
+        if args.scheduled or args.dry_run or args.replay_window_end or args.audit_only or args.replay_thresholds_json:
+            parser.error('--bootstrap-runtime-state cannot be combined with collection or replay')
+        if os.getenv('RUNTIME_STATE_BACKEND') != 'postgres':
+            parser.error('--bootstrap-runtime-state requires RUNTIME_STATE_BACKEND=postgres')
+        from core.runtime_state import bootstrap_runtime_state
+        created = bootstrap_runtime_state(
+            get_db_connection, build_query_hash(INDICES, _load_monitored_namespaces()),
+            cooldown_minutes=int(os.getenv('ALERT_COOLDOWN_MIN', '45')),
+        )
+        print(json.dumps({'event': 'runtime_state_bootstrap', 'created': created}), flush=True)
+        return 0
     if args.scheduled:
         if args.dry_run or args.replay_window_end or args.audit_only or args.window != 15 or args.replay_thresholds_json:
             parser.error('--scheduled cannot be combined with replay, dry-run, or a non-15-minute window')

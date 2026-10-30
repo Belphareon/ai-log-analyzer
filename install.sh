@@ -332,6 +332,10 @@ persistence:
     exports: exports
     reports: reports
 
+runtimeState:
+    backend: "${RUNTIME_STATE_BACKEND:-filesystem}"
+    activeDeadlineSeconds: 900
+
 scratch:
   mountPath: /scratch
   sizeLimit: 3500Mi

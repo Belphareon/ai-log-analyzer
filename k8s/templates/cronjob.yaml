@@ -29,7 +29,7 @@ spec:
         job-type: regular
     spec:
       backoffLimit: 1
-      activeDeadlineSeconds: 3600  # Max 1 hodina
+      activeDeadlineSeconds: {{ if eq .Values.runtimeState.backend "postgres" }}{{ .Values.runtimeState.activeDeadlineSeconds }}{{ else }}3600{{ end }}
       template:
         metadata:
           labels:
@@ -57,6 +57,8 @@ spec:
                   value: {{ .Values.env.LOG_LEVEL | default "INFO" | quote }}
                 - name: REGISTRY_DIR
                   value: {{ .Values.env.REGISTRY_DIR | quote }}
+                - name: RUNTIME_STATE_BACKEND
+                  value: {{ .Values.runtimeState.backend | quote }}
                 - name: EXPORT_DIR
                   value: {{ .Values.env.EXPORT_DIR | quote }}
                 - name: STREAMING_SQLITE_DIR
@@ -206,7 +208,7 @@ spec:
 
           volumes:
             - name: data
-              {{- if .Values.persistence.enabled }}
+              {{- if and .Values.persistence.enabled (ne .Values.runtimeState.backend "postgres") }}
               persistentVolumeClaim:
                 claimName: {{ .Values.persistence.claimName }}
               {{- else }}
